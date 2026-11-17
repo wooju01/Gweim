@@ -1,9 +1,10 @@
 import { applyTone, getResolve, getStage, proposeJoin, reactionTo } from "@/game/affinity";
+import { MEMORY_MAX_CHARS, planFold } from "@/game/memory";
 import { mercFromRef } from "@/game/roster";
 import type { Merc } from "@/game/types";
 import { MercReply, TalkRequest, type TalkResponse, type Tone } from "@/lib/schemas";
 import { getMercAI, getMockAI, type ReplyContext, type TurnEvent } from "@/server/ai";
-import type { Direction } from "@/server/ai/types";
+import type { Direction, SummaryInput } from "@/server/ai/types";
 
 // 이 route는 얇게 유지한다: 입력 검증 → 규칙 계산(game) → 대사 생성(server/ai) → 응답
 export async function POST(request: Request) {
@@ -64,7 +65,16 @@ export async function POST(request: Request) {
 
   const stage = getStage(affinity);
   const resolve = getResolve(willingness);
-  const { reply, mode } = await generateReply({ merc, stage, resolve, history: state.history, event });
+
+  // 대화가 길어졌으면 오래된 부분을 기억으로 접는다. 대사 생성과 동시에 돌려 기다리는 시간을 늘리지 않는다.
+  const plan = planFold(state.history);
+  const [{ reply, mode }, folded] = await Promise.all([
+    generateReply({ merc, stage, resolve, history: state.history, memory: state.memory, event }),
+    plan ? summarize({ merc, memory: state.memory, lines: plan.fold }) : null,
+  ]);
+  // 요약에 실패하면 기억도 기록도 그대로 둔다 (다음 턴에 다시 시도된다)
+  const memory = folded ?? state.memory;
+  const forget = folded !== null && plan ? plan.forget : 0;
 
   const body: TalkResponse = {
     mode,
@@ -78,8 +88,22 @@ export async function POST(request: Request) {
     emotion: reply.emotion,
     choices: joined ? [] : reply.choices,
     joined,
+    memory,
+    forget,
   };
   return Response.json(body);
+}
+
+/** 기억 요약. 실패하면 null (게임은 멈추지 않는다) */
+async function summarize(input: SummaryInput): Promise<string | null> {
+  const ai = getMercAI();
+  try {
+    const memory = (await ai.summarize(input)).trim();
+    return memory ? memory.slice(0, MEMORY_MAX_CHARS) : null;
+  } catch (error) {
+    console.error("[ai] 기억 요약 실패, 이번 턴은 건너뜀:", error);
+    return null;
+  }
 }
 
 function direction(delta: number): Direction {

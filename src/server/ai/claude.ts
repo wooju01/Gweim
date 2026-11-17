@@ -6,6 +6,7 @@ import { MercProfile, MercReply, Tone } from "../../lib/schemas";
 import {
   classifyPrompt,
   profilePrompt,
+  summaryPrompt,
   systemPrompt,
   turnPrompt,
 } from "./prompts";
@@ -14,6 +15,7 @@ import type { MercAI } from "./types";
 const DEFAULT_MODEL = "claude-haiku-5-5";
 
 const ClassifyResult = z.object({ tone: Tone });
+const SummaryResult = z.object({ memory: z.string() });
 
 /** 응답이 비었거나 거절됐거나 스키마에 안 맞을 때 */
 export class AIOutputError extends Error {}
@@ -26,7 +28,7 @@ export function createClaudeAI(options: { model?: string } = {}): MercAI {
   return {
     mode: "live",
 
-    async reply({ merc, stage, resolve, history, event }) {
+    async reply(ctx) {
       const response = await client.messages.parse({
         model,
         max_tokens: 4000,
@@ -36,14 +38,14 @@ export function createClaudeAI(options: { model?: string } = {}): MercAI {
           // 용병별로 고정된 부분이라 캐시한다
           {
             type: "text",
-            text: systemPrompt(merc),
+            text: systemPrompt(ctx.merc),
             cache_control: { type: "ephemeral" },
           },
         ],
         messages: [
           {
             role: "user",
-            content: turnPrompt(merc, stage, resolve, history, event),
+            content: turnPrompt(ctx),
           },
         ],
       });
@@ -80,6 +82,20 @@ export function createClaudeAI(options: { model?: string } = {}): MercAI {
         );
       }
       return response.parsed_output;
+    },
+
+    async summarize(input) {
+      const response = await client.messages.parse({
+        model,
+        max_tokens: 2000,
+        output_config: { effort: "low", format: zodOutputFormat(SummaryResult) },
+        messages: [{ role: "user", content: summaryPrompt(input) }],
+      });
+
+      if (response.stop_reason === "refusal" || !response.parsed_output) {
+        throw new AIOutputError(`기억 요약 실패 (stop_reason: ${response.stop_reason})`);
+      }
+      return response.parsed_output.memory;
     },
 
     async classify(text) {

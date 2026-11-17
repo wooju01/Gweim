@@ -10,7 +10,8 @@ import {
 } from "../../lib/schemas";
 import { dislikedTones, likedTones } from "../../game/affinity";
 import type { Merc } from "../../game/types";
-import type { MercAI, ProfileInput, ReplyContext } from "./types";
+import { MEMORY_MAX_CHARS } from "../../game/memory";
+import type { MercAI, ProfileInput, ReplyContext, SummaryInput } from "./types";
 
 type MercLines = {
   open: Record<Stage, string>;
@@ -161,6 +162,19 @@ export function mockProfile(
   };
 }
 
+/** API 키 없이 쓰는 가짜 요약. 기존 기억에 마지막으로 한 말 정도만 덧붙인다. */
+export function mockSummary({ merc, memory, lines }: SummaryInput): string {
+  const said = lines.filter((l) => l.speaker === "player").map((l) => l.text);
+  const last = said.at(-1);
+  const parts = [
+    memory.trim(),
+    `${merc.name}은(는) 플레이어와 ${said.length}마디를 나눴다.`,
+    last ? `플레이어가 "${last.slice(0, 40)}"라고 말했다.` : "",
+  ];
+  // 넘치면 오래된 앞부분부터 버린다
+  return parts.filter(Boolean).join(" ").slice(-MEMORY_MAX_CHARS);
+}
+
 export function mockClassify(text: string): Tone {
   const normalized = text.replace(/\s+/g, " ");
   for (const [tone, words] of KEYWORDS) {
@@ -177,6 +191,9 @@ export function createMockAI(rand: () => number = Math.random): MercAI {
     },
     async createProfile(input) {
       return mockProfile(input, rand);
+    },
+    async summarize(input) {
+      return mockSummary(input);
     },
     async reply({ merc, stage, event }: ReplyContext) {
       const lines = GENERIC_LINES;

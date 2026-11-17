@@ -59,6 +59,12 @@ export function DialogueScreen({ merc, screen, progress, partyFull, onAct, onLea
             delta={reply?.delta}
             deltaKey={progress.history.length}
           />
+          {progress.memory && (
+            <details className="w-full rounded-sm border border-edge bg-panel px-3 py-2 text-xs">
+              <summary className="cursor-pointer text-ash">{merc.name}의 기억</summary>
+              <p className="mt-2 leading-relaxed text-bone/80">{progress.memory}</p>
+            </details>
+          )}
         </div>
 
         <div className="flex min-h-0 flex-col gap-4">

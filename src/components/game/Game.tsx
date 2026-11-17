@@ -28,11 +28,11 @@ export function Game() {
   async function send(mercId: string, action: TalkAction) {
     const entry = findEntry(mercId);
     if (!entry) return;
-    const { affinity, willingness, recentTones, history } = state.progress[mercId];
+    const { affinity, willingness, recentTones, history, memory } = state.progress[mercId];
     try {
       const res = await postTalk({
         merc: entry,
-        state: { affinity, willingness, recentTones, history },
+        state: { affinity, willingness, recentTones, history, memory },
         action,
       });
       dispatch({ type: "resolved", mercId, playerText: playerLineFor(action), res });

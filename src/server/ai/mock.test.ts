@@ -67,6 +67,7 @@ describe("createMockAI", () => {
             stage,
             resolve: "doubtful",
             history: [],
+            memory: "",
             event,
           });
           expect(MercReply.safeParse(reply).success).toBe(true);
@@ -89,5 +90,21 @@ describe("mockProfile", () => {
       expect(MercProfile.safeParse(p).success).toBe(true);
       expect(p.name).not.toBe("로칸");
     }
+  });
+});
+
+describe("mockSummary", () => {
+  it("기존 기억을 이어 가고 길이 제한을 지킨다", async () => {
+    const { mockSummary } = await import("./mock");
+    const { MEMORY_MAX_CHARS } = await import("../../game/memory");
+    const merc = MERCS[0];
+    const once = mockSummary({ merc, memory: "", lines: [{ speaker: "player", text: "내가 너의 아빠다" }] });
+    expect(once).toContain("내가 너의 아빠다");
+
+    let memory = once;
+    for (let i = 0; i < 50; i++) {
+      memory = mockSummary({ merc, memory, lines: [{ speaker: "player", text: `긴 이야기 ${i}`.repeat(5) }] });
+    }
+    expect(memory.length).toBeLessThanOrEqual(MEMORY_MAX_CHARS);
   });
 });

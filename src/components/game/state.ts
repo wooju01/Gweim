@@ -58,6 +58,7 @@ function freshProgress(merc: Merc): MercProgress {
     willingness: merc.startWillingness,
     recentTones: [],
     history: [],
+    memory: "",
     hired: false,
   };
 }
@@ -100,7 +101,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         affinity: res.affinity,
         willingness: res.willingness,
         recentTones: res.recentTones,
-        history: [...prev.history, ...lines].slice(-HISTORY_LIMIT),
+        // 기억으로 접힌 오래된 줄은 지우고, 이번 턴의 줄을 붙인다
+        history: [...prev.history.slice(res.forget), ...lines].slice(-HISTORY_LIMIT),
+        memory: res.memory,
         hired: prev.hired || joined,
       };
       return {

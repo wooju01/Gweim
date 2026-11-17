@@ -41,6 +41,8 @@ export const TalkState = z.object({
   willingness: z.number().int().min(0).max(100),
   recentTones: z.array(Tone).max(5),
   history: z.array(HistoryLine).max(20),
+  /** 오래된 대화를 요약한 기억. 비어 있을 수 있다 */
+  memory: z.string().max(600).default(""),
 });
 export type TalkState = z.infer<typeof TalkState>;
 
@@ -136,4 +138,8 @@ export type TalkResponse = {
   choices: Choice[];
   /** propose일 때만 의미 있음 */
   joined: boolean | null;
+  /** 이번 턴 이후의 기억 */
+  memory: string;
+  /** 기억으로 접혀서 대화 기록 앞에서 지워야 할 줄 수 */
+  forget: number;
 };

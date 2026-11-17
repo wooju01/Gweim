@@ -33,7 +33,17 @@ export type ReplyContext = {
   /** 이번 턴의 계산이 끝난 뒤의 고용 의향 단계 */
   resolve: Resolve;
   history: HistoryLine[];
+  /** 오래된 대화를 요약한 기억 (없으면 빈 문자열) */
+  memory: string;
   event: TurnEvent;
+};
+
+/** 기억 요약 입력. 기존 기억에 오래된 대화를 합쳐 새 기억을 만든다. */
+export type SummaryInput = {
+  merc: Merc;
+  memory: string;
+  /** 기억으로 접을 오래된 대화 */
+  lines: HistoryLine[];
 };
 
 /** 랜덤 용병 프로필 생성 입력. 코드가 뽑은 특성만 넘긴다. */
@@ -50,4 +60,6 @@ export interface MercAI {
   classify(text: string, merc: Merc): Promise<Tone>;
   /** 특성 조합으로 캐릭터 설정을 한 번 만든다 */
   createProfile(input: ProfileInput): Promise<MercProfile>;
+  /** 오래된 대화를 기억으로 요약한다 */
+  summarize(input: SummaryInput): Promise<string>;
 }
