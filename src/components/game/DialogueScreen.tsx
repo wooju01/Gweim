@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getMerc } from "@/data/mercs";
 import type { TalkAction } from "@/lib/schemas";
-import { AffinityBar, Button, Portrait } from "./parts";
+import { Button, MercStats, Portrait } from "./parts";
 import type { MercProgress, TalkScreen } from "./state";
 
 type Props = {
@@ -53,19 +53,12 @@ export function DialogueScreen({ screen, progress, partyFull, onAct, onLeave }: 
             <div className="text-lg font-bold">{merc.name}</div>
             <div className="text-xs text-ash">{merc.title}</div>
           </div>
-          <div className="relative w-full">
-            <AffinityBar value={progress.affinity} threshold={merc.joinThreshold} />
-            {reply && reply.delta !== 0 && (
-              <span
-                key={progress.history.length}
-                className={`animate-rise absolute -top-5 right-0 text-xs font-bold ${
-                  reply.delta > 0 ? "text-moss" : "text-blood"
-                }`}
-              >
-                {reply.delta > 0 ? `+${reply.delta}` : reply.delta}
-              </span>
-            )}
-          </div>
+          <MercStats
+            affinity={progress.affinity}
+            willingness={progress.willingness}
+            delta={reply?.delta}
+            deltaKey={progress.history.length}
+          />
         </div>
 
         <div className="flex min-h-0 flex-col gap-4">
@@ -144,7 +137,7 @@ export function DialogueScreen({ screen, progress, partyFull, onAct, onLeave }: 
                   disabled={pending || partyFull || !reply}
                   onClick={() => onAct({ type: "propose" })}
                 >
-                  동행을 제안한다
+                  동행을 제안한다 · {progress.willingness}%
                 </Button>
                 {partyFull && <span className="text-xs text-ash">파티에 빈 자리가 없다.</span>}
               </div>

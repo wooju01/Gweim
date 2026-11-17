@@ -34,22 +34,74 @@ export function Portrait({
   );
 }
 
-/** 호감도 게이지. 세로 눈금은 영입 기준치. */
-export function AffinityBar({ value, threshold }: { value: number; threshold: number }) {
-  const reached = value >= threshold;
+function StatBar({
+  label,
+  value,
+  unit = "",
+  fill,
+  delta,
+  deltaKey,
+}: {
+  label: string;
+  value: number;
+  unit?: string;
+  fill: string;
+  delta?: number;
+  deltaKey?: number;
+}) {
   return (
-    <div className="w-full">
-      <div className="relative h-2 w-full overflow-hidden rounded-full bg-ink ring-1 ring-edge">
-        <div
-          className={`h-full transition-all duration-500 ${reached ? "bg-moss" : "bg-ember/80"}`}
-          style={{ width: `${value}%` }}
-        />
-        <div className="absolute top-0 h-full w-px bg-bone/70" style={{ left: `${threshold}%` }} />
+    <div className="relative w-full">
+      <div className="mb-1 flex justify-between text-[11px] text-ash">
+        <span>{label}</span>
+        <span className="text-bone/80">
+          {value}
+          {unit}
+        </span>
       </div>
-      <div className="mt-1 flex justify-between text-[11px] text-ash">
-        <span>호감 {value}</span>
-        <span>기준 {threshold}</span>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-ink ring-1 ring-edge">
+        <div className={`h-full transition-all duration-500 ${fill}`} style={{ width: `${value}%` }} />
       </div>
+      {delta !== undefined && delta !== 0 && (
+        <span
+          key={deltaKey}
+          className={`animate-rise absolute -top-1 right-10 text-xs font-bold ${
+            delta > 0 ? "text-moss" : "text-blood"
+          }`}
+        >
+          {delta > 0 ? `+${delta}` : delta}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 두 수치 게이지.
+ * - 호감: 이 사람을 좋아하는가 (나중에 사기, 배신에 쓰인다)
+ * - 고용 의향: 같이 갈 마음. 동행 제안 성공 확률(%)
+ */
+export function MercStats({
+  affinity,
+  willingness,
+  delta,
+  deltaKey,
+}: {
+  affinity: number;
+  willingness: number;
+  delta?: { affinity: number; willingness: number };
+  deltaKey?: number;
+}) {
+  return (
+    <div className="flex w-full flex-col gap-2">
+      <StatBar label="호감" value={affinity} fill="bg-ember/80" delta={delta?.affinity} deltaKey={deltaKey} />
+      <StatBar
+        label="고용 의향"
+        value={willingness}
+        unit="%"
+        fill="bg-moss"
+        delta={delta?.willingness}
+        deltaKey={deltaKey}
+      />
     </div>
   );
 }

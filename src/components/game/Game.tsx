@@ -24,9 +24,13 @@ export function Game() {
   const [state, dispatch] = useReducer(gameReducer, undefined, initialState);
 
   async function send(mercId: string, action: TalkAction) {
-    const { affinity, recentTones, history } = state.progress[mercId];
+    const { affinity, willingness, recentTones, history } = state.progress[mercId];
     try {
-      const res = await postTalk({ mercId, state: { affinity, recentTones, history }, action });
+      const res = await postTalk({
+        mercId,
+        state: { affinity, willingness, recentTones, history },
+        action,
+      });
       dispatch({ type: "resolved", mercId, playerText: playerLineFor(action), res });
     } catch (e) {
       dispatch({ type: "failed", error: e instanceof Error ? e.message : String(e) });

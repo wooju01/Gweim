@@ -38,6 +38,7 @@ export type HistoryLine = z.infer<typeof HistoryLine>;
 /** 클라이언트가 보관하는 용병별 대화 상태 */
 export const TalkState = z.object({
   affinity: z.number().int().min(0).max(100),
+  willingness: z.number().int().min(0).max(100),
   recentTones: z.array(Tone).max(5),
   history: z.array(HistoryLine).max(20),
 });
@@ -63,8 +64,11 @@ export type TalkResponse = {
   mode: "mock" | "live" | "fallback";
   /** 이번 턴에 적용된 성향 (open/propose면 null) */
   tone: Tone | null;
-  delta: number;
+  /** 이번 턴에 실제로 바뀐 양 */
+  delta: { affinity: number; willingness: number };
   affinity: number;
+  /** 고용 의향. 동행 제안 성공 확률(%) */
+  willingness: number;
   stage: Stage;
   recentTones: Tone[];
   message: string;

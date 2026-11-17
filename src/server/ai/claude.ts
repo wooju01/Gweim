@@ -21,7 +21,7 @@ export function createClaudeAI(options: { model?: string } = {}): MercAI {
   return {
     mode: "live",
 
-    async reply({ merc, stage, history, event }) {
+    async reply({ merc, stage, resolve, history, event }) {
       const response = await client.messages.parse({
         model,
         max_tokens: 4000,
@@ -31,7 +31,7 @@ export function createClaudeAI(options: { model?: string } = {}): MercAI {
           // 용병별로 고정된 부분이라 캐시한다
           { type: "text", text: systemPrompt(merc), cache_control: { type: "ephemeral" } },
         ],
-        messages: [{ role: "user", content: turnPrompt(merc, stage, history, event) }],
+        messages: [{ role: "user", content: turnPrompt(merc, stage, resolve, history, event) }],
       });
 
       if (response.stop_reason === "refusal") {

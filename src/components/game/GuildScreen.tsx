@@ -1,5 +1,5 @@
 import { MERCS, getMerc } from "@/data/mercs";
-import { AffinityBar, Button, Portrait } from "./parts";
+import { Button, MercStats, Portrait } from "./parts";
 import { PARTY_LIMIT, type MercProgress } from "./state";
 
 type Props = {
@@ -44,7 +44,7 @@ export function GuildScreen({ progress, party, onTalk, onDismiss }: Props) {
                   </div>
                 </div>
                 <p className="flex-1 text-sm leading-relaxed text-bone/80">{merc.background}</p>
-                <AffinityBar value={p.affinity} threshold={merc.joinThreshold} />
+                <MercStats affinity={p.affinity} willingness={p.willingness} />
                 {p.hired ? (
                   <Button variant="danger" onClick={() => onDismiss(merc.id)}>
                     계약 해지

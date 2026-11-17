@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MERCS } from "../../data/mercs";
+import { dislikedTones, likedTones } from "../../game/affinity";
 import { MercReply, type Stage } from "../../lib/schemas";
 import { createMockAI, mockChoices, mockClassify } from "./mock";
 
@@ -26,8 +27,8 @@ describe("mockChoices", () => {
       for (let i = 0; i < 20; i++) {
         const tones = mockChoices(merc).map((c) => c.tone);
         expect(new Set(tones).size).toBe(4);
-        expect(tones.some((t) => merc.likes.includes(t))).toBe(true);
-        expect(tones.some((t) => merc.dislikes.includes(t))).toBe(true);
+        expect(tones.some((t) => likedTones(merc).includes(t))).toBe(true);
+        expect(tones.some((t) => dislikedTones(merc).includes(t))).toBe(true);
       }
     }
   });
@@ -42,13 +43,13 @@ describe("createMockAI", () => {
       for (const stage of stages) {
         const events = [
           { kind: "open" },
-          { kind: "talk", playerText: "...", tone: "honesty", reaction: "liked" },
-          { kind: "talk", playerText: "...", tone: "threat", reaction: "disliked" },
+          { kind: "talk", playerText: "...", tone: "honesty", affinity: "up", willingness: "up" },
+          { kind: "talk", playerText: "...", tone: "mockery", affinity: "down", willingness: "up", note: "속마음" },
           { kind: "propose", joined: true },
           { kind: "propose", joined: false },
         ] as const;
         for (const event of events) {
-          const reply = await ai.reply({ merc, stage, history: [], event });
+          const reply = await ai.reply({ merc, stage, resolve: "doubtful", history: [], event });
           expect(MercReply.safeParse(reply).success).toBe(true);
         }
       }

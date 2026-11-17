@@ -36,7 +36,13 @@ export function initialState(): GameState {
     progress: Object.fromEntries(
       MERCS.map((m) => [
         m.id,
-        { affinity: m.startAffinity, recentTones: [], history: [], hired: false },
+        {
+          affinity: m.startAffinity,
+          willingness: m.startWillingness,
+          recentTones: [],
+          history: [],
+          hired: false,
+        },
       ]),
     ),
     party: [],
@@ -70,6 +76,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const joined = res.joined === true;
       const progress: MercProgress = {
         affinity: res.affinity,
+        willingness: res.willingness,
         recentTones: res.recentTones,
         history: [...prev.history, ...lines].slice(-HISTORY_LIMIT),
         hired: prev.hired || joined,

@@ -1,20 +1,26 @@
-// 호감도 규칙. React/Next/AI에 의존하지 않는 순수 함수만 둔다.
-import type { Stage, Tone } from "../lib/schemas";
-import type { Merc } from "./types";
+// 호감도·고용 의향 규칙. React/Next/AI에 의존하지 않는 순수 함수만 둔다.
+import { ChoiceTone, type Stage, type Tone } from "../lib/schemas";
+import type { Merc, Reaction } from "./types";
 
-export const AFFINITY_MIN = 0;
-export const AFFINITY_MAX = 100;
+export const STAT_MIN = 0;
+export const STAT_MAX = 100;
 
-export const LIKE_GAIN = 8;
-export const DISLIKE_LOSS = 10;
-export const REFUSAL_PENALTY = 5;
+/** 반응 세기 1칸당 변화량. 호감도(마음)는 천천히, 고용 의향(계약)은 크게 움직인다. */
+export const AFFINITY_STEP = 5;
+export const WILLINGNESS_STEP = 10;
+/** 동행 제안이 거절되면 고용 의향이 이만큼 떨어진다 */
+export const REFUSAL_PENALTY = 10;
 
 /** 최근 몇 턴의 성향을 기억해 같은 성향 반복을 막을지 */
 export const REPEAT_WINDOW = 3;
-/** 최근 창 안에서 같은 성향이 n번 나왔을 때 증가량 배율 */
-const REPEAT_MULTIPLIER = [1, 0.5, 0.25, 0] as const;
+/**
+ * 최근 창 안에서 같은 성향이 n번 나왔을 때 증가량 배율. 감소량은 줄어들지 않는다.
+ * 호감도는 같은 말 반복이 금방 안 통하고, 고용 의향은 덜 민감하다.
+ */
+const AFFINITY_REPEAT = [1, 0.5, 0.25, 0] as const;
+const WILLINGNESS_REPEAT = [1, 0.75, 0.5, 0.25] as const;
 
-/** 단계의 하한값. 위에서부터 검사한다. */
+/** 호감도 단계의 하한값. 위에서부터 검사한다. */
 const STAGE_FLOORS: [Stage, number][] = [
   ["trusted", 75],
   ["warm", 55],
@@ -23,64 +29,102 @@ const STAGE_FLOORS: [Stage, number][] = [
   ["hostile", 0],
 ];
 
-export function clampAffinity(value: number): number {
-  return Math.min(AFFINITY_MAX, Math.max(AFFINITY_MIN, Math.round(value)));
+/** 고용 의향 단계. AI에게 숫자 대신 이걸 넘긴다. */
+export type Resolve = "unwilling" | "doubtful" | "leaning" | "eager";
+const RESOLVE_FLOORS: [Resolve, number][] = [
+  ["eager", 75],
+  ["leaning", 50],
+  ["doubtful", 20],
+  ["unwilling", 0],
+];
+
+export type Stats = { affinity: number; willingness: number };
+
+export function clampStat(value: number): number {
+  return Math.min(STAT_MAX, Math.max(STAT_MIN, Math.round(value)));
 }
 
 export function getStage(affinity: number): Stage {
-  for (const [stage, floor] of STAGE_FLOORS) {
-    if (affinity >= floor) return stage;
-  }
-  return "hostile";
+  return STAGE_FLOORS.find(([, floor]) => affinity >= floor)?.[0] ?? "hostile";
 }
 
-/** 반복 감쇠를 적용하기 전 기본 변화량 */
-export function baseDelta(merc: Merc, tone: Tone): number {
-  if (tone === "neutral") return 0;
-  if (merc.likes.includes(tone)) return LIKE_GAIN;
-  if (merc.dislikes.includes(tone)) return -DISLIKE_LOSS;
-  return 0;
+export function getResolve(willingness: number): Resolve {
+  return RESOLVE_FLOORS.find(([, floor]) => willingness >= floor)?.[0] ?? "unwilling";
 }
 
-/** 반복 감쇠까지 적용한 변화량. 감점은 감쇠하지 않는다. */
-export function toneDelta(merc: Merc, tone: Tone, recentTones: readonly Tone[]): number {
-  const base = baseDelta(merc, tone);
-  if (base <= 0) return base;
+const NO_REACTION: Reaction = { affinity: 0, willingness: 0 };
+
+export function reactionTo(merc: Merc, tone: Tone): Reaction {
+  if (tone === "neutral") return NO_REACTION;
+  return merc.reactions[tone] ?? NO_REACTION;
+}
+
+/** 호감도를 올려 주는 태도 */
+export function likedTones(merc: Merc): ChoiceTone[] {
+  return ChoiceTone.options.filter((t) => reactionTo(merc, t).affinity > 0);
+}
+
+/** 호감도를 떨어뜨리는 태도 */
+export function dislikedTones(merc: Merc): ChoiceTone[] {
+  return ChoiceTone.options.filter((t) => reactionTo(merc, t).affinity < 0);
+}
+
+function decay(delta: number, repeats: number, table: readonly number[]): number {
+  if (delta <= 0) return delta;
+  return Math.round(delta * table[Math.min(repeats, table.length - 1)]);
+}
+
+/** 반복 감쇠까지 적용한 두 수치의 변화량 (clamp 전) */
+export function toneDeltas(merc: Merc, tone: Tone, recentTones: readonly Tone[]): Stats {
+  const reaction = reactionTo(merc, tone);
   const repeats = recentTones.slice(-REPEAT_WINDOW).filter((t) => t === tone).length;
-  const multiplier = REPEAT_MULTIPLIER[Math.min(repeats, REPEAT_MULTIPLIER.length - 1)];
-  return Math.round(base * multiplier);
+  return {
+    affinity: decay(reaction.affinity * AFFINITY_STEP, repeats, AFFINITY_REPEAT),
+    willingness: decay(reaction.willingness * WILLINGNESS_STEP, repeats, WILLINGNESS_REPEAT),
+  };
 }
 
-export type ToneResult = {
-  affinity: number;
+export type ToneResult = Stats & {
   /** clamp 이후 실제로 바뀐 양 */
-  delta: number;
+  delta: Stats;
   recentTones: Tone[];
 };
 
 export function applyTone(
   merc: Merc,
-  state: { affinity: number; recentTones: readonly Tone[] },
+  state: Stats & { recentTones: readonly Tone[] },
   tone: Tone,
 ): ToneResult {
-  const next = clampAffinity(state.affinity + toneDelta(merc, tone, state.recentTones));
+  const raw = toneDeltas(merc, tone, state.recentTones);
+  const affinity = clampStat(state.affinity + raw.affinity);
+  const willingness = clampStat(state.willingness + raw.willingness);
   return {
-    affinity: next,
-    delta: next - state.affinity,
+    affinity,
+    willingness,
+    delta: { affinity: affinity - state.affinity, willingness: willingness - state.willingness },
     recentTones: [...state.recentTones, tone].slice(-REPEAT_WINDOW),
   };
 }
 
 export type ProposeResult = {
   joined: boolean;
-  affinity: number;
+  willingness: number;
   delta: number;
 };
 
-export function proposeJoin(merc: Merc, affinity: number): ProposeResult {
-  if (affinity >= merc.joinThreshold) {
-    return { joined: true, affinity, delta: 0 };
+/** 동행 제안 성공 확률 (0~1). 고용 의향이 곧 확률이다. */
+export function joinChance(willingness: number): number {
+  return clampStat(willingness) / STAT_MAX;
+}
+
+/**
+ * 고용 의향% 확률로 합류한다. 실패하면 고용 의향이 조금 떨어져서 연타할수록 손해다.
+ * rand는 테스트에서 결과를 고정하려고 주입받는다.
+ */
+export function proposeJoin(willingness: number, rand: () => number = Math.random): ProposeResult {
+  if (rand() < joinChance(willingness)) {
+    return { joined: true, willingness, delta: 0 };
   }
-  const next = clampAffinity(affinity - REFUSAL_PENALTY);
-  return { joined: false, affinity: next, delta: next - affinity };
+  const next = clampStat(willingness - REFUSAL_PENALTY);
+  return { joined: false, willingness: next, delta: next - willingness };
 }

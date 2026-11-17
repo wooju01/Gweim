@@ -1,6 +1,7 @@
 // API 키 없이 흐름을 테스트하기 위한 가짜 AI.
 // 실제 AI와 같은 인터페이스(MercAI)를 구현하고, 같은 Zod 스키마로 검증된다.
 import { ChoiceTone, type Choice, type Emotion, type Stage, type Tone } from "../../lib/schemas";
+import { dislikedTones, likedTones } from "../../game/affinity";
 import type { Merc } from "../../game/types";
 import type { MercAI, ReplyContext } from "./types";
 
@@ -99,8 +100,8 @@ function shuffle<T>(items: readonly T[], rand: () => number): T[] {
 
 /** 좋아하는 성향 1개, 싫어하는 성향 1개를 반드시 포함한 선택지 4개 */
 export function mockChoices(merc: Merc, rand: () => number = Math.random): Choice[] {
-  const liked = pick(merc.likes, rand);
-  const disliked = pick(merc.dislikes, rand);
+  const liked = pick(likedTones(merc), rand);
+  const disliked = pick(dislikedTones(merc), rand);
   const others = shuffle(
     ChoiceTone.options.filter((t) => t !== liked && t !== disliked),
     rand,
@@ -143,14 +144,18 @@ export function createMockAI(rand: () => number = Math.random): MercAI {
             choices,
           };
         case "talk": {
-          const reaction = pick(lines[event.reaction], rand);
+          // mock은 호감도 방향만 보고 대사를 고른다
+          const kind = { up: "liked", down: "disliked", none: "indifferent" } as const;
+          const reaction = pick(lines[kind[event.affinity]], rand);
           const emotion: Emotion =
-            event.reaction === "liked"
+            event.affinity === "up"
               ? "pleased"
-              : event.reaction === "disliked"
-                ? stage === "hostile"
-                  ? "angry"
-                  : "annoyed"
+              : event.affinity === "down"
+                ? event.willingness === "up"
+                  ? "suspicious"
+                  : stage === "hostile"
+                    ? "angry"
+                    : "annoyed"
                 : "neutral";
           return { message: reaction, emotion, choices };
         }

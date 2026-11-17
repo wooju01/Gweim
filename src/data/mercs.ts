@@ -1,5 +1,6 @@
 import type { Merc } from "../game/types";
 
+// reactions: 태도별 (호감도, 고용 의향) 반응. -2~+2. 1칸 = 호감 5점, 고용 의향 10점.
 export const MERCS: Merc[] = [
   {
     id: "varn",
@@ -10,10 +11,19 @@ export const MERCS: Merc[] = [
     secret: "부대가 전멸하던 밤, 그는 진지를 버리고 도망쳤다. 살아남은 이유를 아무에게도 말한 적이 없다.",
     speechStyle: "짧은 반말. 문장을 끝까지 잇지 않고 말줄임표를 자주 쓴다.",
     exampleLines: ["...할 말 있으면 짧게 해.", "용병한테 꿈 같은 건 사치야."],
-    likes: ["honesty", "respect"],
-    dislikes: ["mockery", "greed"],
-    joinThreshold: 45,
+    reactions: {
+      honesty: { affinity: 2, willingness: 1 },
+      respect: { affinity: 2, willingness: 1 },
+      greed: { affinity: -1, willingness: 1, note: "돈만 밝히는 놈은 경멸스럽지만, 늙은 용병도 먹고는 살아야 한다." },
+      threat: { affinity: -2, willingness: -1, note: "협박에는 창끝으로 답해 왔다. 겁먹을 나이는 지났다." },
+      mockery: {
+        affinity: -2,
+        willingness: 2,
+        note: "겁쟁이 취급을 받으면 그날 밤이 떠올라, 아니라는 걸 증명하고 싶어진다.",
+      },
+    },
     startAffinity: 20,
+    startWillingness: 35,
   },
   {
     id: "kass",
@@ -24,10 +34,16 @@ export const MERCS: Merc[] = [
     secret: "빚은 노예상에게 팔려 간 여동생을 되사기 위해 진 것이다. 동정받는 게 싫어 누구에게도 말하지 않는다.",
     speechStyle: "가볍고 빠른 반말. 비꼬는 농담과 흥정조 말투.",
     exampleLines: ["의리? 그거 몇 냥인데?", "죽는 건 괜찮아. 공짜로 죽는 게 싫은 거지."],
-    likes: ["greed", "mockery"],
-    dislikes: ["mercy", "respect"],
-    joinThreshold: 40,
+    reactions: {
+      greed: { affinity: 1, willingness: 2 },
+      mockery: { affinity: 2, willingness: 1, note: "농담을 받아칠 줄 아는 사람이 좋다." },
+      honesty: { affinity: 0, willingness: 1, note: "감정은 몰라도, 조건을 솔직하게 말하는 건 거래로서 나쁘지 않다." },
+      respect: { affinity: -1, willingness: 0, note: "칭찬은 아첨으로 들린다. 뭘 노리는지부터 의심한다." },
+      mercy: { affinity: -2, willingness: -1, note: "착한 척하는 놈은 먼저 죽고, 옆 사람까지 죽인다." },
+      threat: { affinity: -1, willingness: -1 },
+    },
     startAffinity: 25,
+    startWillingness: 50,
   },
   {
     id: "elke",
@@ -38,10 +54,16 @@ export const MERCS: Merc[] = [
     secret: "마을에 아직 살아 있는 사람들이 있다는 걸 알면서도 그녀는 성당 문을 밖에서 잠갔다.",
     speechStyle: "낮고 느린 존댓말. 기도문 같은 표현이 섞인다.",
     exampleLines: ["...촛불이 꺼지기 전까지는 들어드리겠습니다.", "명령이라는 말이 이제는 무섭습니다."],
-    likes: ["mercy", "honesty"],
-    dislikes: ["threat", "greed"],
-    joinThreshold: 55,
+    reactions: {
+      mercy: { affinity: 2, willingness: 1 },
+      honesty: { affinity: 1, willingness: 2, note: "진실을 말하는 사람이라면, 이번에는 따라가도 될 것 같다." },
+      respect: { affinity: 1, willingness: 0 },
+      greed: { affinity: -2, willingness: -1 },
+      threat: { affinity: -2, willingness: -2, note: "협박과 명령은 성당 문을 잠그던 그날을 떠올리게 한다." },
+      mockery: { affinity: -1, willingness: 0, note: "비웃음에는 익숙하다. 상처받지만 내색하지 않는다." },
+    },
     startAffinity: 15,
+    startWillingness: 30,
   },
 ];
 

@@ -1,10 +1,11 @@
 import { getMerc } from "@/data/mercs";
-import { applyTone, baseDelta, getStage, proposeJoin } from "@/game/affinity";
+import { applyTone, getResolve, getStage, proposeJoin, reactionTo } from "@/game/affinity";
 import type { Merc } from "@/game/types";
 import { MercReply, TalkRequest, type TalkResponse, type Tone } from "@/lib/schemas";
 import { getMercAI, getMockAI, type ReplyContext, type TurnEvent } from "@/server/ai";
+import type { Direction } from "@/server/ai/types";
 
-// 이 route는 얇게 유지한다: 입력 검증 → 규칙 계산(lib/game) → 대사 생성(server/ai) → 응답
+// 이 route는 얇게 유지한다: 입력 검증 → 규칙 계산(game) → 대사 생성(server/ai) → 응답
 export async function POST(request: Request) {
   const parsed = TalkRequest.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -18,9 +19,8 @@ export async function POST(request: Request) {
   }
 
   let tone: Tone | null = null;
-  let affinity = state.affinity;
-  let delta = 0;
-  let recentTones = state.recentTones;
+  let { affinity, willingness, recentTones } = state;
+  let delta = { affinity: 0, willingness: 0 };
   let joined: boolean | null = null;
   let event: TurnEvent;
 
@@ -36,30 +36,41 @@ export async function POST(request: Request) {
       tone = action.type === "choice" ? action.choice.tone : await classify(action.text, merc);
 
       const result = applyTone(merc, state, tone);
-      ({ affinity, delta, recentTones } = result);
+      ({ affinity, willingness, recentTones, delta } = result);
 
-      const base = baseDelta(merc, tone);
-      const reaction = base > 0 ? "liked" : base < 0 ? "disliked" : "indifferent";
-      event = { kind: "talk", playerText, tone, reaction };
+      // AI에게는 실제로 움직인 방향만 알려 준다 (반복 감쇠로 0이 됐으면 "none")
+      event = {
+        kind: "talk",
+        playerText,
+        tone,
+        affinity: direction(delta.affinity),
+        willingness: direction(delta.willingness),
+        note: reactionTo(merc, tone).note,
+      };
       break;
     }
 
     case "propose": {
-      const result = proposeJoin(merc, state.affinity);
-      ({ affinity, delta, joined } = result);
+      // 고용 의향% 확률로 합류. 주사위는 서버에서 굴린다
+      const result = proposeJoin(state.willingness);
+      joined = result.joined;
+      willingness = result.willingness;
+      delta = { affinity: 0, willingness: result.delta };
       event = { kind: "propose", joined };
       break;
     }
   }
 
   const stage = getStage(affinity);
-  const { reply, mode } = await generateReply({ merc, stage, history: state.history, event });
+  const resolve = getResolve(willingness);
+  const { reply, mode } = await generateReply({ merc, stage, resolve, history: state.history, event });
 
   const body: TalkResponse = {
     mode,
     tone,
     delta,
     affinity,
+    willingness,
     stage,
     recentTones,
     message: reply.message,
@@ -68,6 +79,10 @@ export async function POST(request: Request) {
     joined,
   };
   return Response.json(body);
+}
+
+function direction(delta: number): Direction {
+  return delta > 0 ? "up" : delta < 0 ? "down" : "none";
 }
 
 /** 실제 AI가 실패해도 게임이 멈추지 않도록 mock으로 대신한다 */
