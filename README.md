@@ -1,36 +1,32 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Ashen Company (가제)
 
-## Getting Started
+AI 용병과 함께하는 다크 판타지 텍스트 던전 RPG.
 
-First, run the development server:
+원칙: **규칙은 코드, 말은 AI.** 호감도·전투·보상은 코드가 계산하고, AI는 대사와 선택지 문장만 만든다.
+
+## 실행
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local   # ANTHROPIC_API_KEY를 채우면 실제 AI, 비우면 mock
+npm run dev                  # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+| 명령 | 설명 |
+|---|---|
+| `npm test` | 테스트 (Vitest) |
+| `npm run typecheck` | 타입 검사 |
+| `npm run lint` | 린트 |
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 폴더 구조
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+src/
+  app/              페이지와 API 주소만 (page, layout, api/talk)
+  components/game/  게임 화면 (길드, 대화, 초상화 등)
+  game/             순수 게임 규칙. React·Next·AI를 import하지 않는다
+  data/             용병 데이터
+  server/ai/        AI 호출, 프롬프트, mock. 서버 전용
+  lib/schemas.ts    프론트와 서버가 같이 쓰는 Zod 타입
+public/             이미지, 사운드 (나중에)
+```

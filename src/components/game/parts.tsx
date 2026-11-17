@@ -1,5 +1,5 @@
 import type { Emotion } from "@/lib/schemas";
-import type { Merc } from "@/lib/game/types";
+import type { Merc } from "@/game/types";
 
 const EMOTION_STYLE: Record<Emotion, { label: string; ring: string; glow: string }> = {
   neutral: { label: "무표정", ring: "border-edge", glow: "shadow-none" },

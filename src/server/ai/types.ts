@@ -1,5 +1,5 @@
 import type { HistoryLine, MercReply, Stage, Tone } from "../../lib/schemas";
-import type { Merc } from "../../lib/game/types";
+import type { Merc } from "../../game/types";
 
 /** AI에게 넘기는 이번 턴의 사건. 숫자는 넣지 않는다. */
 export type TurnEvent =

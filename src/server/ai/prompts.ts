@@ -1,6 +1,6 @@
 // 프롬프트 문구. 숫자(호감도 값, 기준치)는 절대 넣지 않는다. 단계와 반응 종류만 넣는다.
 import type { HistoryLine, Stage } from "../../lib/schemas";
-import type { Merc } from "../../lib/game/types";
+import type { Merc } from "../../game/types";
 import type { TurnEvent } from "./types";
 
 const TONE_GUIDE = `- respect: 상대를 존중하거나 인정하는 말

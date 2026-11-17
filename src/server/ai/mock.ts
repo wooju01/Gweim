@@ -1,7 +1,7 @@
 // API 키 없이 흐름을 테스트하기 위한 가짜 AI.
 // 실제 AI와 같은 인터페이스(MercAI)를 구현하고, 같은 Zod 스키마로 검증된다.
 import { ChoiceTone, type Choice, type Emotion, type Stage, type Tone } from "../../lib/schemas";
-import type { Merc } from "../../lib/game/types";
+import type { Merc } from "../../game/types";
 import type { MercAI, ReplyContext } from "./types";
 
 type MercLines = {

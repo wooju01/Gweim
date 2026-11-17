@@ -1,4 +1,4 @@
-import type { ChoiceTone } from "../schemas";
+import type { ChoiceTone } from "../lib/schemas";
 
 export type Merc = {
   id: string;

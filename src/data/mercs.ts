@@ -1,4 +1,4 @@
-import type { Merc } from "../lib/game/types";
+import type { Merc } from "../game/types";
 
 export const MERCS: Merc[] = [
   {

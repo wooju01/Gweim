@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MERCS, getMerc } from "../../data/mercs";
-import type { Tone } from "../schemas";
+import { MERCS, getMerc } from "../data/mercs";
+import type { Tone } from "../lib/schemas";
 import {
   DISLIKE_LOSS,
   LIKE_GAIN,

@@ -1,5 +1,5 @@
 // 호감도 규칙. React/Next/AI에 의존하지 않는 순수 함수만 둔다.
-import type { Stage, Tone } from "../schemas";
+import type { Stage, Tone } from "../lib/schemas";
 import type { Merc } from "./types";
 
 export const AFFINITY_MIN = 0;

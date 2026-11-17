@@ -1,6 +1,6 @@
 import { getMerc } from "@/data/mercs";
-import { applyTone, baseDelta, getStage, proposeJoin } from "@/lib/game/affinity";
-import type { Merc } from "@/lib/game/types";
+import { applyTone, baseDelta, getStage, proposeJoin } from "@/game/affinity";
+import type { Merc } from "@/game/types";
 import { MercReply, TalkRequest, type TalkResponse, type Tone } from "@/lib/schemas";
 import { getMercAI, getMockAI, type ReplyContext, type TurnEvent } from "@/server/ai";
 
