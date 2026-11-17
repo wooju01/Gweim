@@ -35,8 +35,13 @@ export function DialogueScreen({ screen, progress, partyFull, onAct, onLeave }: 
       <div className="flex items-center justify-between">
         <Button onClick={onLeave}>← 길드로</Button>
         {reply && (
-          <span className="rounded-sm border border-edge px-2 py-0.5 text-[11px] tracking-widest text-ash">
-            {reply.mode === "mock" ? "MOCK" : "LIVE"}
+          <span
+            title={reply.mode === "fallback" ? "AI 호출이 실패해 이번 대사는 mock으로 대체됐습니다. 서버 로그를 확인하세요." : undefined}
+            className={`rounded-sm border px-2 py-0.5 text-[11px] tracking-widest ${
+              reply.mode === "fallback" ? "border-blood/50 text-blood" : "border-edge text-ash"
+            }`}
+          >
+            {{ mock: "MOCK", live: "LIVE", fallback: "FALLBACK" }[reply.mode]}
           </span>
         )}
       </div>

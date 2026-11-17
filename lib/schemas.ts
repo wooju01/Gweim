@@ -59,7 +59,8 @@ export const TalkRequest = z.object({
 export type TalkRequest = z.infer<typeof TalkRequest>;
 
 export type TalkResponse = {
-  mode: "mock" | "live";
+  /** fallback: 실제 AI가 실패해서 이번 턴만 mock 대사를 썼다 */
+  mode: "mock" | "live" | "fallback";
   /** 이번 턴에 적용된 성향 (open/propose면 null) */
   tone: Tone | null;
   delta: number;

@@ -1,7 +1,8 @@
 import { getMerc } from "@/data/mercs";
 import { applyTone, baseDelta, getStage, proposeJoin } from "@/lib/game/affinity";
+import type { Merc } from "@/lib/game/types";
 import { MercReply, TalkRequest, type TalkResponse, type Tone } from "@/lib/schemas";
-import { getMercAI, type TurnEvent } from "@/server/ai";
+import { getMercAI, getMockAI, type ReplyContext, type TurnEvent } from "@/server/ai";
 
 // 이 route는 얇게 유지한다: 입력 검증 → 규칙 계산(lib/game) → 대사 생성(server/ai) → 응답
 export async function POST(request: Request) {
@@ -15,8 +16,6 @@ export async function POST(request: Request) {
   if (!merc) {
     return Response.json({ error: `없는 용병: ${mercId}` }, { status: 404 });
   }
-
-  const ai = getMercAI();
 
   let tone: Tone | null = null;
   let affinity = state.affinity;
@@ -34,7 +33,7 @@ export async function POST(request: Request) {
     case "free": {
       const playerText = action.type === "choice" ? action.choice.text : action.text;
       // 자유 입력도 같은 성향 태그로 분류한 뒤 같은 계산을 거친다
-      tone = action.type === "choice" ? action.choice.tone : await ai.classify(action.text, merc);
+      tone = action.type === "choice" ? action.choice.tone : await classify(action.text, merc);
 
       const result = applyTone(merc, state, tone);
       ({ affinity, delta, recentTones } = result);
@@ -54,12 +53,10 @@ export async function POST(request: Request) {
   }
 
   const stage = getStage(affinity);
-  const reply = MercReply.parse(
-    await ai.reply({ merc, stage, history: state.history, event }),
-  );
+  const { reply, mode } = await generateReply({ merc, stage, history: state.history, event });
 
   const body: TalkResponse = {
-    mode: ai.mode,
+    mode,
     tone,
     delta,
     affinity,
@@ -71,4 +68,26 @@ export async function POST(request: Request) {
     joined,
   };
   return Response.json(body);
+}
+
+/** 실제 AI가 실패해도 게임이 멈추지 않도록 mock으로 대신한다 */
+async function generateReply(ctx: ReplyContext): Promise<{ reply: MercReply; mode: TalkResponse["mode"] }> {
+  const ai = getMercAI();
+  try {
+    return { reply: MercReply.parse(await ai.reply(ctx)), mode: ai.mode };
+  } catch (error) {
+    if (ai.mode === "mock") throw error;
+    console.error("[ai] 대사 생성 실패, mock으로 대체:", error);
+    return { reply: await getMockAI().reply(ctx), mode: "fallback" };
+  }
+}
+
+async function classify(text: string, merc: Merc): Promise<Tone> {
+  const ai = getMercAI();
+  try {
+    return await ai.classify(text, merc);
+  } catch (error) {
+    console.error("[ai] 성향 분류 실패, 키워드 분류로 대체:", error);
+    return getMockAI().classify(text, merc);
+  }
 }
