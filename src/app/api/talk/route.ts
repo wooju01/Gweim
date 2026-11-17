@@ -1,5 +1,5 @@
-import { getMerc } from "@/data/mercs";
 import { applyTone, getResolve, getStage, proposeJoin, reactionTo } from "@/game/affinity";
+import { mercFromRef } from "@/game/roster";
 import type { Merc } from "@/game/types";
 import { MercReply, TalkRequest, type TalkResponse, type Tone } from "@/lib/schemas";
 import { getMercAI, getMockAI, type ReplyContext, type TurnEvent } from "@/server/ai";
@@ -11,11 +11,12 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return Response.json({ error: "잘못된 요청", issues: parsed.error.issues }, { status: 400 });
   }
-  const { mercId, state, action } = parsed.data;
+  const { state, action } = parsed.data;
 
-  const merc = getMerc(mercId);
+  // 랜덤 용병은 클라이언트가 보낸 특성 id로 반응표를 서버에서 다시 계산한다
+  const merc = mercFromRef(parsed.data.merc);
   if (!merc) {
-    return Response.json({ error: `없는 용병: ${mercId}` }, { status: 404 });
+    return Response.json({ error: "알 수 없는 용병이거나 잘못된 특성 조합" }, { status: 400 });
   }
 
   let tone: Tone | null = null;

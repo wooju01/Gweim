@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MERCS } from "../../data/mercs";
+import { TEST_MERCS as MERCS } from "../../test/fixtures";
 import { dislikedTones, likedTones } from "../../game/affinity";
 import { MercReply, type Stage } from "../../lib/schemas";
 import { createMockAI, mockChoices, mockClassify } from "./mock";
@@ -43,16 +43,51 @@ describe("createMockAI", () => {
       for (const stage of stages) {
         const events = [
           { kind: "open" },
-          { kind: "talk", playerText: "...", tone: "honesty", affinity: "up", willingness: "up" },
-          { kind: "talk", playerText: "...", tone: "mockery", affinity: "down", willingness: "up", note: "속마음" },
+          {
+            kind: "talk",
+            playerText: "...",
+            tone: "honesty",
+            affinity: "up",
+            willingness: "up",
+          },
+          {
+            kind: "talk",
+            playerText: "...",
+            tone: "mockery",
+            affinity: "down",
+            willingness: "up",
+            note: "속마음",
+          },
           { kind: "propose", joined: true },
           { kind: "propose", joined: false },
         ] as const;
         for (const event of events) {
-          const reply = await ai.reply({ merc, stage, resolve: "doubtful", history: [], event });
+          const reply = await ai.reply({
+            merc,
+            stage,
+            resolve: "doubtful",
+            history: [],
+            event,
+          });
           expect(MercReply.safeParse(reply).success).toBe(true);
         }
       }
+    }
+  });
+});
+
+describe("mockProfile", () => {
+  it("모든 특성 조합에서 스키마를 통과하고 피할 이름을 피한다", async () => {
+    const { rollTraits, resolveTraits, seededRandom } =
+      await import("../../game/generate");
+    const { MercProfile } = await import("../../lib/schemas");
+    const { mockProfile } = await import("./mock");
+    const rand = seededRandom(1);
+    for (let i = 0; i < 300; i++) {
+      const traits = resolveTraits(rollTraits(rand))!;
+      const p = mockProfile({ traits, avoidNames: ["로칸"] }, rand);
+      expect(MercProfile.safeParse(p).success).toBe(true);
+      expect(p.name).not.toBe("로칸");
     }
   });
 });

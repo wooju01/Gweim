@@ -2,7 +2,7 @@
 import { ChoiceTone, type HistoryLine, type Stage } from "../../lib/schemas";
 import type { Resolve } from "../../game/affinity";
 import type { Level, Merc } from "../../game/types";
-import type { Direction, TurnEvent } from "./types";
+import type { Direction, ProfileInput, TurnEvent } from "./types";
 
 const TONE_NAME: Record<ChoiceTone, string> = {
   respect: "존중",
@@ -25,7 +25,8 @@ const STAGE_GUIDE: Record<Stage, string> = {
   wary: "경계. 짧게 대답하고 쉽게 마음을 열지 않는다.",
   neutral: "중립. 들어줄 만큼은 들어준다.",
   warm: "호의적. 조금씩 자기 얘기를 꺼내기 시작한다.",
-  trusted: "신뢰. 등을 맡길 수 있는 사람으로 여긴다. 비밀을 넌지시 암시할 수 있다.",
+  trusted:
+    "신뢰. 등을 맡길 수 있는 사람으로 여긴다. 비밀을 넌지시 암시할 수 있다.",
 };
 
 const RESOLVE_GUIDE: Record<Resolve, string> = {
@@ -36,7 +37,13 @@ const RESOLVE_GUIDE: Record<Resolve, string> = {
 };
 
 function levelWord(level: Level): string {
-  return { [-2]: "크게 떨어짐", [-1]: "떨어짐", 0: "변화 없음", 1: "오름", 2: "크게 오름" }[level];
+  return {
+    [-2]: "크게 떨어짐",
+    [-1]: "떨어짐",
+    0: "변화 없음",
+    1: "오름",
+    2: "크게 오름",
+  }[level];
 }
 
 function reactionTable(merc: Merc): string {
@@ -45,7 +52,9 @@ function reactionTable(merc: Merc): string {
       const r = merc.reactions[tone];
       if (!r || (r.affinity === 0 && r.willingness === 0)) return [];
       const note = r.note ? ` (${r.note})` : "";
-      return [`- ${TONE_NAME[tone]}(${tone}): 호감 ${levelWord(r.affinity)}, 동행 의향 ${levelWord(r.willingness)}${note}`];
+      return [
+        `- ${TONE_NAME[tone]}(${tone}): 호감 ${levelWord(r.affinity)}, 동행 의향 ${levelWord(r.willingness)}${note}`,
+      ];
     })
     .join("\n");
 }
@@ -95,7 +104,11 @@ ${TONE_GUIDE}
 function transcript(merc: Merc, history: HistoryLine[]): string {
   if (history.length === 0) return "(첫 만남)";
   return history
-    .map((l) => (l.speaker === "merc" ? `${merc.name}: ${l.text}` : `<player>${l.text}</player>`))
+    .map((l) =>
+      l.speaker === "merc"
+        ? `${merc.name}: ${l.text}`
+        : `<player>${l.text}</player>`,
+    )
     .join("\n");
 }
 
@@ -145,6 +158,43 @@ ${transcript(merc, history.slice(-12))}
 
 # 이번 턴
 ${eventLine(merc, event)}`;
+}
+
+const WORLD =
+  "재가 내리는 몰락한 땅. 전쟁과 역병이 휩쓸고 지나갔고, 사람들은 던전의 유물로 먹고산다.";
+
+/** 랜덤 용병 프로필 생성. 특성은 코드가 정했고, AI는 그걸 살아 있는 인물로 만든다. */
+export function profilePrompt(input: ProfileInput): string {
+  const job = input.traits.find((t) => t.kind === "job")!;
+  const personalities = input.traits.filter((t) => t.kind === "personality");
+  const background = input.traits.find((t) => t.kind === "background")!;
+  const avoid = input.avoidNames.length
+    ? input.avoidNames.join(", ")
+    : "(없음)";
+
+  return `다크 판타지 텍스트 RPG에 나올 용병 한 명의 설정을 만든다.
+
+# 세계
+${WORLD}
+현실의 국가, 종교, 역사 인물, 유명 작품의 이름이나 설정은 쓰지 않는다. 전부 오리지널로 만든다.
+
+# 정해진 특성 (반드시 반영)
+- 직업: ${job.name} — ${job.description}
+- 성격: ${personalities.map((p) => `${p.name} — ${p.description}`).join(" / ")}
+- 배경: ${background.name} — ${background.description}
+- 비밀의 씨앗: ${background.secretHint}
+
+# 만들 것
+- name: 한국어 2~3음절의 판타지풍 이름. 성은 없다. 다음 이름과 겹치지 않게: ${avoid}
+- title: 카드에 붙는 짧은 호칭. 성격이나 배경이 묻어나게. 예: "잿빛 창병", "빚쟁이 단검수"
+- persona: 성격 요약 1~2문장. 정해진 성격들이 어떻게 한 사람 안에 섞였는지 드러나게.
+- background: 다른 사람도 알 수 있는 과거 1~2문장.
+- secret: 숨긴 비밀 1문장. 비밀의 씨앗을 이 인물에 맞게 구체화한다.
+- speechStyle: 말투 설명 한 줄. 존댓말/반말, 버릇 등.
+- exampleLines: 이 인물이 할 법한 대사 2~3개. 짧게.
+
+# 콘텐츠 안전
+어둡고 거친 분위기는 괜찮다. 성적인 묘사, 실존 집단에 대한 혐오, 현실에서 쓸 수 있는 위험한 방법은 쓰지 않는다.`;
 }
 
 export function classifyPrompt(text: string): string {

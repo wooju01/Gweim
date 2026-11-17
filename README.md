@@ -25,7 +25,8 @@ src/
   app/              페이지와 API 주소만 (page, layout, api/talk)
   components/game/  게임 화면 (길드, 대화, 초상화 등)
   game/             순수 게임 규칙. React·Next·AI를 import하지 않는다
-  data/             용병 데이터
+  data/             특성 표(랜덤 용병 재료), 고유 용병
+  test/             테스트용 예시 용병
   server/ai/        AI 호출, 프롬프트, mock. 서버 전용
   lib/schemas.ts    프론트와 서버가 같이 쓰는 Zod 타입
 public/             이미지, 사운드 (나중에)

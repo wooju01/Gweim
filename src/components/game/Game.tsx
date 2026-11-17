@@ -2,10 +2,10 @@
 
 import { useReducer } from "react";
 import type { TalkAction } from "@/lib/schemas";
-import { postTalk } from "./api";
+import { postRecruit, postTalk } from "./api";
 import { DialogueScreen } from "./DialogueScreen";
 import { GuildScreen } from "./GuildScreen";
-import { PARTY_LIMIT, gameReducer, initialState } from "./state";
+import { PARTY_LIMIT, entryId, gameReducer, initialState, mercOf } from "./state";
 
 function playerLineFor(action: TalkAction): string | null {
   switch (action.type) {
@@ -23,11 +23,15 @@ function playerLineFor(action: TalkAction): string | null {
 export function Game() {
   const [state, dispatch] = useReducer(gameReducer, undefined, initialState);
 
+  const findEntry = (mercId: string) => state.roster.find((e) => entryId(e) === mercId);
+
   async function send(mercId: string, action: TalkAction) {
+    const entry = findEntry(mercId);
+    if (!entry) return;
     const { affinity, willingness, recentTones, history } = state.progress[mercId];
     try {
       const res = await postTalk({
-        mercId,
+        merc: entry,
         state: { affinity, willingness, recentTones, history },
         action,
       });
@@ -48,22 +52,41 @@ export function Game() {
     void send(state.screen.mercId, action);
   }
 
+  async function recruit() {
+    if (state.recruit.pending) return;
+    dispatch({ type: "recruitStart" });
+    try {
+      const avoidNames = state.roster.map((e) => mercOf(e).name);
+      const res = await postRecruit({ avoidNames });
+      dispatch({ type: "recruited", seeds: res.seeds });
+    } catch (e) {
+      dispatch({ type: "recruitFailed", error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   if (state.screen.kind === "talk") {
-    return (
-      <DialogueScreen
-        screen={state.screen}
-        progress={state.progress[state.screen.mercId]}
-        partyFull={state.party.length >= PARTY_LIMIT}
-        onAct={act}
-        onLeave={() => dispatch({ type: "leave" })}
-      />
-    );
+    const entry = findEntry(state.screen.mercId);
+    if (entry) {
+      return (
+        <DialogueScreen
+          merc={mercOf(entry)}
+          screen={state.screen}
+          progress={state.progress[state.screen.mercId]}
+          partyFull={state.party.length >= PARTY_LIMIT}
+          onAct={act}
+          onLeave={() => dispatch({ type: "leave" })}
+        />
+      );
+    }
   }
 
   return (
     <GuildScreen
+      mercs={state.roster.map(mercOf)}
       progress={state.progress}
       party={state.party}
+      recruit={state.recruit}
+      onRecruit={recruit}
       onTalk={startTalk}
       onDismiss={(mercId) => dispatch({ type: "dismiss", mercId })}
     />

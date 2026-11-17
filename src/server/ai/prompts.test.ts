@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MERCS } from "../../data/mercs";
+import { TEST_MERCS as MERCS } from "../../test/fixtures";
 import { systemPrompt, turnPrompt } from "./prompts";
 
 describe("프롬프트", () => {

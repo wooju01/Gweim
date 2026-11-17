@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { getMerc } from "@/data/mercs";
+import type { Merc } from "@/game/types";
 import type { TalkAction } from "@/lib/schemas";
 import { Button, MercStats, Portrait } from "./parts";
 import type { MercProgress, TalkScreen } from "./state";
 
 type Props = {
+  merc: Merc;
   screen: TalkScreen;
   progress: MercProgress;
   partyFull: boolean;
@@ -12,8 +13,7 @@ type Props = {
   onLeave: () => void;
 };
 
-export function DialogueScreen({ screen, progress, partyFull, onAct, onLeave }: Props) {
-  const merc = getMerc(screen.mercId)!;
+export function DialogueScreen({ merc, screen, progress, partyFull, onAct, onLeave }: Props) {
   const { reply, pending, error, ended } = screen;
   const [draft, setDraft] = useState("");
   const logEnd = useRef<HTMLDivElement>(null);

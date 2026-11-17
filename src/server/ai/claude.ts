@@ -2,8 +2,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import { MercReply, Tone } from "../../lib/schemas";
-import { classifyPrompt, systemPrompt, turnPrompt } from "./prompts";
+import { MercProfile, MercReply, Tone } from "../../lib/schemas";
+import {
+  classifyPrompt,
+  profilePrompt,
+  systemPrompt,
+  turnPrompt,
+} from "./prompts";
 import type { MercAI } from "./types";
 
 const DEFAULT_MODEL = "claude-haiku-5-5";
@@ -29,16 +34,50 @@ export function createClaudeAI(options: { model?: string } = {}): MercAI {
         output_config: { effort: "low", format: zodOutputFormat(MercReply) },
         system: [
           // 용병별로 고정된 부분이라 캐시한다
-          { type: "text", text: systemPrompt(merc), cache_control: { type: "ephemeral" } },
+          {
+            type: "text",
+            text: systemPrompt(merc),
+            cache_control: { type: "ephemeral" },
+          },
         ],
-        messages: [{ role: "user", content: turnPrompt(merc, stage, resolve, history, event) }],
+        messages: [
+          {
+            role: "user",
+            content: turnPrompt(merc, stage, resolve, history, event),
+          },
+        ],
       });
 
       if (response.stop_reason === "refusal") {
-        throw new AIOutputError(`응답 거절: ${response.stop_details?.category ?? "unknown"}`);
+        throw new AIOutputError(
+          `응답 거절: ${response.stop_details?.category ?? "unknown"}`,
+        );
       }
       if (!response.parsed_output) {
-        throw new AIOutputError(`응답 파싱 실패 (stop_reason: ${response.stop_reason})`);
+        throw new AIOutputError(
+          `응답 파싱 실패 (stop_reason: ${response.stop_reason})`,
+        );
+      }
+      return response.parsed_output;
+    },
+
+    async createProfile(input) {
+      const response = await client.messages.parse({
+        model,
+        max_tokens: 4000,
+        output_config: { effort: "low", format: zodOutputFormat(MercProfile) },
+        messages: [{ role: "user", content: profilePrompt(input) }],
+      });
+
+      if (response.stop_reason === "refusal") {
+        throw new AIOutputError(
+          `프로필 생성 거절: ${response.stop_details?.category ?? "unknown"}`,
+        );
+      }
+      if (!response.parsed_output) {
+        throw new AIOutputError(
+          `프로필 파싱 실패 (stop_reason: ${response.stop_reason})`,
+        );
       }
       return response.parsed_output;
     },
@@ -47,7 +86,10 @@ export function createClaudeAI(options: { model?: string } = {}): MercAI {
       const response = await client.messages.parse({
         model,
         max_tokens: 1000,
-        output_config: { effort: "low", format: zodOutputFormat(ClassifyResult) },
+        output_config: {
+          effort: "low",
+          format: zodOutputFormat(ClassifyResult),
+        },
         messages: [{ role: "user", content: classifyPrompt(text) }],
       });
 

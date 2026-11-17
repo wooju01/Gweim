@@ -1,6 +1,12 @@
-import type { HistoryLine, MercReply, Stage, Tone } from "../../lib/schemas";
+import type {
+  HistoryLine,
+  MercProfile,
+  MercReply,
+  Stage,
+  Tone,
+} from "../../lib/schemas";
 import type { Resolve } from "../../game/affinity";
-import type { Merc } from "../../game/types";
+import type { Merc, Trait } from "../../game/types";
 
 export type Direction = "up" | "down" | "none";
 
@@ -30,9 +36,18 @@ export type ReplyContext = {
   event: TurnEvent;
 };
 
+/** 랜덤 용병 프로필 생성 입력. 코드가 뽑은 특성만 넘긴다. */
+export type ProfileInput = {
+  traits: Trait[];
+  /** 이미 쓰이는 이름 */
+  avoidNames: string[];
+};
+
 /** 실제 AI와 mock이 똑같이 구현하는 인터페이스 */
 export interface MercAI {
   readonly mode: "mock" | "live";
   reply(ctx: ReplyContext): Promise<MercReply>;
   classify(text: string, merc: Merc): Promise<Tone>;
+  /** 특성 조합으로 캐릭터 설정을 한 번 만든다 */
+  createProfile(input: ProfileInput): Promise<MercProfile>;
 }

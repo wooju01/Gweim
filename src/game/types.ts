@@ -15,8 +15,36 @@ export type Reaction = {
   note?: string;
 };
 
+/**
+ * 랜덤 용병의 재료가 되는 특성 하나 (직업, 성격, 배경).
+ * 반응표와 시작 수치 보정을 들고 온다.
+ */
+export type Trait = {
+  id: string;
+  kind: "job" | "personality" | "background";
+  /** 카드에 보이는 이름. 예: "오만함", "창병", "탈영병" */
+  name: string;
+  /** 호칭에 쓰는 꾸밈말. 성격에만. 예: "오만한" */
+  adjective?: string;
+  /** AI가 캐릭터를 만들 때 참고하는 설명 */
+  description: string;
+  /** 등장 가중치. 클수록 자주 나온다 */
+  rarity: number;
+  /** 같이 나올 수 없는 특성 id */
+  excludes?: string[];
+  /** 이 중 하나가 있어야 나올 수 있는 특성 id */
+  requires?: string[];
+  reactions?: Partial<Record<ChoiceTone, Reaction>>;
+  affinityMod?: number;
+  willingnessMod?: number;
+  /** 배경에만. AI가 비밀을 지을 때 쓰는 씨앗 */
+  secretHint?: string;
+};
+
 export type Merc = {
   id: string;
+  /** 카드에 보이는 특성 이름들. 랜덤 용병에만 있다 */
+  tags?: string[];
   name: string;
   /** 카드에 붙는 짧은 호칭 */
   title: string;

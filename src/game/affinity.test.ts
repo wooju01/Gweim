@@ -1,23 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { MERCS, getMerc } from "../data/mercs";
+import { testMerc } from "../test/fixtures";
 import type { Tone } from "../lib/schemas";
 import {
   REFUSAL_PENALTY,
   AFFINITY_STEP as A,
   WILLINGNESS_STEP as W,
   applyTone,
-  dislikedTones,
   getResolve,
   getStage,
   joinChance,
-  likedTones,
   proposeJoin,
   toneDeltas,
 } from "./affinity";
 
-const varn = getMerc("varn")!;
-const kass = getMerc("kass")!;
-const elke = getMerc("elke")!;
+const varn = testMerc("varn");
+const kass = testMerc("kass");
+const elke = testMerc("elke");
 const fresh = (affinity = 50, willingness = 50, recentTones: Tone[] = []) => ({
   affinity,
   willingness,
@@ -140,18 +138,6 @@ describe("동행 제안: 고용 의향% 확률", () => {
   });
 });
 
-describe("용병 데이터", () => {
-  it.each(MERCS.map((m) => [m.id, m] as const))("%s: 좋아하는 태도와 싫어하는 태도가 하나 이상 있다", (_, merc) => {
-    expect(likedTones(merc).length).toBeGreaterThan(0);
-    expect(dislikedTones(merc).length).toBeGreaterThan(0);
-  });
-
-  it("세 용병의 반응표가 서로 다르다", () => {
-    const tables = MERCS.map((m) => JSON.stringify(m.reactions));
-    expect(new Set(tables).size).toBe(MERCS.length);
-  });
-});
-
 describe("고용 의향은 호감도보다 크게, 반복에 덜 민감하게 움직인다", () => {
   it("같은 태도 반복 시 고용 의향 증가량 (20 → 15 → 10 → 5)", () => {
     let state = fresh(50, 0);
@@ -162,10 +148,5 @@ describe("고용 의향은 호감도보다 크게, 반복에 덜 민감하게 �
       state = { ...r };
     }
     expect(gains).toEqual([20, 15, 10, 5]);
-  });
-
-  it("시작 고용 의향은 30 이상이고 용병마다 다르다", () => {
-    for (const m of MERCS) expect(m.startWillingness).toBeGreaterThanOrEqual(30);
-    expect(new Set(MERCS.map((m) => m.startWillingness)).size).toBe(MERCS.length);
   });
 });

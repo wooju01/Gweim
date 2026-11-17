@@ -52,8 +52,67 @@ export const TalkAction = z.discriminatedUnion("type", [
 ]);
 export type TalkAction = z.infer<typeof TalkAction>;
 
+// ── 랜덤 용병 ──────────────────────────────────────────────
+
+/** 코드가 뽑은 특성 조합 (data/traits.ts의 id) */
+export const MercTraits = z.object({
+  job: z.string().max(40),
+  personalities: z.array(z.string().max(40)).min(1).max(2),
+  background: z.string().max(40),
+});
+export type MercTraits = z.infer<typeof MercTraits>;
+
+/** AI가 특성 조합을 보고 한 번 만드는 캐릭터 설정. 이후 대화에 계속 쓴다. */
+export const MercProfile = z.object({
+  name: z.string().min(1).max(12),
+  title: z.string().min(1).max(24),
+  persona: z.string().min(1).max(300),
+  background: z.string().min(1).max(300),
+  secret: z.string().min(1).max(300),
+  speechStyle: z.string().min(1).max(150),
+  exampleLines: z.array(z.string().min(1).max(100)).min(2).max(3),
+});
+export type MercProfile = z.infer<typeof MercProfile>;
+
+/** 랜덤 용병 한 명을 다시 만들 수 있는 최소 정보. 반응표는 traits에서 코드가 다시 계산한다. */
+export const MercSeed = z.object({
+  id: z.string().min(1).max(40),
+  traits: MercTraits,
+  start: z.object({
+    affinity: z.number().int().min(0).max(100),
+    willingness: z.number().int().min(0).max(100),
+  }),
+  profile: MercProfile,
+});
+export type MercSeed = z.infer<typeof MercSeed>;
+
+/** 대화 요청에서 용병을 가리키는 방법 */
+export const MercRef = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("unique"), id: z.string() }),
+  z.object({ kind: z.literal("random"), seed: MercSeed }),
+]);
+export type MercRef = z.infer<typeof MercRef>;
+
+export type AIMode = "mock" | "live" | "fallback";
+
+export const RecruitRequest = z.object({
+  /** 비우면 서버가 1~5명 중 무작위로 정한다 */
+  count: z.number().int().min(1).max(5).optional(),
+  /** 이미 길드에 있는 이름. 겹치지 않게 한다 */
+  avoidNames: z.array(z.string().max(20)).max(40).default([]),
+});
+export type RecruitRequest = z.infer<typeof RecruitRequest>;
+
+export type RecruitResponse = {
+  /** 한 명이라도 AI 실패로 mock 프로필을 썼으면 fallback */
+  mode: AIMode;
+  seeds: MercSeed[];
+};
+
+// ── 대화 ───────────────────────────────────────────────────
+
 export const TalkRequest = z.object({
-  mercId: z.string(),
+  merc: MercRef,
   state: TalkState,
   action: TalkAction,
 });
@@ -61,7 +120,7 @@ export type TalkRequest = z.infer<typeof TalkRequest>;
 
 export type TalkResponse = {
   /** fallback: 실제 AI가 실패해서 이번 턴만 mock 대사를 썼다 */
-  mode: "mock" | "live" | "fallback";
+  mode: AIMode;
   /** 이번 턴에 적용된 성향 (open/propose면 null) */
   tone: Tone | null;
   /** 이번 턴에 실제로 바뀐 양 */
