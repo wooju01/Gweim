@@ -1,26 +1,44 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* 다크 판타지 팔레트. 게임이라 라이트 모드는 두지 않는다. */
+@theme {
+  --color-ink: #0d0b0a;
+  --color-panel: #171311;
+  --color-panel-hi: #211b17;
+  --color-edge: #3a2f27;
+  --color-bone: #e6dccb;
+  --color-ash: #8f8374;
+  --color-ember: #d9762b;
+  --color-blood: #9b2c2c;
+  --color-moss: #6f8a5a;
+  --color-frost: #7d93a8;
+
+  --font-serif: var(--font-noto-serif-kr), ui-serif, serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background:
+    radial-gradient(ellipse at top, #1c1512 0%, transparent 60%),
+    var(--color-ink);
+  color: var(--color-bone);
+  font-family: var(--font-serif);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-rise {
+  animation: rise 0.35s ease-out both;
 }
