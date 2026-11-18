@@ -701,21 +701,29 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
           strike(b, rng, actor, target, rollBase(rng, actor, e), { onHit: e.onHit ?? true, enemiesAtStart });
         }
         break;
-      case "applyStatus":
-        for (const t of e.area === "all" ? living(b, "enemy") : target && target.hp > 0 ? [target] : []) applyStatus(b, t, e.status);
+      case "applyStatus": {
+        const one = e.who === "self" ? actor : target;
+        for (const t of e.area === "all" ? living(b, "enemy") : one && one.hp > 0 ? [one] : []) applyStatus(b, t, e.status);
         break;
-      case "heal":
-        if (target) heal(b, target, e.amount, actor.id);
+      }
+      case "heal": {
+        const t = e.who === "self" ? actor : target;
+        if (t) heal(b, t, e.amount, actor.id);
         break;
-      case "cure":
-        if (target) for (const s of target.statuses.filter((x) => HARMFUL.includes(x.kind))) cure(b, target, s.kind, actor.id, "skill");
+      }
+      case "cure": {
+        const t = e.who === "self" ? actor : target;
+        if (t) for (const s of t.statuses.filter((x) => HARMFUL.includes(x.kind))) cure(b, t, s.kind, actor.id, "skill");
         break;
-      case "shield":
-        if (target) {
-          target.shield = Math.max(target.shield ?? 0, e.amount);
-          b.log.push({ type: "shield", target: target.id, amount: e.amount, by: actor.id });
+      }
+      case "shield": {
+        const t = e.who === "self" ? actor : target;
+        if (t) {
+          t.shield = Math.max(t.shield ?? 0, e.amount);
+          b.log.push({ type: "shield", target: t.id, amount: e.amount, by: actor.id });
         }
         break;
+      }
       case "taunt":
         actor.guarding = true;
         break;
@@ -804,18 +812,26 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
         }
         break;
       }
-      case "applyStatus":
-        for (const t of e.area === "all" ? living(b, "enemy") : target ? [target] : []) out.applies.push({ target: t.id, kind: e.status });
+      case "applyStatus": {
+        const one = e.who === "self" ? actor : target;
+        for (const t of e.area === "all" ? living(b, "enemy") : one ? [one] : []) out.applies.push({ target: t.id, kind: e.status });
         break;
-      case "heal":
-        if (target) out.heal = { target: target.id, amount: Math.min(e.amount, target.maxHp - target.hp) };
+      }
+      case "heal": {
+        const t = e.who === "self" ? actor : target;
+        if (t) out.heal = { target: t.id, amount: Math.min(e.amount, t.maxHp - t.hp) };
         break;
-      case "cure":
-        if (target) out.cures = { target: target.id, kinds: target.statuses.filter((s) => HARMFUL.includes(s.kind)).map((s) => s.kind) };
+      }
+      case "cure": {
+        const t = e.who === "self" ? actor : target;
+        if (t) out.cures = { target: t.id, kinds: t.statuses.filter((s) => HARMFUL.includes(s.kind)).map((s) => s.kind) };
         break;
-      case "shield":
-        if (target) out.shield = { target: target.id, amount: e.amount };
+      }
+      case "shield": {
+        const t = e.who === "self" ? actor : target;
+        if (t) out.shield = { target: t.id, amount: e.amount };
         break;
+      }
       case "taunt":
         out.taunt = true;
         break;

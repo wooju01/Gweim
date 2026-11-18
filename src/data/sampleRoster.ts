@@ -151,8 +151,8 @@ export function sampleSeeds(): MercSeed[] {
     },
     level: "apprentice",
     passives: s.passives,
-    // 직업 스킬 1 + 효과 조각을 무작위로 조합한 스킬 3 (시드 고정이라 매번 같다)
-    skills: rollSkills(s.traits.job, seededRandom(2000 + i)),
+    // 직업 2 + 종족 1 + 직업·종족 1 (시드 고정이라 매번 같다)
+    skills: rollSkills(s.traits.job, s.traits.race, seededRandom(2000 + i)),
     profile: s.profile,
   }));
 }

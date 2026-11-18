@@ -3,7 +3,7 @@
 // 그래서 용병 시드에는 id만 저장하고, 내용은 필요할 때 다시 만든다.
 import { createRng, rollInt } from "../game/random";
 import type { StatusKind } from "./combat";
-import { DEFAULT_SKILL, JOB_SKILL, SKILLS, SKILL_SLOTS, describeSkill, type Skill, type SkillEffect, type SkillTarget } from "./skills";
+import { DEFAULT_SKILL, JOB_SKILL, SKILLS, SKILL_SLOTS, describeSkill, skillsFrom, type Skill, type SkillEffect, type SkillTarget } from "./skills";
 
 export const GEN_PREFIX = "gen:";
 
@@ -138,11 +138,27 @@ export function getSkill(id: string): Skill | undefined {
   return cache.get(id);
 }
 
-/** 시작 스킬 4칸: 직업 스킬 1개 + 무작위 조합 3개 (직접 만든 스킬이 채워지기 전 임시) */
-export function rollSkills(job: string | undefined, rand: () => number): string[] {
-  const ids = [(job && JOB_SKILL[job]) || DEFAULT_SKILL];
+/**
+ * 시작 스킬 4칸: 직업 2 (대표 스킬 + 하나) + 종족 1 + 마지막 1칸은 남은 직업·종족 스킬 중 하나.
+ * (조합 스킬이 생기면 마지막 칸은 30% 확률로 조합 초반 스킬이 된다)
+ * 직업·종족 스킬이 모자라면(테스트용 용병 등) 무작위 조합 스킬로 채운다.
+ */
+export function rollSkills(job: string | undefined, race: string | undefined, rand: () => number): string[] {
+  const draw = (pool: string[]): string | undefined => {
+    const left = pool.filter((id) => !ids.includes(id));
+    return left.length ? left[Math.floor(rand() * left.length)] : undefined;
+  };
+  const ids: string[] = [(job && JOB_SKILL[job]) || DEFAULT_SKILL];
+  const jobPool = job ? skillsFrom({ job }) : [];
+  const racePool = race ? skillsFrom({ race }) : [];
+  // 하나씩 뽑아 넣는다 (먼저 뽑힌 스킬은 다음 뽑기에서 빠진다)
+  for (const pool of [jobPool, racePool, [...jobPool, ...racePool]]) {
+    const pick = draw(pool);
+    if (pick) ids.push(pick);
+  }
+
   const names = new Set(ids.map((id) => getSkill(id)!.name));
-  // 한 용병 안에서 이름이 겹치는 스킬은 다시 뽑는다
+  // 모자란 칸은 무작위 조합 스킬로. 한 용병 안에서 이름이 겹치면 다시 뽑는다
   for (let tries = 0; ids.length < SKILL_SLOTS && tries < 50; tries++) {
     const id = `${GEN_PREFIX}${Math.floor(rand() * 2 ** 32)}`;
     const name = getSkill(id)!.name;
@@ -156,4 +172,13 @@ export function rollSkills(job: string | undefined, rand: () => number): string[
 /** 장착 스킬 목록이 올바른가 (모두 존재, 겹치지 않음, 슬롯 수 이하) */
 export function validSkills(ids: string[]): boolean {
   return ids.length <= SKILL_SLOTS && new Set(ids).size === ids.length && ids.every((id) => getSkill(id));
+}
+
+/** 이 직업·종족 용병이 가질 수 있는 스킬들인가 (다른 직업·종족 스킬이면 거부) */
+export function validSkillsFor(ids: string[], job: string | undefined, race: string | undefined): boolean {
+  if (!validSkills(ids)) return false;
+  return ids.every((id) => {
+    const { source } = getSkill(id)!;
+    return (!source.job || source.job === job) && (!source.race || source.race === race);
+  });
 }

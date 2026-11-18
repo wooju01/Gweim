@@ -5,6 +5,7 @@ import type { Level, Merc } from "../../game/types";
 import { MEMORY_MAX_CHARS } from "../../game/memory";
 import { getTrait } from "../../data/traits";
 import { LEVELS, getPassive, type Passive } from "../../data/passives";
+import { getSkill } from "../../data/skillgen";
 import type { Trait } from "../../game/types";
 import type { Direction, EventInput, ProfileInput, ReplyContext, SummaryInput, TurnEvent } from "./types";
 
@@ -86,6 +87,8 @@ function abilityLines(merc: Merc): string {
   if (merc.level) lines.push(`- 등급: ${LEVELS[merc.level].name}. 등급이 높을수록 자신감 있고 몸값을 높게 부른다.`);
   const passives = (merc.passives ?? []).flatMap((id) => getPassive(id) ?? []);
   if (passives.length) lines.push(`- 전투 특기: ${passiveText(passives)}. 자랑하거나 넌지시 내비칠 수 있다. 수치는 말하지 않는다.`);
+  const skills = (merc.skills ?? []).flatMap((id) => getSkill(id)?.name ?? []);
+  if (skills.length) lines.push(`- 쓰는 기술: ${skills.join(", ")}. 말할 때 기술 이름을 굳이 꺼내지 않아도 된다.`);
   return lines.length ? lines.join("\n") + "\n" : "";
 }
 

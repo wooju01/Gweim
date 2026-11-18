@@ -11,13 +11,16 @@ export type SkillEffect =
    * onHit: 공격자의 상태이상 부여(단검수 출혈 등)를 굴리나 (기본 true)
    */
   | { kind: "damage"; multiplier?: number; bonus?: number; fixed?: readonly [number, number]; area?: "one" | "all"; onHit?: boolean }
-  /** 대상(또는 area "all"이면 적 전체)에게 상태이상. 대상이 살아 있을 때만 */
-  | { kind: "applyStatus"; status: StatusKind; area?: "one" | "all" }
-  | { kind: "heal"; amount: number }
+  /**
+   * 대상(또는 area "all"이면 적 전체)에게 상태이상. 대상이 살아 있을 때만.
+   * who "self"면 대상 대신 자신 (heal, cure, shield도 같다)
+   */
+  | { kind: "applyStatus"; status: StatusKind; area?: "one" | "all"; who?: "self" }
+  | { kind: "heal"; amount: number; who?: "self" }
   /** 대상의 출혈·중독을 씻는다 */
-  | { kind: "cure" }
+  | { kind: "cure"; who?: "self" }
   /** 보호막. 겹쳐 쌓지 않고 큰 쪽으로 채운다 */
-  | { kind: "shield"; amount: number }
+  | { kind: "shield"; amount: number; who?: "self" }
   /** 다음 자기 차례까지 적의 공격을 끌어오고 받는 피해 절반 */
   | { kind: "taunt" }
   /** 자기 체력 소모 (체력 1 아래로는 깎지 않는다) */
@@ -109,21 +112,53 @@ const DEFS: SkillDef[] = [
       { kind: "shield", amount: 6 },
     ],
   },
+  // ── 직업 스킬 (대표 스킬 외 2개씩) ──
+  { id: "spear_pin", name: "꿰뚫기", source: { job: "spearman" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.4 }, { kind: "applyStatus", status: "crack" }] },
+  { id: "spear_shove", name: "밀쳐내기", source: { job: "spearman" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage" }, { kind: "applyStatus", status: "weaken" }] },
+  { id: "dagger_throat", name: "목 긋기", source: { job: "dagger" }, cooldown: 3, target: "enemy", effects: [{ kind: "damage", multiplier: 1.6 }] },
+  { id: "dagger_smoke", name: "연막", source: { job: "dagger" }, cooldown: 2, target: "none", effects: [{ kind: "shield", amount: 5, who: "self" }] },
+  { id: "nun_bless", name: "축복", source: { job: "nun" }, cooldown: 3, target: "ally", effects: [{ kind: "applyStatus", status: "awaken" }] },
+  { id: "nun_ward", name: "보호의 기도", source: { job: "nun" }, cooldown: 2, target: "ally", effects: [{ kind: "shield", amount: 5 }] },
+  { id: "archer_aim", name: "조준 사격", source: { job: "archer" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.6 }] },
+  { id: "archer_pin", name: "발 묶기", source: { job: "archer" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage" }, { kind: "applyStatus", status: "weaken" }] },
+  { id: "gs_sweep", name: "휩쓸어 베기", source: { job: "greatsword" }, cooldown: 3, target: "none", effects: [{ kind: "damage", multiplier: 0.6, area: "all" }] },
+  { id: "gs_grit", name: "투지", source: { job: "greatsword" }, cooldown: 3, target: "none", effects: [{ kind: "applyStatus", status: "awaken", who: "self" }, { kind: "selfCost", hp: 2 }] },
+  { id: "herb_aid", name: "응급 처치", source: { job: "herbalist" }, cooldown: 2, target: "ally", effects: [{ kind: "heal", amount: 6 }, { kind: "cure" }] },
+  { id: "herb_needle", name: "독침", source: { job: "herbalist" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", bonus: 1, onHit: false }, { kind: "applyStatus", status: "poison" }] },
+  { id: "mage_embers", name: "불씨 흩뿌리기", source: { job: "mage" }, cooldown: 3, target: "none", effects: [{ kind: "damage", fixed: [2, 4], area: "all", onHit: false }, { kind: "applyStatus", status: "crack", area: "all" }] },
+  { id: "mage_heatwall", name: "열기 방벽", source: { job: "mage" }, cooldown: 3, target: "ally", effects: [{ kind: "shield", amount: 7 }, { kind: "selfCost", hp: 2 }] },
+  { id: "spirit_breath", name: "정령의 숨결", source: { job: "spiritcaller" }, cooldown: 2, target: "ally", effects: [{ kind: "fail", chance: 0.2 }, { kind: "heal", amount: 7 }] },
+  { id: "spirit_quake", name: "땅 정령의 분노", source: { job: "spiritcaller" }, cooldown: 3, target: "enemy", effects: [{ kind: "damage", fixed: [4, 7], onHit: false }, { kind: "applyStatus", status: "weaken" }] },
+
+  // ── 종족 스킬 (2개씩) ──
+  { id: "human_resolve", name: "결의", source: { race: "human" }, cooldown: 4, target: "none", effects: [{ kind: "applyStatus", status: "awaken", who: "self" }] },
+  { id: "human_patch", name: "응급 손질", source: { race: "human" }, cooldown: 3, target: "none", effects: [{ kind: "heal", amount: 5, who: "self" }, { kind: "cure", who: "self" }] },
+  { id: "dwarf_anvil", name: "모루 버티기", source: { race: "dwarf" }, cooldown: 3, target: "none", effects: [{ kind: "taunt" }, { kind: "shield", amount: 4, who: "self" }] },
+  { id: "dwarf_hammer", name: "망치질", source: { race: "dwarf" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.3 }, { kind: "applyStatus", status: "crack" }] },
+  { id: "elf_spiritshot", name: "정령의 화살", source: { race: "elf" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", fixed: [4, 6], onHit: false }] },
+  { id: "elf_song", name: "숲의 노래", source: { race: "elf" }, cooldown: 3, target: "ally", effects: [{ kind: "heal", amount: 4 }, { kind: "cure" }] },
+  { id: "beast_maul", name: "물어뜯기", source: { race: "beastfolk" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", bonus: 2, onHit: false }, { kind: "applyStatus", status: "bleed" }] },
+  { id: "beast_howl", name: "야성의 포효", source: { race: "beastfolk" }, cooldown: 3, target: "none", effects: [{ kind: "applyStatus", status: "weaken", area: "all" }] },
+  { id: "barb_frenzy", name: "광폭", source: { race: "barbarian" }, cooldown: 3, target: "none", effects: [{ kind: "applyStatus", status: "awaken", who: "self" }, { kind: "selfCost", hp: 3 }] },
+  { id: "barb_oath", name: "맹세의 일격", source: { race: "barbarian" }, cooldown: 3, target: "enemy", effects: [{ kind: "damage", multiplier: 1.7 }] },
+
   /** 직업 정보가 없는 용병의 기본 스킬 */
   { id: "power", name: "전력 공격", source: {}, cooldown: 3, target: "enemy", effects: [{ kind: "damage", multiplier: 1.5 }] },
 ];
 
-const STATUS_NAME: Record<StatusKind, string> = {
+/** 효과 조각에서 설명 문장을 만든다. 스킬 수가 많아져도 설명을 따로 쓰지 않는다 */
+/** 상태이상 설명 (효과를 괄호로) */
+const STATUS_TEXT: Record<StatusKind, string> = {
   bleed: "출혈",
   poison: "중독",
-  crack: "균열",
-  weaken: "위축",
-  awaken: "각성",
+  crack: "균열(받는 피해 +2)",
+  weaken: "위축(공격 -2)",
+  awaken: "각성(공격 +4)",
 };
 
-/** 효과 조각에서 설명 문장을 만든다. 스킬 수가 많아져도 설명을 따로 쓰지 않는다 */
 export function describeSkill(def: SkillDef): string {
   const one = def.target === "ally" ? "아군 하나" : "적 하나";
+  const to = (e: { who?: "self" }) => (e.who === "self" ? "자신" : one);
   const parts = def.effects.flatMap((e): string[] => {
     switch (e.kind) {
       case "damage": {
@@ -133,13 +168,13 @@ export function describeSkill(def: SkillDef): string {
         return [`${who} ${power}${e.bonus ? ` +${e.bonus}` : ""} 피해`];
       }
       case "applyStatus":
-        return [e.area === "all" ? `모든 적을 ${STATUS_NAME[e.status]}시킨다` : `${STATUS_NAME[e.status]}을 반드시 건다`];
+        return [`${e.area === "all" ? "모든 적" : to(e)}에게 ${STATUS_TEXT[e.status]}`];
       case "heal":
-        return [`${one}의 체력 ${e.amount} 회복`];
+        return [`${to(e)}의 체력 ${e.amount} 회복`];
       case "cure":
-        return ["출혈과 중독을 씻어 낸다"];
+        return [`${e.who === "self" ? "자신의 " : ""}출혈과 중독을 씻어 낸다`];
       case "shield":
-        return [`${one}에게 피해를 먼저 막는 보호막 ${e.amount}`];
+        return [`${to(e)}에게 피해를 먼저 막는 보호막 ${e.amount}`];
       case "taunt":
         return ["다음 차례까지 적의 공격을 끌어오고, 받는 피해가 절반"];
       case "selfCost":
@@ -158,8 +193,26 @@ export type SkillId = string;
 /** 장착 슬롯 수. 공격과 붕대는 슬롯을 차지하지 않는다 */
 export const SKILL_SLOTS = 4;
 
-/** 직업별 스킬 (지금은 한 개씩. 장착 슬롯 4개는 다음 단계) */
-export const JOB_SKILL: Record<string, SkillId> = Object.fromEntries(
-  DEFS.filter((d) => d.source.job && !d.source.race).map((d) => [d.source.job!, d.id]),
-);
+/** 직업의 대표 스킬. 시작 스킬에 언제나 들어간다 */
+export const JOB_SKILL: Record<string, SkillId> = {
+  spearman: "guard",
+  dagger: "pierce",
+  nun: "pray",
+  archer: "volley",
+  greatsword: "cleave",
+  herbalist: "miasma",
+  mage: "firelance",
+  spiritcaller: "ward",
+};
+
+/** 이 직업·종족에게서 나오는 스킬 (조합 스킬은 아직 없다) */
+export function skillsFrom(source: SkillSource): SkillId[] {
+  return DEFS.filter((d) =>
+    source.job && source.race
+      ? d.source.job === source.job && d.source.race === source.race
+      : source.job
+        ? d.source.job === source.job && !d.source.race
+        : d.source.race === source.race && !d.source.job,
+  ).map((d) => d.id);
+}
 export const DEFAULT_SKILL: SkillId = "power";

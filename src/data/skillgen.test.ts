@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildMerc } from "../game/generate";
 import { sampleSeeds } from "./sampleRoster";
-import { generateSkill, getSkill, rollSkills, validSkills } from "./skillgen";
+import { generateSkill, getSkill, rollSkills, validSkills, validSkillsFor } from "./skillgen";
+import { JOB_SKILL, skillsFrom } from "./skills";
 
 describe("무작위 조합 스킬", () => {
   const skills = Array.from({ length: 500 }, (_, n) => generateSkill(n));
@@ -30,11 +31,12 @@ describe("무작위 조합 스킬", () => {
     expect([...targets].sort()).toEqual(["ally", "enemy", "none"]);
   });
 
-  it("시작 스킬은 직업 스킬 1 + 조합 3, 규칙 검사를 통과한다", () => {
+  it("직업·종족이 없으면 대표 스킬 1 + 조합 3으로 채운다", () => {
     let n = 0;
-    const ids = rollSkills("mage", () => (n++ % 97) / 97);
+    const ids = rollSkills(undefined, undefined, () => (n++ % 97) / 97);
     expect(ids).toHaveLength(4);
-    expect(ids[0]).toBe("firelance");
+    expect(ids[0]).toBe("power");
+    expect(ids.slice(1).every((id) => id.startsWith("gen:"))).toBe(true);
     expect(validSkills(ids)).toBe(true);
     expect(validSkills(["firelance", "firelance"])).toBe(false);
     expect(validSkills(["nope"])).toBe(false);
@@ -45,6 +47,48 @@ describe("무작위 조합 스킬", () => {
       const skills = buildMerc(seed)!.skills!;
       expect(skills).toHaveLength(4);
       expect(new Set(skills.map((id) => getSkill(id)!.name)).size).toBe(4);
+    }
+  });
+});
+
+describe("직업·종족 시작 스킬", () => {
+  const JOBS = ["spearman", "dagger", "nun", "archer", "greatsword", "herbalist", "mage", "spiritcaller"];
+  const RACES = ["human", "dwarf", "elf", "beastfolk", "barbarian"];
+
+  it("직업마다 3개, 종족마다 2개의 스킬이 있다", () => {
+    for (const job of JOBS) expect(skillsFrom({ job }), job).toHaveLength(3);
+    for (const race of RACES) expect(skillsFrom({ race }), race).toHaveLength(2);
+  });
+
+  it("직업 대표 스킬 + 직업 하나 + 종족 하나 + 직업·종족 하나, 모두 그 용병 것", () => {
+    let n = 1;
+    const rand = () => ((n = (n * 16807) % 2147483647) / 2147483647);
+    for (const job of JOBS) {
+      for (const race of RACES) {
+        const ids = rollSkills(job, race, rand);
+        expect(ids).toHaveLength(4);
+        expect(ids[0]).toBe(JOB_SKILL[job]);
+        expect(validSkillsFor(ids, job, race)).toBe(true);
+        const sources = ids.map((id) => getSkill(id)!.source);
+        expect(sources.filter((s) => s.job === job).length).toBeGreaterThanOrEqual(2);
+        expect(sources.filter((s) => s.race === race).length).toBeGreaterThanOrEqual(1);
+        expect(ids.some((id) => id.startsWith("gen:"))).toBe(false);
+      }
+    }
+  });
+
+  it("다른 직업·종족의 스킬은 거부한다", () => {
+    expect(validSkillsFor(["firelance"], "mage", "elf")).toBe(true);
+    expect(validSkillsFor(["firelance"], "spearman", "elf")).toBe(false);
+    expect(validSkillsFor(["dwarf_hammer"], "mage", "elf")).toBe(false);
+    expect(validSkillsFor(["gen:5"], "mage", "elf")).toBe(true);
+  });
+
+  it("모든 스킬의 설명이 만들어지고, 자신에게 쓰는 스킬은 '자신'으로 적힌다", () => {
+    expect(getSkill("human_resolve")!.description).toContain("자신에게 각성");
+    expect(getSkill("dagger_smoke")!.description).toContain("자신에게 피해를 먼저 막는 보호막 5");
+    for (const id of [...JOBS.flatMap((job) => skillsFrom({ job })), ...RACES.flatMap((race) => skillsFrom({ race }))]) {
+      expect(getSkill(id)!.description.length, id).toBeGreaterThan(5);
     }
   });
 });

@@ -71,7 +71,7 @@ async function recruitOne(
   const start = rollStart(traits, Math.random);
   const level = RECRUIT_LEVEL;
   const passives = rollPassives(traitIds.race, level, Math.random);
-  const skills = rollSkills(traitIds.job, Math.random);
+  const skills = rollSkills(traitIds.job, traitIds.race, Math.random);
   const id = `r-${crypto.randomUUID().slice(0, 8)}`;
 
   const ai = getMercAI();

@@ -878,3 +878,15 @@ describe("호감 단계", () => {
     expect(giftsReceived(b)).toEqual({ [varn.id]: 1 });
   });
 });
+
+describe("자신에게 쓰는 스킬", () => {
+  it("결의: 자신에게 각성, 연막: 자신에게 보호막, 미리보기도 자신을 가리킨다", () => {
+    const merc: Merc = { ...varn, job: "dagger", skills: ["human_resolve", "dagger_smoke"] };
+    let b = start([merc], 1, [dummy("e0", 999)]);
+    expect(previewAction(b, { type: "skill", skill: "human_resolve" })!.applies).toEqual([{ target: varn.id, kind: "awaken" }]);
+    b = act(b, { type: "skill", skill: "human_resolve" });
+    expect(hasStatus(unitById(b, varn.id)!, "awaken")).toBe(true);
+    b = act(b, { type: "skill", skill: "dagger_smoke" });
+    expect(b.log).toContainEqual({ type: "shield", target: varn.id, amount: 5, by: varn.id });
+  });
+});
