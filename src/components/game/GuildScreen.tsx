@@ -1,3 +1,4 @@
+import { LEVELS, getPassive } from "@/data/passives";
 import type { Merc } from "@/game/types";
 import { Button, MercStats, Portrait } from "./parts";
 import { GUIDE, MERC_SLOTS } from "@/game/party";
@@ -61,7 +62,7 @@ export function GuildScreen({
             return (
               <article
                 key={merc.id}
-                className="animate-rise flex flex-col gap-4 rounded-sm border border-edge bg-panel p-4"
+                className="animate-rise relative flex flex-col gap-4 rounded-sm border border-edge bg-panel p-4 hover:z-30 focus-within:z-30"
               >
                 <div className="flex gap-4">
                   <Portrait merc={merc} size="sm" />
@@ -79,11 +80,39 @@ export function GuildScreen({
                 </div>
                 {merc.tags && (
                   <ul className="flex flex-wrap gap-1">
+                    {merc.level && (
+                      <li className="rounded-sm bg-edge/60 px-1.5 py-0.5 text-[11px] text-bone">
+                        {LEVELS[merc.level].name}
+                      </li>
+                    )}
                     {merc.tags.map((tag) => (
                       <li key={tag} className="rounded-sm border border-edge px-1.5 py-0.5 text-[11px] text-bone/70">
                         {tag}
                       </li>
                     ))}
+                    {merc.passives?.map((id) => {
+                      const passive = getPassive(id);
+                      return (
+                        passive && (
+                          // 브라우저 기본 title 툴팁은 늦게 뜨거나 안 뜰 때가 있어 직접 그린다.
+                          // 탭(포커스)으로도 열려서 터치 화면에서도 볼 수 있다.
+                          <li
+                            key={id}
+                            tabIndex={0}
+                            className="group relative rounded-sm border border-ember/50 px-1.5 py-0.5 text-[11px] text-ember outline-none focus:border-ember"
+                          >
+                            ✦ {passive.name}
+                            <span
+                              role="tooltip"
+                              className="pointer-events-none absolute bottom-full left-0 z-20 mb-1.5 hidden w-56 rounded-sm border border-edge bg-ink px-2.5 py-2 text-xs leading-relaxed text-bone shadow-lg group-hover:block group-focus:block"
+                            >
+                              {passive.description}
+                              <span className="mt-1 block text-[11px] text-ash">전투 효과는 아직 준비 중</span>
+                            </span>
+                          </li>
+                        )
+                      );
+                    })}
                   </ul>
                 )}
                 {merc.impression && <p className="text-sm italic text-ember/80">{merc.impression}</p>}

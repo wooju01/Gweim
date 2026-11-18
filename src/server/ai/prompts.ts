@@ -4,6 +4,7 @@ import type { Resolve } from "../../game/affinity";
 import type { Level, Merc } from "../../game/types";
 import { MEMORY_MAX_CHARS } from "../../game/memory";
 import { getTrait } from "../../data/traits";
+import { LEVELS, getPassive, type Passive } from "../../data/passives";
 import type { Trait } from "../../game/types";
 import type { Direction, ProfileInput, ReplyContext, SummaryInput, TurnEvent } from "./types";
 
@@ -75,6 +76,19 @@ function raceLines(race: Trait | undefined): string {
 `;
 }
 
+function passiveText(passives: Passive[]): string {
+  return passives.map((p) => `${p.name}(${p.description})`).join(", ");
+}
+
+/** 등급과 전투 특기. 대화에서 자기 실력을 말할 때 참고한다 */
+function abilityLines(merc: Merc): string {
+  const lines: string[] = [];
+  if (merc.level) lines.push(`- 등급: ${LEVELS[merc.level].name}. 등급이 높을수록 자신감 있고 몸값을 높게 부른다.`);
+  const passives = (merc.passives ?? []).flatMap((id) => getPassive(id) ?? []);
+  if (passives.length) lines.push(`- 전투 특기: ${passiveText(passives)}. 자랑하거나 넌지시 내비칠 수 있다. 수치는 말하지 않는다.`);
+  return lines.length ? lines.join("\n") + "\n" : "";
+}
+
 /**
  * 용병마다 고정된 시스템 프롬프트. 매 턴 같은 내용이라 프롬프트 캐싱 대상이다.
  * 여기에 매 턴 바뀌는 값(단계, 시간 등)을 넣으면 캐시가 깨지므로 넣지 말 것.
@@ -87,7 +101,7 @@ ${WORLD} 마을 용병 길드에서 플레이어가 용병에게 동행을 청�
 
 # 캐릭터
 - 이름: ${merc.name} (${merc.title})
-${raceLines(merc.race ? getTrait(merc.race) : undefined)}- 성격: ${merc.persona}
+${raceLines(merc.race ? getTrait(merc.race) : undefined)}${abilityLines(merc)}- 성격: ${merc.persona}
 - 과거: ${merc.background}
 - 말투: ${merc.speechStyle}
 - 예시 대사: ${merc.exampleLines.map((l) => `"${l}"`).join(" / ")}
@@ -224,6 +238,7 @@ ${race ? `- 종족: ${race.name} — ${race.description} 인간을 보는 눈: $
 - 성격: ${personalities.map((p) => `${p.name} — ${p.description}`).join(" / ")}
 - 배경: ${background.name} — ${background.description}
 - 비밀의 씨앗: ${background.secretHint}
+- 등급: 견습 (아직 이름이 알려지지 않은 용병)${input.passives?.length ? `\n- 전투 특기: ${passiveText(input.passives)} — 성격이나 과거에 자연스럽게 녹여도 좋다` : ""}
 
 # 만들 것
 - name: 한국어로 쓴 판타지풍 이름, 띄어쓰기 포함 12자 이내. ${race?.nameStyle ?? "2~3음절, 성은 없다."} 종족의 문화에서 나온 이름처럼. 다음 이름과 겹치지 않게: ${avoid}

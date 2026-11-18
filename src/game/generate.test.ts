@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { ALL_TRAITS, BACKGROUNDS, JOBS, PERSONALITIES, RACES, getTrait } from "../data/traits";
-import type { MercSeed } from "../lib/schemas";
+import { MercSeed } from "../lib/schemas";
+import { PASSIVES, getPassive, passivesOf } from "../data/passives";
 import { dislikedTones, likedTones } from "./affinity";
 import {
   pickImpression,
+  rollPassives,
+  validPassives,
   jobsFor,
   START_AFFINITY_RANGE,
   START_WILLINGNESS_RANGE,
@@ -136,7 +139,7 @@ describe("combineReactions", () => {
 
   it("뽑힌 용병은 대부분 좋아하는 태도와 싫어하는 태도를 모두 가진다", () => {
     const mercs = rollMany().map(({ ids, start }) =>
-      buildMerc({ id: "x", traits: ids, start: start!, profile }),
+      buildMerc({ id: "x", traits: ids, start: start!, level: "apprentice", passives: [], profile }),
     );
     const complete = mercs.filter((m) => likedTones(m!).length > 0 && dislikedTones(m!).length > 0);
     expect(complete.length / mercs.length).toBeGreaterThan(0.95);
@@ -148,6 +151,8 @@ describe("buildMerc", () => {
     id: "r-test",
     traits: { race: "human", job: "nun", personalities: ["rude"], background: "excommunicated" },
     start: { affinity: 15, willingness: 40 },
+    level: "apprentice",
+    passives: [],
     profile,
   };
 
@@ -235,5 +240,60 @@ describe("종족", () => {
       return sum / 300;
     };
     expect(avg("beastfolk")).toBeLessThan(avg("human") - 5);
+  });
+});
+
+describe("등급과 패시브", () => {
+  it("모든 종족에 패시브 후보가 5개씩 있고 id가 겹치지 않는다", () => {
+    for (const race of RACES) expect(passivesOf(race.id), race.id).toHaveLength(5);
+    expect(new Set(PASSIVES.map((p) => p.id)).size).toBe(PASSIVES.length);
+  });
+
+  it("견습은 패시브 0~1개로 시작하고, 반쯤은 하나를 갖는다", () => {
+    const rand = seededRandom(9);
+    let withOne = 0;
+    for (let i = 0; i < 2000; i++) {
+      const passives = rollPassives("dwarf", "apprentice", rand);
+      expect(passives.length).toBeLessThanOrEqual(1);
+      if (passives.length === 1) {
+        withOne++;
+        expect(getPassive(passives[0])!.race).toBe("dwarf");
+      }
+    }
+    expect(withOne / 2000).toBeGreaterThan(0.45);
+    expect(withOne / 2000).toBeLessThan(0.55);
+  });
+
+  it("다른 종족 패시브, 없는 패시브, 등급 한도 초과, 중복은 거부한다", () => {
+    expect(validPassives("dwarf", "apprentice", ["rock_root"])).toBe(true);
+    expect(validPassives("dwarf", "apprentice", [])).toBe(true);
+    expect(validPassives("dwarf", "apprentice", ["keen_eye"])).toBe(false); // 엘프 것
+    expect(validPassives("dwarf", "apprentice", ["fly"])).toBe(false);
+    expect(validPassives("dwarf", "apprentice", ["rock_root", "steel_heart"])).toBe(false); // 견습은 1개까지
+    expect(validPassives("dwarf", "skilled", ["rock_root", "steel_heart"])).toBe(true);
+    expect(validPassives("dwarf", "skilled", ["rock_root", "rock_root"])).toBe(false);
+  });
+
+  it("buildMerc는 시드의 등급과 패시브를 싣고, 규칙을 어기면 거부한다", () => {
+    const seed: MercSeed = {
+      id: "d-1",
+      traits: { race: "dwarf", job: "greatsword", personalities: ["jovial"], background: "veteran" },
+      start: { affinity: 15, willingness: 40 },
+      level: "apprentice",
+      passives: ["rock_root"],
+      profile,
+    };
+    expect(buildMerc(seed)).toMatchObject({ level: "apprentice", passives: ["rock_root"] });
+    expect(buildMerc({ ...seed, passives: ["keen_eye"] })).toBeNull();
+  });
+
+  it("예전 시드처럼 등급·패시브가 없으면 견습, 패시브 없음으로 읽는다", () => {
+    const old = {
+      id: "o-1",
+      traits: { race: "human", job: "archer", personalities: ["kind"], background: "wanderer" },
+      start: { affinity: 15, willingness: 40 },
+      profile,
+    };
+    expect(MercSeed.parse(old)).toMatchObject({ level: "apprentice", passives: [] });
   });
 });

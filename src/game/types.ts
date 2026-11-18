@@ -1,4 +1,4 @@
-import type { ChoiceTone } from "../lib/schemas";
+import type { ChoiceTone, MercLevel } from "../lib/schemas";
 
 /** 반응 세기. 1칸당 변화량은 affinity.ts의 STEP */
 export type Level = -2 | -1 | 0 | 1 | 2;
@@ -59,6 +59,10 @@ export type Merc = {
   race?: string;
   /** 직업 id (traits.ts). 전투 능력을 정한다 */
   job?: string;
+  /** 등급. 랜덤 용병에만 있다 */
+  level?: MercLevel;
+  /** 종족 패시브 id (data/passives.ts). 전투 효과는 아직 없다 */
+  passives?: string[];
   name: string;
   /** 카드에 붙는 짧은 호칭 */
   title: string;

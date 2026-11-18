@@ -1,7 +1,8 @@
 // 랜덤 용병 생성 규칙. 특성 뽑기, 반응표 합치기, 시작 수치 계산.
 // React/Next/AI에 의존하지 않는 순수 함수만 둔다. 난수는 주입받는다.
 import { BACKGROUNDS, JOBS, PERSONALITIES, RACES, getTrait } from "../data/traits";
-import { ChoiceTone, type MercSeed, type MercTraits } from "../lib/schemas";
+import { APPRENTICE_PASSIVE_CHANCE, LEVELS, getPassive, passivesOf } from "../data/passives";
+import { ChoiceTone, type MercLevel, type MercSeed, type MercTraits } from "../lib/schemas";
 import { clampStat } from "./affinity";
 import type { Level, Merc, Reaction, Trait } from "./types";
 
@@ -159,6 +160,21 @@ export function pickImpression(id: string, traits: Trait[]): string | undefined 
   return options[hash % options.length];
 }
 
+/** 모집 시 패시브를 뽑는다. 지금은 견습만: 50% 확률로 종족 패시브 하나 */
+export function rollPassives(race: string, level: MercLevel, rand: Rand): string[] {
+  const pool = passivesOf(race);
+  if (level !== "apprentice" || pool.length === 0) return [];
+  if (rand() >= APPRENTICE_PASSIVE_CHANCE) return [];
+  return [pool[Math.floor(rand() * pool.length)].id];
+}
+
+/** 패시브가 존재하고, 그 종족 것이고, 겹치지 않고, 등급 한도 안인가 */
+export function validPassives(race: string, level: MercLevel, passives: string[]): boolean {
+  if (passives.length > LEVELS[level].maxPassives) return false;
+  if (new Set(passives).size !== passives.length) return false;
+  return passives.every((id) => getPassive(id)?.race === race);
+}
+
 /** 카드에 보이는 특성 이름: [종족, 직업, 성격..., 배경] */
 export function traitTags(traits: Trait[]): string[] {
   return traits.map((t) => t.name);
@@ -171,12 +187,15 @@ export function traitTags(traits: Trait[]): string[] {
 export function buildMerc(seed: MercSeed): Merc | null {
   const traits = resolveTraits(seed.traits);
   if (!traits) return null;
+  if (!validPassives(seed.traits.race, seed.level, seed.passives)) return null;
   const { profile } = seed;
   return {
     id: seed.id,
     tags: traitTags(traits),
     race: seed.traits.race,
     job: seed.traits.job,
+    level: seed.level,
+    passives: seed.passives,
     name: profile.name,
     title: profile.title,
     impression: pickImpression(seed.id, traits),

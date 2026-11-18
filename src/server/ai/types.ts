@@ -7,6 +7,7 @@ import type {
 } from "../../lib/schemas";
 import type { Resolve } from "../../game/affinity";
 import type { Merc, Trait } from "../../game/types";
+import type { Passive } from "../../data/passives";
 
 export type Direction = "up" | "down" | "none";
 
@@ -51,6 +52,8 @@ export type SummaryInput = {
 /** 랜덤 용병 프로필 생성 입력. 코드가 뽑은 특성만 넘긴다. */
 export type ProfileInput = {
   traits: Trait[];
+  /** 코드가 뽑은 종족 패시브 (없을 수 있다) */
+  passives?: Passive[];
   /** 이미 쓰이는 이름 */
   avoidNames: string[];
 };

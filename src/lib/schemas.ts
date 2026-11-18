@@ -82,6 +82,10 @@ export const MercProfile = z.object({
 });
 export type MercProfile = z.infer<typeof MercProfile>;
 
+/** 용병 등급: 견습 / 숙련 / 노련 / 전설 (data/passives.ts의 LEVELS) */
+export const MercLevel = z.enum(["apprentice", "skilled", "veteran", "legend"]);
+export type MercLevel = z.infer<typeof MercLevel>;
+
 /** 랜덤 용병 한 명을 다시 만들 수 있는 최소 정보. 반응표는 traits에서 코드가 다시 계산한다. */
 export const MercSeed = z.object({
   id: z.string().min(1).max(40),
@@ -90,6 +94,9 @@ export const MercSeed = z.object({
     affinity: z.number().int().min(0).max(100),
     willingness: z.number().int().min(0).max(100),
   }),
+  level: MercLevel.default("apprentice"),
+  /** 종족 패시브 id (data/passives.ts). 개수는 등급이 정한다 */
+  passives: z.array(z.string().max(40)).max(4).default([]),
   profile: MercProfile,
 });
 export type MercSeed = z.infer<typeof MercSeed>;
