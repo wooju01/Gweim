@@ -112,7 +112,7 @@ const DEFS: SkillDef[] = [
       { kind: "shield", amount: 6 },
     ],
   },
-  // ── 직업 스킬 (대표 스킬 외 2개씩) ──
+  // ── 직업 스킬 (대표 스킬 외 3개씩) ──
   { id: "spear_pin", name: "꿰뚫기", source: { job: "spearman" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.4 }, { kind: "applyStatus", status: "crack" }] },
   { id: "spear_shove", name: "밀쳐내기", source: { job: "spearman" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage" }, { kind: "applyStatus", status: "weaken" }] },
   { id: "dagger_throat", name: "목 긋기", source: { job: "dagger" }, cooldown: 3, target: "enemy", effects: [{ kind: "damage", multiplier: 1.6 }] },
@@ -130,7 +130,16 @@ const DEFS: SkillDef[] = [
   { id: "spirit_breath", name: "정령의 숨결", source: { job: "spiritcaller" }, cooldown: 2, target: "ally", effects: [{ kind: "fail", chance: 0.2 }, { kind: "heal", amount: 7 }] },
   { id: "spirit_quake", name: "땅 정령의 분노", source: { job: "spiritcaller" }, cooldown: 3, target: "enemy", effects: [{ kind: "damage", fixed: [4, 7], onHit: false }, { kind: "applyStatus", status: "weaken" }] },
 
-  // ── 종족 스킬 (2개씩) ──
+  { id: "spear_whirl", name: "창 휘두르기", source: { job: "spearman" }, cooldown: 3, target: "none", effects: [{ kind: "damage", multiplier: 0.5, area: "all" }] },
+  { id: "dagger_ambush", name: "기습", source: { job: "dagger" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.3 }, { kind: "applyStatus", status: "weaken" }] },
+  { id: "nun_judge", name: "정죄", source: { job: "nun" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.3 }, { kind: "applyStatus", status: "crack" }] },
+  { id: "archer_poison", name: "독화살", source: { job: "archer" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", onHit: false }, { kind: "applyStatus", status: "poison" }] },
+  { id: "gs_dread", name: "위압", source: { job: "greatsword" }, cooldown: 3, target: "none", effects: [{ kind: "taunt" }, { kind: "applyStatus", status: "weaken", area: "all" }] },
+  { id: "herb_tonic", name: "각성 약초", source: { job: "herbalist" }, cooldown: 3, target: "ally", effects: [{ kind: "applyStatus", status: "awaken" }, { kind: "heal", amount: 2 }] },
+  { id: "mage_blast", name: "불꽃 폭발", source: { job: "mage" }, cooldown: 4, target: "none", effects: [{ kind: "damage", multiplier: 0.8, area: "all", onHit: false }, { kind: "selfCost", hp: 3 }] },
+  { id: "spirit_veil", name: "바람 정령의 장막", source: { job: "spiritcaller" }, cooldown: 2, target: "ally", effects: [{ kind: "fail", chance: 0.2 }, { kind: "shield", amount: 4 }, { kind: "cure" }] },
+
+  // ── 종족 스킬 (4개씩) ──
   { id: "human_resolve", name: "결의", source: { race: "human" }, cooldown: 4, target: "none", effects: [{ kind: "applyStatus", status: "awaken", who: "self" }] },
   { id: "human_patch", name: "응급 손질", source: { race: "human" }, cooldown: 3, target: "none", effects: [{ kind: "heal", amount: 5, who: "self" }, { kind: "cure", who: "self" }] },
   { id: "dwarf_anvil", name: "모루 버티기", source: { race: "dwarf" }, cooldown: 3, target: "none", effects: [{ kind: "taunt" }, { kind: "shield", amount: 4, who: "self" }] },
@@ -141,6 +150,16 @@ const DEFS: SkillDef[] = [
   { id: "beast_howl", name: "야성의 포효", source: { race: "beastfolk" }, cooldown: 3, target: "none", effects: [{ kind: "applyStatus", status: "weaken", area: "all" }] },
   { id: "barb_frenzy", name: "광폭", source: { race: "barbarian" }, cooldown: 3, target: "none", effects: [{ kind: "applyStatus", status: "awaken", who: "self" }, { kind: "selfCost", hp: 3 }] },
   { id: "barb_oath", name: "맹세의 일격", source: { race: "barbarian" }, cooldown: 3, target: "enemy", effects: [{ kind: "damage", multiplier: 1.7 }] },
+  { id: "human_rally", name: "격려", source: { race: "human" }, cooldown: 4, target: "ally", effects: [{ kind: "applyStatus", status: "awaken" }] },
+  { id: "human_improv", name: "임기응변 일격", source: { race: "human" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", bonus: 3 }] },
+  { id: "dwarf_steel", name: "강철 피부", source: { race: "dwarf" }, cooldown: 3, target: "none", effects: [{ kind: "shield", amount: 6, who: "self" }] },
+  { id: "dwarf_quake", name: "대지 울리기", source: { race: "dwarf" }, cooldown: 3, target: "none", effects: [{ kind: "damage", fixed: [2, 4], area: "all", onHit: false }] },
+  { id: "elf_windblade", name: "바람의 칼날", source: { race: "elf" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.2 }, { kind: "applyStatus", status: "crack" }] },
+  { id: "elf_blessing", name: "정령의 축복", source: { race: "elf" }, cooldown: 3, target: "ally", effects: [{ kind: "shield", amount: 4 }, { kind: "heal", amount: 3 }] },
+  { id: "beast_instinct", name: "사냥 본능", source: { race: "beastfolk" }, cooldown: 3, target: "none", effects: [{ kind: "applyStatus", status: "awaken", who: "self" }] },
+  { id: "beast_claw", name: "할퀴기", source: { race: "beastfolk" }, cooldown: 3, target: "enemy", effects: [{ kind: "damage", multiplier: 1.2 }, { kind: "applyStatus", status: "bleed" }] },
+  { id: "barb_warcry", name: "전쟁 함성", source: { race: "barbarian" }, cooldown: 4, target: "none", effects: [{ kind: "taunt" }, { kind: "applyStatus", status: "awaken", who: "self" }] },
+  { id: "barb_tattoo", name: "문신의 맹세", source: { race: "barbarian" }, cooldown: 3, target: "none", effects: [{ kind: "shield", amount: 5, who: "self" }, { kind: "cure", who: "self" }] },
 
   /** 직업 정보가 없는 용병의 기본 스킬 */
   { id: "power", name: "전력 공격", source: {}, cooldown: 3, target: "enemy", effects: [{ kind: "damage", multiplier: 1.5 }] },

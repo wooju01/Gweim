@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildMerc } from "../game/generate";
 import { sampleSeeds } from "./sampleRoster";
 import { generateSkill, getSkill, rollSkills, validSkills, validSkillsFor } from "./skillgen";
-import { JOB_SKILL, skillsFrom } from "./skills";
+import { JOB_SKILL, SKILLS, skillsFrom } from "./skills";
 
 describe("무작위 조합 스킬", () => {
   const skills = Array.from({ length: 500 }, (_, n) => generateSkill(n));
@@ -55,9 +55,12 @@ describe("직업·종족 시작 스킬", () => {
   const JOBS = ["spearman", "dagger", "nun", "archer", "greatsword", "herbalist", "mage", "spiritcaller"];
   const RACES = ["human", "dwarf", "elf", "beastfolk", "barbarian"];
 
-  it("직업마다 3개, 종족마다 2개의 스킬이 있다", () => {
-    for (const job of JOBS) expect(skillsFrom({ job }), job).toHaveLength(3);
-    for (const race of RACES) expect(skillsFrom({ race }), race).toHaveLength(2);
+  it("직업마다 4개, 종족마다 4개의 스킬이 있고 id와 이름이 겹치지 않는다", () => {
+    for (const job of JOBS) expect(skillsFrom({ job }), job).toHaveLength(4);
+    for (const race of RACES) expect(skillsFrom({ race }), race).toHaveLength(4);
+    const all = Object.values(SKILLS);
+    expect(new Set(all.map((s) => s.id)).size).toBe(all.length);
+    expect(new Set(all.map((s) => s.name)).size).toBe(all.length);
   });
 
   it("직업 대표 스킬 + 직업 하나 + 종족 하나 + 직업·종족 하나, 모두 그 용병 것", () => {
