@@ -1,6 +1,6 @@
 "use client";
 
-import { useReducer } from "react";
+import { useEffect, useReducer } from "react";
 import type { TalkAction } from "@/lib/schemas";
 import { postEvent, postRecruit, postTalk } from "./api";
 import { BattleScreen } from "./BattleScreen";
@@ -12,6 +12,7 @@ import { DialogueScreen } from "./DialogueScreen";
 import { GuildScreen } from "./GuildScreen";
 import { MERC_SLOTS } from "@/game/party";
 import { entryId, gameReducer, initialState, mercOf } from "./state";
+import { clearSave, loadGame, saveGame } from "./save";
 
 function playerLineFor(action: TalkAction): string | null {
   switch (action.type) {
@@ -28,6 +29,27 @@ function playerLineFor(action: TalkAction): string | null {
 
 export function Game() {
   const [state, dispatch] = useReducer(gameReducer, undefined, initialState);
+  // 처음 한 번 저장을 읽는다. 없으면 처음 상태로, 읽지 못하면 새로 시작하고 알린다.
+  // 읽기 전(state.booted가 false)에는 화면을 그리지 않는다 (서버가 그린 처음 상태가 잠깐 보이지 않게)
+  useEffect(() => {
+    const { state: saved, error } = loadGame(window.localStorage);
+    const fresh = initialState();
+    dispatch({
+      type: "load",
+      state: saved ?? (error ? { ...fresh, notices: [`저장을 읽지 못해 새로 시작했다. (${error})`] } : fresh),
+    });
+  }, []);
+
+  // 상태가 바뀔 때마다 자동 저장 (되돌리기 없음)
+  useEffect(() => {
+    if (state.booted) saveGame(window.localStorage, state);
+  }, [state]);
+
+  function newGame() {
+    if (!window.confirm("저장을 지우고 처음부터 시작할까? 되돌릴 수 없다.")) return;
+    clearSave(window.localStorage);
+    dispatch({ type: "newGame" });
+  }
 
   const findEntry = (mercId: string) => state.roster.find((e) => entryId(e) === mercId);
 
@@ -109,6 +131,8 @@ export function Game() {
     }
   }
 
+  if (!state.booted) return <main className="flex flex-1 items-center justify-center text-sm text-ash">불러오는 중…</main>;
+
   if (state.screen.kind === "battle") {
     return (
       <BattleScreen
@@ -177,6 +201,7 @@ export function Game() {
       onEnterDungeon={() => dispatch({ type: "enterDungeon", seed: roll() })}
       notices={state.notices}
       onDismissNotices={() => dispatch({ type: "dismissNotices" })}
+      onNewGame={newGame}
     />
   );
 }

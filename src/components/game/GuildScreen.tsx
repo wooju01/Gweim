@@ -16,6 +16,8 @@ type Props = {
   /** 탐험에서 돌아왔을 때 알릴 일 */
   notices?: string[];
   onDismissNotices?: () => void;
+  /** 저장을 지우고 처음부터 */
+  onNewGame?: () => void;
 };
 
 export function GuildScreen({
@@ -29,6 +31,7 @@ export function GuildScreen({
   onEnterDungeon,
   notices = [],
   onDismissNotices,
+  onNewGame,
 }: Props) {
   const byId = new Map(mercs.map((m) => [m.id, m]));
 
@@ -62,6 +65,11 @@ export function GuildScreen({
           </Button>
           <span className="text-[11px] text-ash">고용하지 않은 떠돌이 용병은 떠나고 새 얼굴이 온다</span>
           {recruit.error && <span className="text-xs text-blood">{recruit.error}</span>}
+          {onNewGame && (
+            <button onClick={onNewGame} className="mt-1 text-[11px] text-ash/70 underline-offset-2 hover:text-blood hover:underline">
+              처음부터 다시 시작 (저장 삭제)
+            </button>
+          )}
         </div>
       </header>
 

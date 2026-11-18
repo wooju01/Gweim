@@ -54,6 +54,12 @@ export type GameState = {
   restTalk: RestTalk | null;
   /** 길드에 돌아왔을 때 알릴 일 (계약 파기, 감사 등) */
   notices: string[];
+  /** 길안내자의 명성 (나중: 생환·깊은 층으로 오르고, 좋은 등급 용병이 모인다). 지금은 자리만 */
+  renown: number;
+  /** 용병을 어떻게 대했는가 (나중: 낮으면 시작 고용 의향 감소). 지금은 자리만 */
+  reputation: number;
+  /** 저장을 읽고 나서 true (그전에는 화면을 그리지 않고 저장도 하지 않는다). 저장하지 않는 칸 */
+  booted: boolean;
 };
 
 export type RestTalk = {
@@ -91,7 +97,11 @@ export type GameAction =
   | { type: "restTalkPending" }
   | { type: "restTalkReply"; res: TalkResponse; done: boolean }
   | { type: "restTalkFailed"; error: string }
-  | { type: "dismissNotices" };
+  | { type: "dismissNotices" }
+  /** 저장에서 불러온 상태로 바꾼다 */
+  | { type: "load"; state: GameState }
+  /** 저장을 지우고 처음부터 */
+  | { type: "newGame" };
 
 export function entryId(entry: RosterEntry): string {
   return entry.kind === "unique" ? entry.id : entry.seed.id;
@@ -195,6 +205,9 @@ export function initialState(): GameState {
     reactions: [],
     restTalk: null,
     notices: [],
+    renown: 0,
+    reputation: 0,
+    booted: false,
   };
 }
 
@@ -324,6 +337,12 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case "dismissNotices":
       return { ...state, notices: [] };
+
+    case "load":
+      return { ...action.state, booted: true };
+
+    case "newGame":
+      return { ...initialState(), booted: true };
 
     case "battleAct":
       if (state.screen.kind !== "battle") return state;
