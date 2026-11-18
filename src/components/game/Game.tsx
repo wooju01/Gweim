@@ -91,6 +91,8 @@ export function Game() {
   if (state.screen.kind === "battle") {
     return (
       <BattleScreen
+        // 전투가 바뀌면 연출 재생을 처음부터 다시 한다 (던전에서는 칸마다 새 전투)
+        key={state.expedition?.at ?? "battle"}
         battle={state.screen.battle}
         onAct={(action) => dispatch({ type: "battleAct", action })}
         onLeave={() => dispatch({ type: "battleFinish" })}

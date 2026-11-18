@@ -66,6 +66,9 @@ export type Unit = {
   shield?: number;
   /** 용병만: 종족 패시브 id (data/passives.ts) */
   passives?: string[];
+  /** 용병만: 화면에 그릴 때 쓰는 직업·종족 id (규칙에는 쓰지 않는다) */
+  job?: string;
+  race?: string;
   /** 패시브가 쓰는 전투 중 기록 */
   fx?: PassiveState;
 };
@@ -218,6 +221,8 @@ export function mercUnit(merc: Merc): Unit {
     guarding: false,
     passives: merc.passives ?? [],
     fx: {},
+    job: merc.job,
+    race: merc.race,
   };
 }
 
