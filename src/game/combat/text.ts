@@ -1,5 +1,6 @@
 // 전투 이벤트를 한국어 문장으로. 나중에 애니메이션을 붙여도 이 텍스트는 전투 기록으로 남긴다.
 import { SKILLS, STATUS, type StatusKind } from "../../data/combat";
+import { getPassive } from "../../data/passives";
 import type { Battle, BattleEvent } from "./engine";
 
 /** 마지막 글자에 받침이 있나. 한글이 아니면 없다고 본다 */
@@ -31,6 +32,9 @@ export function describe(event: BattleEvent, b: Battle): string {
     case "attack":
       return `${josa(name(event.actor), "이", "가")} ${josa(name(event.target), "을", "를")} 공격했다. ${event.damage} 피해${event.crit ? " (치명타!)" : ""}${event.absorbed ? ` · 보호막이 ${event.absorbed} 막음` : ""}`;
     case "status":
+      if (event.kind === "awaken") return `${josa(name(event.target), "이", "가")} 각성했다. 2턴 동안 공격이 강해진다.`;
+      if (event.kind === "weaken") return `${josa(name(event.target), "이", "가")} 움츠러들었다. (위축)`;
+      if (event.kind === "crack") return `${name(event.target)}의 몸에 균열이 갔다. 받는 피해가 늘어난다.`;
       return `${josa(name(event.target), "이", "가")} ${STATUS_NAME(event.kind)}에 걸렸다.`;
     case "tick":
       return `${josa(name(event.target), "이", "가")} ${euro(STATUS_NAME(event.kind))} ${event.damage} 피해를 입었다.`;
@@ -63,6 +67,29 @@ export function describe(event: BattleEvent, b: Battle): string {
       return `${name(event.target)}의 몸을 정령의 보호막(${event.amount})이 감쌌다.`;
     case "fizzle":
       return `${name(event.actor)}의 부름에 정령이 답하지 않았다.`;
+    case "evade":
+      return `${josa(name(event.target), "이", "가")} ${name(event.actor)}의 공격을 피했다.`;
+    case "passive": {
+      const who = name(event.unit);
+      switch (event.passive) {
+        case "war_cry":
+          return `${who}의 포효! 적들이 움츠러든다.`;
+        case "first_strike":
+          return `${who}의 선제 일격!`;
+        case "rising_cheer":
+          return `흥이 오를 대로 오른 ${who}의 일격!`;
+        case "last_stand":
+          return `벼랑 끝에서 ${josa(who, "이", "가")} 버텨 선다.`;
+        case "beast_reflex":
+          return `${josa(who, "이", "가")} 피하자마자 반격한다!`;
+        case "warrior_pride":
+          return `${josa(who, "이", "가")} ${name(event.target ?? "")} 대신 공격을 받아 낸다.`;
+        case "finishing_bite":
+          return `숨통을 끊은 ${josa(who, "이", "가")} 곧바로 다시 움직인다.`;
+        default:
+          return `${who}의 ${josa(getPassive(event.passive)?.name ?? "특기", "이", "가")} 발동했다.`;
+      }
+    }
     case "down":
       return `${josa(name(event.target), "이", "가")} 쓰러졌다.`;
     case "end":

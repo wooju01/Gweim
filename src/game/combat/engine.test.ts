@@ -5,12 +5,16 @@ import type { Merc } from "../types";
 import {
   act,
   currentActor,
+  mercUnit,
+  startBattleWithUnits,
+  hasStatus,
   living,
   startBattle,
   unitById,
   validate,
   type Battle,
   type BattleAction,
+  type BattleEvent,
   type Unit,
 } from "./engine";
 import { SKILLS } from "../../data/combat";
@@ -37,9 +41,19 @@ const party: Merc[] = [
   { ...elke, job: "nun" },
 ];
 
-/** 테스트용 고정 적: 공격력이 낮아 금방 끝나지 않는다 */
+/**
+ * 규칙 테스트용 전투 시작. 용병의 방어력은 0, 속도는 파티 순서대로 높게 고정해서
+ * 용병이 파티 순서대로 행동하고 피해 계산이 단순해진다. 방어력·속도 자체는 따로 테스트한다.
+ */
+function start(mercs: Merc[], seed: number, enemies?: Unit[], depth = 1): Battle {
+  if (!enemies) return startBattle(mercs, seed, undefined, depth);
+  const units = mercs.map((m, i) => ({ ...mercUnit(m), defense: 0, speed: 100 - i * 10 }));
+  return startBattleWithUnits([...units, ...enemies], seed, depth);
+}
+
+/** 테스트용 고정 적: 공격력이 낮아 금방 끝나지 않는다. 속도 -10이라 언제나 맨 마지막에 행동한다 */
 function dummy(id: string, hp = 30, overrides: Partial<Unit> = {}): Unit {
-  return { id, side: "enemy", name: "허수아비", title: "", hp, maxHp: hp, attack: [1, 1], statuses: [], cooldown: 0, guarding: false, ...overrides };
+  return { id, side: "enemy", name: "허수아비", title: "", hp, maxHp: hp, attack: [1, 1], defense: 0, speed: -10, statuses: [], cooldown: 0, guarding: false, ...overrides };
 }
 
 /** 상태를 손으로 고친 복사본 */
@@ -51,7 +65,7 @@ function edit(b: Battle, fn: (b: Battle) => void): Battle {
 
 describe("시작", () => {
   it("첫 라운드, 첫 용병 차례에서 시작한다", () => {
-    const b = startBattle(party, 1, [dummy("e0")]);
+    const b = start(party, 1, [dummy("e0")]);
     expect(b.round).toBe(1);
     expect(currentActor(b)?.id).toBe(varn.id);
     expect(b.log[0]).toEqual({ type: "round", round: 1 });
@@ -59,14 +73,14 @@ describe("시작", () => {
   });
 
   it("직업에 따라 체력이 다르다", () => {
-    const b = startBattle(party, 1, [dummy("e0")]);
+    const b = start(party, 1, [dummy("e0")]);
     expect(unitById(b, varn.id)!.maxHp).toBe(32); // 창병
     expect(unitById(b, kass.id)!.maxHp).toBe(24); // 단검수
   });
 
   it("같은 시드면 같은 적과 같은 결과", () => {
     const play = (seed: number) => {
-      let b = startBattle(party, seed);
+      let b = start(party, seed);
       for (let i = 0; i < 30 && !b.outcome; i++) b = act(b, { type: "attack", target: living(b, "enemy")[0].id });
       return b.log;
     };
@@ -76,7 +90,7 @@ describe("시작", () => {
 
 describe("용병 행동", () => {
   it("공격하면 적 체력이 줄고 다음 용병 차례로 넘어간다", () => {
-    const b = startBattle(party, 1, [dummy("e0")]);
+    const b = start(party, 1, [dummy("e0")]);
     const next = act(b, { type: "attack", target: "e0" });
     expect(unitById(next, "e0")!.hp).toBeLessThan(30);
     expect(next.log.at(-1)).toMatchObject({ type: "attack", actor: varn.id, target: "e0" });
@@ -84,14 +98,14 @@ describe("용병 행동", () => {
   });
 
   it("원본 상태는 바뀌지 않는다", () => {
-    const b = startBattle(party, 1, [dummy("e0")]);
+    const b = start(party, 1, [dummy("e0")]);
     const before = JSON.stringify(b);
     act(b, { type: "attack", target: "e0" });
     expect(JSON.stringify(b)).toBe(before);
   });
 
   it("용병이 모두 행동하면 적이 자동으로 행동하고 다음 라운드가 된다", () => {
-    let b = startBattle(party, 1, [dummy("e0", 999)]);
+    let b = start(party, 1, [dummy("e0", 999)]);
     for (let i = 0; i < 3; i++) b = act(b, { type: "attack", target: "e0" });
     expect(b.round).toBe(2);
     expect(currentActor(b)?.id).toBe(varn.id);
@@ -99,7 +113,7 @@ describe("용병 행동", () => {
   });
 
   it("붕대: 출혈이 있어야 쓸 수 있고, 물자를 쓰고 출혈을 멈춘다", () => {
-    const b = startBattle(party, 1, [dummy("e0")]);
+    const b = start(party, 1, [dummy("e0")]);
     expect(validate(b, { type: "bandage" })).toBe("출혈이 없다");
 
     const bleeding = edit(b, (x) => unitById(x, varn.id)!.statuses.push({ kind: "bleed", turns: 3 }));
@@ -110,7 +124,7 @@ describe("용병 행동", () => {
   });
 
   it("할 수 없는 행동은 무시된다", () => {
-    const b = startBattle(party, 1, [dummy("e0")]);
+    const b = start(party, 1, [dummy("e0")]);
     expect(act(b, { type: "attack", target: varn.id })).toBe(b); // 아군 공격
     expect(act(b, { type: "attack", target: "nope" })).toBe(b);
   });
@@ -118,7 +132,7 @@ describe("용병 행동", () => {
 
 describe("길안내자 보조", () => {
   it("라운드에 한 번만, 그리고 용병 차례를 넘기지 않는다", () => {
-    const b = edit(startBattle(party, 1, [dummy("e0")]), (x) => {
+    const b = edit(start(party, 1, [dummy("e0")]), (x) => {
       unitById(x, kass.id)!.hp = 5;
     });
     const healed = act(b, { type: "guide", item: "potion", target: kass.id });
@@ -129,7 +143,7 @@ describe("길안내자 보조", () => {
 
   it("다음 라운드가 되면 다시 도울 수 있다", () => {
     let b = act(
-      edit(startBattle(party, 1, [dummy("e0", 999)]), (x) => (unitById(x, kass.id)!.hp = 5)),
+      edit(start(party, 1, [dummy("e0", 999)]), (x) => (unitById(x, kass.id)!.hp = 5)),
       { type: "guide", item: "potion", target: kass.id },
     );
     for (let i = 0; i < 3; i++) b = act(b, { type: "attack", target: "e0" });
@@ -137,14 +151,14 @@ describe("길안내자 보조", () => {
   });
 
   it("물약은 최대 체력을 넘기지 않는다", () => {
-    const b = edit(startBattle(party, 1, [dummy("e0")]), (x) => (unitById(x, varn.id)!.hp -= 3));
+    const b = edit(start(party, 1, [dummy("e0")]), (x) => (unitById(x, varn.id)!.hp -= 3));
     const next = act(b, { type: "guide", item: "potion", target: varn.id });
     expect(unitById(next, varn.id)!.hp).toBe(unitById(next, varn.id)!.maxHp);
     expect(next.log.at(-1)).toMatchObject({ type: "heal", amount: 3 });
   });
 
   it("해독제는 중독에만, 붕대는 출혈에만", () => {
-    const b = startBattle(party, 1, [dummy("e0")]);
+    const b = start(party, 1, [dummy("e0")]);
     expect(validate(b, { type: "guide", item: "antidote", target: elke.id })).toBe("중독이 없다");
     expect(validate(b, { type: "guide", item: "bandage", target: elke.id })).toBe("출혈이 없다");
     expect(validate(b, { type: "guide", item: "potion", target: elke.id })).toBe("체력이 가득하다");
@@ -156,7 +170,7 @@ describe("길안내자 보조", () => {
   });
 
   it("물자가 떨어지면 쓸 수 없다", () => {
-    const b = edit(startBattle(party, 1, [dummy("e0")]), (x) => {
+    const b = edit(start(party, 1, [dummy("e0")]), (x) => {
       x.supplies.potion = 0;
       unitById(x, varn.id)!.hp = 1;
     });
@@ -166,7 +180,7 @@ describe("길안내자 보조", () => {
 
 describe("상태이상", () => {
   it("턴 시작에 피해를 주고, 지속 시간이 끝나면 사라진다", () => {
-    let b = edit(startBattle(party, 1, [dummy("e0", 999)]), (x) => {
+    let b = edit(start(party, 1, [dummy("e0", 999)]), (x) => {
       unitById(x, kass.id)!.statuses.push({ kind: "poison", turns: 1 });
     });
     const hpBefore = unitById(b, kass.id)!.hp;
@@ -177,7 +191,7 @@ describe("상태이상", () => {
   });
 
   it("상태이상으로 쓰러지면 그 턴은 건너뛴다", () => {
-    let b = edit(startBattle(party, 1, [dummy("e0", 999)]), (x) => {
+    let b = edit(start(party, 1, [dummy("e0", 999)]), (x) => {
       const k = unitById(x, kass.id)!;
       k.hp = 1;
       k.statuses.push({ kind: "bleed", turns: 3 });
@@ -191,7 +205,7 @@ describe("상태이상", () => {
   it("단검수의 공격은 출혈을 걸 수 있다", () => {
     let seenBleed = false;
     for (let seed = 0; seed < 50 && !seenBleed; seed++) {
-      let b = startBattle(party, seed, [dummy("e0", 999)]);
+      let b = start(party, seed, [dummy("e0", 999)]);
       b = act(b, { type: "attack", target: "e0" }); // 바른
       b = act(b, { type: "attack", target: "e0" }); // 카스(단검수)
       seenBleed = b.log.some((e) => e.type === "status" && e.target === "e0" && e.kind === "bleed");
@@ -202,7 +216,7 @@ describe("상태이상", () => {
 
 describe("승패", () => {
   it("적을 모두 쓰러뜨리면 승리", () => {
-    const b = act(startBattle(party, 1, [dummy("e0", 1)]), { type: "attack", target: "e0" });
+    const b = act(start(party, 1, [dummy("e0", 1)]), { type: "attack", target: "e0" });
     expect(b.outcome).toBe("victory");
     expect(b.log.at(-1)).toEqual({ type: "end", outcome: "victory" });
     expect(currentActor(b)).toBeNull();
@@ -210,7 +224,7 @@ describe("승패", () => {
   });
 
   it("용병이 모두 쓰러지면 패배", () => {
-    let b = edit(startBattle(party, 1, [dummy("e0", 999, { attack: [99, 99] })]), (x) => {
+    let b = edit(start(party, 1, [dummy("e0", 999, { attack: [99, 99] })]), (x) => {
       for (const u of living(x, "merc")) u.hp = 1;
     });
     // 적 하나는 라운드마다 한 명씩만 공격하므로 여러 라운드가 걸린다
@@ -244,7 +258,7 @@ describe("스킬", () => {
   const withJob = (job: string): Merc[] => [{ ...varn, job }, { ...kass, job: "dagger" }, { ...elke, job: "nun" }];
 
   it("직업마다 스킬이 정해지고, 직업이 없으면 전력 공격", () => {
-    const b = startBattle([...party, { ...varn, id: "nojob", job: undefined }], 1, [dummy("e0")]);
+    const b = start([...party, { ...varn, id: "nojob", job: undefined }], 1, [dummy("e0")]);
     expect(unitById(b, varn.id)!.skill).toBe("guard");
     expect(unitById(b, kass.id)!.skill).toBe("pierce");
     expect(unitById(b, elke.id)!.skill).toBe("pray");
@@ -252,7 +266,7 @@ describe("스킬", () => {
   });
 
   it("쓰고 나면 대기 시간이 생기고, 자기 턴이 지나면 다시 쓸 수 있다", () => {
-    let b = startBattle(withJob("greatsword"), 1, [dummy("e0", 999)]);
+    let b = start(withJob("greatsword"), 1, [dummy("e0", 999)]);
     b = act(b, { type: "skill", target: "e0" });
     expect(b.log.some((e) => e.type === "skill" && e.skill === "cleave")).toBe(true);
     // 다음 라운드까지 진행
@@ -264,17 +278,17 @@ describe("스킬", () => {
   });
 
   it("대상 규칙: 기도는 아군에게만, 막아서기는 대상 없이", () => {
-    const nunFirst = startBattle([{ ...elke, job: "nun" }, ...party.slice(0, 2)], 1, [dummy("e0")]);
+    const nunFirst = start([{ ...elke, job: "nun" }, ...party.slice(0, 2)], 1, [dummy("e0")]);
     expect(validate(nunFirst, { type: "skill", target: "e0" })).toBe("아군에게만 쓸 수 있다");
     expect(validate(nunFirst, { type: "skill" })).toBe("대상을 골라야 한다");
 
-    const spearFirst = startBattle(party, 1, [dummy("e0")]);
+    const spearFirst = start(party, 1, [dummy("e0")]);
     expect(validate(spearFirst, { type: "skill", target: "e0" })).toBe("대상을 고르지 않는 스킬");
     expect(validate(spearFirst, { type: "skill" })).toBeNull();
   });
 
   it("막아서기: 적이 막아선 용병만 공격하고, 피해가 절반이 된다", () => {
-    let b = startBattle(party, 1, [dummy("e0", 999, { attack: [10, 10] }), dummy("e1", 999, { attack: [10, 10] })]);
+    let b = start(party, 1, [dummy("e0", 999, { attack: [10, 10] }), dummy("e1", 999, { attack: [10, 10] })]);
     b = act(b, { type: "skill" }); // 바른 막아서기
     b = act(b, { type: "attack", target: "e0" });
     b = act(b, { type: "attack", target: "e0" }); // 적 턴 진행
@@ -287,7 +301,7 @@ describe("스킬", () => {
   });
 
   it("막아서기는 자기 다음 차례에 풀린다", () => {
-    let b = startBattle(party, 1, [dummy("e0", 999)]);
+    let b = start(party, 1, [dummy("e0", 999)]);
     b = act(b, { type: "skill" });
     expect(unitById(b, varn.id)!.guarding).toBe(true);
     b = act(b, { type: "attack", target: "e0" });
@@ -297,13 +311,13 @@ describe("스킬", () => {
   });
 
   it("급소 찌르기: 살아남은 대상에게 반드시 출혈", () => {
-    let b = startBattle([{ ...kass, job: "dagger" }, ...party.slice(0, 1)], 1, [dummy("e0", 999)]);
+    let b = start([{ ...kass, job: "dagger" }, ...party.slice(0, 1)], 1, [dummy("e0", 999)]);
     b = act(b, { type: "skill", target: "e0" });
     expect(hasBleed(b, "e0")).toBe(true);
   });
 
   it("기도: 아군 체력 회복과 상태이상 해제, 자신에게도 쓸 수 있다", () => {
-    const b = edit(startBattle([{ ...elke, job: "nun" }, ...party.slice(0, 2)], 1, [dummy("e0")]), (x) => {
+    const b = edit(start([{ ...elke, job: "nun" }, ...party.slice(0, 2)], 1, [dummy("e0")]), (x) => {
       const me = unitById(x, elke.id)!;
       me.hp = 10;
       me.statuses.push({ kind: "bleed", turns: 3 }, { kind: "poison", turns: 4 });
@@ -317,20 +331,20 @@ describe("스킬", () => {
   });
 
   it("화살비: 모든 적이 피해를 입는다", () => {
-    let b = startBattle(withJob("archer"), 1, [dummy("e0", 999), dummy("e1", 999), dummy("e2", 999)]);
+    let b = start(withJob("archer"), 1, [dummy("e0", 999), dummy("e1", 999), dummy("e2", 999)]);
     b = act(b, { type: "skill" });
     for (const id of ["e0", "e1", "e2"]) expect(unitById(b, id)!.hp).toBeLessThan(999);
   });
 
   it("내려찍기: 반동을 받지만 반동으로 쓰러지지는 않는다", () => {
-    const b = edit(startBattle(withJob("greatsword"), 1, [dummy("e0", 999)]), (x) => (unitById(x, varn.id)!.hp = 2));
+    const b = edit(start(withJob("greatsword"), 1, [dummy("e0", 999)]), (x) => (unitById(x, varn.id)!.hp = 2));
     const next = act(b, { type: "skill", target: "e0" });
     expect(next.log).toContainEqual({ type: "recoil", target: varn.id, damage: 1 });
     expect(unitById(next, varn.id)!.hp).toBeGreaterThanOrEqual(1);
   });
 
   it("독안개: 모든 적이 중독된다", () => {
-    const b = act(startBattle(withJob("herbalist"), 1, [dummy("e0", 999), dummy("e1", 999)]), { type: "skill" });
+    const b = act(start(withJob("herbalist"), 1, [dummy("e0", 999), dummy("e1", 999)]), { type: "skill" });
     for (const id of ["e0", "e1"]) {
       expect(b.log).toContainEqual({ type: "status", target: id, kind: "poison" });
     }
@@ -349,7 +363,7 @@ describe("전투 문장", () => {
   });
 
   it("이벤트를 문장으로 바꾼다", () => {
-    const b = startBattle(party, 1, [dummy("e0")]);
+    const b = start(party, 1, [dummy("e0")]);
     expect(describeEvent({ type: "attack", actor: varn.id, target: "e0", damage: 7, crit: true }, b)).toBe(
       "바른이 허수아비를 공격했다. 7 피해 (치명타!)",
     );
@@ -366,7 +380,7 @@ describe("마법사·정령사", () => {
   const first = (job: string): Merc[] => [{ ...varn, job }, { ...kass, job: "dagger" }, { ...elke, job: "nun" }];
 
   it("불꽃 창: 2.5배 피해를 주고 자기 체력 4를 태운다", () => {
-    let b = startBattle(first("mage"), 1, [dummy("e0", 999)]);
+    let b = start(first("mage"), 1, [dummy("e0", 999)]);
     expect(unitById(b, varn.id)!.skill).toBe("firelance");
     const hp = unitById(b, varn.id)!.hp;
     b = act(b, { type: "skill", target: "e0" });
@@ -380,7 +394,7 @@ describe("마법사·정령사", () => {
     let shields = 0;
     let fizzles = 0;
     for (let seed = 1; seed <= 500; seed++) {
-      const b = act(startBattle(first("spiritcaller"), seed, [dummy("e0", 999)]), { type: "skill", target: kass.id });
+      const b = act(start(first("spiritcaller"), seed, [dummy("e0", 999)]), { type: "skill", target: kass.id });
       if (b.log.some((e) => e.type === "shield")) shields++;
       if (b.log.some((e) => e.type === "fizzle")) fizzles++;
       if (b.log.some((e) => e.type === "shield")) expect(unitById(b, kass.id)!.shield).toBe(6);
@@ -391,7 +405,7 @@ describe("마법사·정령사", () => {
   });
 
   it("보호막이 공격 피해를 먼저 받아 낸다", () => {
-    let b = startBattle(party, 1, [dummy("e0", 999, { attack: [4, 4] })]);
+    let b = start(party, 1, [dummy("e0", 999, { attack: [4, 4] })]);
     b = edit(b, (c) => c.units.forEach((u) => u.side === "merc" && (u.shield = 6)));
     for (let i = 0; i < 6 && !b.outcome; i++) b = act(b, { type: "attack", target: "e0" });
     const hits = b.log.filter((e) => e.type === "attack" && e.actor === "e0");
@@ -422,5 +436,266 @@ describe("마법사·정령사", () => {
     }
     console.info(`[밸런스] 마법사·정령사 파티 승률 ${((wins / 1000) * 100).toFixed(1)}%`);
     expect(wins / 1000).toBeGreaterThan(0.9);
+  });
+});
+
+describe("종족 패시브", () => {
+  type AttackEvent = Extract<BattleEvent, { type: "attack" }>;
+  const P = (passives: string[], id = "p1", job = "spearman"): Merc => ({ ...varn, id, job, passives });
+  const hitsBy = (b: Battle, actor: string) =>
+    b.log.filter((e): e is AttackEvent => e.type === "attack" && e.actor === actor);
+  const fix = (b: Battle, id: string, patch: Partial<Unit>) => edit(b, (c) => Object.assign(unitById(c, id)!, patch));
+
+  /** 시드를 바꿔 가며 치명타가 아닌 첫 공격 피해를 찾는다 */
+  function plainHit(make: (seed: number) => Battle, actor = "p1"): number {
+    for (let seed = 1; seed < 200; seed++) {
+      const hit = hitsBy(make(seed), actor).find((h) => !h.crit);
+      if (hit) return hit.damage;
+    }
+    throw new Error("치명타가 아닌 공격이 없다");
+  }
+  /** 용병 p1이 공격력 5로 e0를 한 번 때린 피해 */
+  const myHit = (passives: string[], enemies: Unit[] = [dummy("e0", 999)], patch: Partial<Unit> = {}, depth = 1, extra: Merc[] = []) =>
+    plainHit((seed) =>
+      act(fix(start([P(passives), ...extra], seed, enemies, depth), "p1", { attack: [5, 5], ...patch }), {
+        type: "attack",
+        target: "e0",
+      }),
+    );
+  /** 적 e0(공격력 4)이 p1을 때린 피해 */
+  const enemyHit = (passives: string[], patch: Partial<Unit> = {}) =>
+    plainHit(
+      (seed) => act(fix(start([P(passives)], seed, [dummy("e0", 999, { attack: [4, 4] })]), "p1", patch), { type: "attack", target: "e0" }),
+      "e0",
+    );
+
+  it("패시브가 없으면 공격력 5는 5 피해", () => {
+    expect(myHit([])).toBe(5);
+    expect(enemyHit([])).toBe(4);
+  });
+
+  it("바위의 뿌리: 받는 피해 -1 / 고통 망각: 잃은 체력에 비례해 최대 -3", () => {
+    expect(enemyHit(["rock_root"])).toBe(3);
+    expect(enemyHit(["pain_oblivion"], { hp: 32 })).toBe(4);
+    expect(enemyHit(["pain_oblivion"], { hp: 2 })).toBe(1);
+  });
+
+  it("피의 갈증·무쌍의 투혼·깊은 곳의 피·추격 본능·결속", () => {
+    expect(myHit(["blood_thirst"], undefined, { hp: 1 })).toBe(5 + 5);
+    expect(myHit(["peerless_spirit"], [dummy("e0", 999), dummy("e1", 999), dummy("e2", 999)])).toBe(5 + 3);
+    expect(myHit(["deep_blood"], undefined, {}, 3)).toBe(5 + 2);
+    expect(myHit(["chase_instinct"], [dummy("e0", 999, { hp: 10 })])).toBe(5 + 3);
+    const others = [kass, elke, { ...varn, id: "v4" }];
+    expect(myHit(["solidarity"], undefined, {}, 1, others)).toBe(5 + 1);
+    expect(myHit(["solidarity"], undefined, {}, 1, others.slice(0, 2))).toBe(5);
+  });
+
+  it("선제 일격: 첫 공격만 1.5배", () => {
+    let b = fix(start([P(["first_strike"])], 4, [dummy("e0", 999)]), "p1", { attack: [6, 6] });
+    b = act(b, { type: "attack", target: "e0" });
+    b = act(b, { type: "attack", target: "e0" });
+    const [first, second] = hitsBy(b, "p1");
+    if (!first.crit) expect(first.damage).toBe(9);
+    if (!second.crit) expect(second.damage).toBe(6);
+    expect(b.log.filter((e) => e.type === "passive" && e.passive === "first_strike")).toHaveLength(1);
+  });
+
+  it("사냥꾼의 집념: 같은 적을 연속으로 때리면 +1씩 (최대 +3), 대상을 바꾸면 초기화", () => {
+    let b = fix(start([P(["hunters_focus"])], 2, [dummy("e0", 999), dummy("e1", 999)]), "p1", { attack: [5, 5] });
+    for (const t of ["e0", "e0", "e0", "e0", "e0", "e1"]) b = act(b, { type: "attack", target: t });
+    const plain = hitsBy(b, "p1").map((h) => (h.crit ? null : h.damage));
+    expect(plain).toEqual([5, 6, 7, 8, 8, 5].map((d, i) => (plain[i] === null ? null : d)));
+  });
+
+  it("예리한 눈: 치명타 확률이 오른다", () => {
+    const rate = (passives: string[]) => {
+      let crits = 0;
+      for (let seed = 0; seed < 1500; seed++) {
+        const b = act(start([P(passives)], seed, [dummy("e0", 999)]), { type: "attack", target: "e0" });
+        if (hitsBy(b, "p1")[0].crit) crits++;
+      }
+      return crits / 1500;
+    };
+    expect(rate(["keen_eye"]) - rate([])).toBeGreaterThan(0.04);
+  });
+
+  it("강철 심장: 출혈에 걸릴 확률 절반 / 임기응변: 출혈 지속 1턴 감소", () => {
+    const bleedRate = (passives: string[]) => {
+      let n = 0;
+      for (let seed = 0; seed < 600; seed++) {
+        const b = act(
+          start([P(passives)], seed, [dummy("e0", 999, { onHit: { status: "bleed", chance: 1 } })]),
+          { type: "attack", target: "e0" },
+        );
+        if (b.log.some((e) => e.type === "status" && e.target === "p1" && e.kind === "bleed")) n++;
+      }
+      return n / 600;
+    };
+    expect(bleedRate([])).toBe(1);
+    expect(bleedRate(["steel_heart"])).toBeGreaterThan(0.35);
+    expect(bleedRate(["steel_heart"])).toBeLessThan(0.65);
+
+    const b = act(
+      start([P(["improvise"])], 1, [dummy("e0", 999, { onHit: { status: "bleed", chance: 1 } })]),
+      { type: "attack", target: "e0" },
+    );
+    // 걸릴 때 1턴 줄고(3→2), 다음 자기 턴 시작에 한 번 피해를 입어 1이 남는다 (임기응변이 없으면 2)
+    expect(unitById(b, "p1")!.statuses.find((s) => s.kind === "bleed")?.turns).toBe(STATUS.bleed.turns - 2);
+  });
+
+  it("적응: 같은 적에게 맞을수록 받는 피해가 줄어든다 (최대 -2)", () => {
+    let b = start([P(["adapt"])], 3, [dummy("e0", 999, { attack: [6, 6] })]);
+    for (let i = 0; i < 5; i++) b = act(b, { type: "attack", target: "e0" });
+    const plain = hitsBy(b, "e0").filter((h) => !h.crit).map((h) => h.damage);
+    expect(plain[0]).toBe(6);
+    expect(Math.min(...plain)).toBe(4);
+  });
+
+  it("흥이 오른다: 세 번 맞으면 다음 공격 2배", () => {
+    let b = fix(start([P(["rising_cheer"])], 5, [dummy("e0", 999, { attack: [1, 1] })]), "p1", { attack: [5, 5] });
+    for (let i = 0; i < 5; i++) b = act(b, { type: "attack", target: "e0" });
+    expect(b.log.some((e) => e.type === "passive" && e.passive === "rising_cheer")).toBe(true);
+    const idx = b.log.findIndex((e) => e.type === "passive" && e.passive === "rising_cheer");
+    const boosted = b.log.slice(idx).find((e): e is AttackEvent => e.type === "attack" && e.actor === "p1")!;
+    expect(boosted.damage).toBe(boosted.crit ? 15 : 10);
+  });
+
+  it("사선 돌파: 체력 25% 이하로 떨어지면 한 번 각성해 공격 +4", () => {
+    let b = fix(start([P(["last_stand"])], 1, [dummy("e0", 999, { attack: [2, 2] })]), "p1", { hp: 9, attack: [5, 5] });
+    b = act(b, { type: "attack", target: "e0" }); // 적에게 맞아 7 → 각성
+    expect(hasStatus(unitById(b, "p1")!, "awaken")).toBe(true);
+    b = act(b, { type: "attack", target: "e0" });
+    const second = hitsBy(b, "p1")[1];
+    expect(second.damage).toBe(second.crit ? 14 : 9);
+    expect(b.log.filter((e) => e.type === "passive" && e.passive === "last_stand")).toHaveLength(1);
+  });
+
+  it("포효: 전투 시작 시 적이 위축돼 공격력 -2", () => {
+    const b = start([P(["war_cry"])], 1, [dummy("e0", 999, { attack: [4, 4] })]);
+    expect(hasStatus(unitById(b, "e0")!, "weaken")).toBe(true);
+    expect(enemyHit(["war_cry"])).toBe(2);
+  });
+
+  it("장인의 눈썰미: 가끔 균열을 걸고, 균열 난 적은 피해 +2", () => {
+    let cracked = 0;
+    for (let seed = 0; seed < 500; seed++) {
+      const b = act(start([P(["crafters_eye"])], seed, [dummy("e0", 999)]), { type: "attack", target: "e0" });
+      if (b.log.some((e) => e.type === "status" && e.kind === "crack")) cracked++;
+    }
+    expect(cracked / 500).toBeGreaterThan(0.12);
+    expect(cracked / 500).toBeLessThan(0.28);
+    expect(myHit([], [dummy("e0", 999, { statuses: [{ kind: "crack", turns: 2 }] })])).toBe(7);
+  });
+
+  it("손발이 맞는다: 길안내자가 건넨 물약이 1.5배", () => {
+    let b = fix(start([P(["in_sync"])], 1, [dummy("e0", 999)]), "p1", { hp: 5 });
+    b = act(b, { type: "guide", item: "potion", target: "p1" });
+    expect(b.log).toContainEqual({ type: "heal", target: "p1", amount: 18, by: "guide" });
+  });
+
+  it("야생의 회복력: 라운드 시작마다 체력 1 회복", () => {
+    let b = fix(start([P(["wild_recovery"])], 1, [dummy("e0", 999)]), "p1", { hp: 10 });
+    b = act(b, { type: "attack", target: "e0" });
+    expect(b.log).toContainEqual({ type: "heal", target: "p1", amount: 1, by: "p1" });
+  });
+
+  it("깃털의 발걸음: 가끔 피한다 / 바람의 춤: 피하면 다음 공격 +3 / 야수의 반사신경: 피하면 반격", () => {
+    let evades = 0;
+    let danced = false;
+    let countered = false;
+    for (let seed = 0; seed < 400; seed++) {
+      let b = fix(start([P(["feather_step", "wind_dance", "beast_reflex"])], seed, [dummy("e0", 999)]), "p1", { attack: [5, 5] });
+      b = act(b, { type: "attack", target: "e0" });
+      const evaded = b.log.some((e) => e.type === "evade");
+      if (!evaded) continue;
+      evades++;
+      if (b.log.some((e) => e.type === "passive" && e.passive === "beast_reflex")) countered = true;
+      b = act(b, { type: "attack", target: "e0" });
+      const next = hitsBy(b, "p1").at(-1)!;
+      if (!next.crit && next.damage === 8) danced = true;
+    }
+    expect(evades / 400).toBeGreaterThan(0.1);
+    expect(evades / 400).toBeLessThan(0.26);
+    expect(danced).toBe(true);
+    expect(countered).toBe(true);
+  });
+
+  it("전사의 긍지: 체력 30% 이하 아군 대신 공격을 맞는다", () => {
+    // 적이 위태로운 아군을 고른 라운드에만 발동한다. 여러 라운드 동안 약한 아군은 한 번도 맞지 않는다
+    let b = start([P([], "weak"), P(["warrior_pride"], "barb")], 1, [dummy("e0", 999, { attack: [1, 1] })]);
+    b = fix(b, "weak", { hp: 5 });
+    for (let i = 0; i < 16; i++) b = act(b, { type: "attack", target: "e0" });
+    expect(b.log).toContainEqual({ type: "passive", unit: "barb", passive: "warrior_pride", target: "weak" });
+    expect(hitsBy(b, "e0").some((h) => h.target === "weak")).toBe(false);
+  });
+
+  it("숨통 끊기: 적을 쓰러뜨리면 라운드당 한 번 바로 다시 행동", () => {
+    let b = fix(start([P(["finishing_bite"]), P([], "p2")], 1, [dummy("e0", 1), dummy("e1", 1), dummy("e2", 999)]), "p1", { attack: [5, 5] });
+    b = act(b, { type: "attack", target: "e0" });
+    expect(currentActor(b)!.id).toBe("p1");
+    b = act(b, { type: "attack", target: "e1" }); // 같은 라운드 두 번째 처치는 추가 행동 없음
+    expect(currentActor(b)!.id).toBe("p2");
+  });
+
+  it("바람 정령의 가호: 속도 +3, 같은 직업이면 대개 먼저 행동한다", () => {
+    let first = 0;
+    for (let seed = 0; seed < 300; seed++) {
+      const b = startBattle([P([], "slow"), P(["wind_blessing"], "fast")], seed, [dummy("e0", 999)]);
+      if (b.order.indexOf("fast") < b.order.indexOf("slow")) first++;
+    }
+    expect(first / 300).toBeGreaterThan(0.75);
+  });
+
+  it("기도는 출혈·중독만 씻고 각성 같은 강화는 남긴다", () => {
+    let b = start([{ ...elke, job: "nun" }], 1, [dummy("e0", 999)]);
+    b = edit(b, (c) => {
+      unitById(c, elke.id)!.statuses = [{ kind: "bleed", turns: 2 }, { kind: "awaken", turns: 2 }];
+    });
+    b = act(b, { type: "skill", target: elke.id });
+    expect(unitById(b, elke.id)!.statuses.map((s) => s.kind)).toEqual(["awaken"]);
+  });
+});
+
+describe("방어력과 속도", () => {
+  it("방어력만큼 받는 피해가 줄고, 최소 1은 들어간다", () => {
+    const hitOn = (defense: number, attack: number) => {
+      for (let seed = 1; seed < 100; seed++) {
+        const units = [{ ...mercUnit({ ...varn, job: "spearman" }), defense, speed: 100 }, dummy("e0", 999, { attack: [attack, attack] })];
+        const b = act(startBattleWithUnits(units, seed), { type: "attack", target: "e0" });
+        const hit = b.log.find((e) => e.type === "attack" && e.actor === "e0");
+        if (hit?.type === "attack" && !hit.crit) return hit.damage;
+      }
+    };
+    expect(hitOn(0, 6)).toBe(6);
+    expect(hitOn(2, 6)).toBe(4);
+    expect(hitOn(9, 6)).toBe(1);
+  });
+
+  it("직업과 적의 능력치가 유닛에 실린다", () => {
+    const b = startBattle([{ ...varn, job: "spearman" }, { ...kass, job: "dagger" }], 1);
+    expect(unitById(b, varn.id)).toMatchObject({ defense: 2, speed: 4 });
+    expect(unitById(b, kass.id)).toMatchObject({ defense: 0, speed: 8 });
+    for (const enemy of living(b, "enemy")) expect(typeof enemy.speed).toBe("number");
+  });
+
+  it("빠른 쪽이 먼저 행동하고, 느린 적이 빠른 용병보다 먼저 행동하는 일은 없다", () => {
+    for (let seed = 0; seed < 200; seed++) {
+      const units = [
+        { ...mercUnit({ ...kass, job: "dagger" }), speed: 10 },
+        { ...dummy("e0", 999), speed: 0 },
+        { ...dummy("e1", 999), speed: 20 },
+      ];
+      const b = startBattleWithUnits(units, seed);
+      expect(b.order).toEqual(["e1", kass.id, "e0"]);
+    }
+  });
+
+  it("속도가 비슷하면 라운드마다 순서가 바뀌기도 한다", () => {
+    const orders = new Set<string>();
+    for (let seed = 0; seed < 100; seed++) {
+      const units = [{ ...mercUnit({ ...kass, job: "dagger" }), speed: 5 }, { ...dummy("e0", 999), speed: 5 }];
+      orders.add(startBattleWithUnits(units, seed).order.join(","));
+    }
+    expect(orders.size).toBe(2);
   });
 });

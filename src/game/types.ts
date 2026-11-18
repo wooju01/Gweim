@@ -61,7 +61,7 @@ export type Merc = {
   job?: string;
   /** 등급. 랜덤 용병에만 있다 */
   level?: MercLevel;
-  /** 종족 패시브 id (data/passives.ts). 전투 효과는 아직 없다 */
+  /** 종족 패시브 id (data/passives.ts) */
   passives?: string[];
   name: string;
   /** 카드에 붙는 짧은 호칭 */

@@ -1,4 +1,5 @@
 import { MERCS, getMerc } from "@/data/mercs";
+import { USE_SAMPLE_ROSTER, sampleSeeds } from "@/data/sampleRoster";
 import { act, startBattle, type Battle, type BattleAction } from "@/game/combat/engine";
 import { buildMerc } from "@/game/generate";
 import type { Merc } from "@/game/types";
@@ -68,9 +69,14 @@ function freshProgress(merc: Merc): MercProgress {
 }
 
 export function initialState(): GameState {
+  // 고유 용병 + (개발용) 샘플 용병. 샘플은 data/sampleRoster.ts에서 끌 수 있다
+  const roster: RosterEntry[] = [
+    ...MERCS.map((m) => ({ kind: "unique" as const, id: m.id })),
+    ...(USE_SAMPLE_ROSTER ? sampleSeeds().map((seed) => ({ kind: "random" as const, seed })) : []),
+  ];
   return {
-    roster: MERCS.map((m) => ({ kind: "unique", id: m.id })),
-    progress: Object.fromEntries(MERCS.map((m) => [m.id, freshProgress(m)])),
+    roster,
+    progress: Object.fromEntries(roster.map((e) => [entryId(e), freshProgress(mercOf(e))])),
     party: [],
     recruit: { pending: false, error: null },
     screen: { kind: "guild" },

@@ -1,6 +1,6 @@
 // 용병 등급과 종족 패시브.
-// 지금은 데이터 자리만 있다: 모집 시 뽑고, 카드와 AI 프롬프트에 보여 준다.
-// 전투 효과(엔진 훅)는 구현 순서 5단계에서 붙인다. 수치는 초안이고 시드 시뮬레이션으로 조정한다.
+// 모집 시 뽑고, 카드와 AI 프롬프트에 보여 주고, 전투 엔진(combat/engine.ts)이 효과를 낸다.
+// 수치는 data/combat.ts의 PASSIVE에 있다. 초안이고 시드 시뮬레이션으로 조정한다.
 
 import type { MercLevel } from "../lib/schemas";
 
@@ -40,7 +40,7 @@ export const PASSIVES: Passive[] = [
   { id: "warrior_pride", race: "barbarian", name: "전사의 긍지", description: "자기 체력 60% 이상일 때 체력 30% 이하인 아군 대신 공격을 맞는다 (라운드당 1회)" },
   // 엘프
   { id: "keen_eye", race: "elf", name: "예리한 눈", description: "치명타 확률 +8%" },
-  { id: "wind_blessing", race: "elf", name: "바람 정령의 가호", description: "라운드에서 먼저 행동할 확률 증가" },
+  { id: "wind_blessing", race: "elf", name: "바람 정령의 가호", description: "속도 +3. 라운드에서 먼저 행동할 확률 증가" },
   { id: "feather_step", race: "elf", name: "깃털의 발걸음", description: "공격 회피 10%" },
   { id: "first_strike", race: "elf", name: "선제 일격", description: "전투에서 첫 공격 피해 +50%" },
   { id: "wind_dance", race: "elf", name: "바람의 춤", description: "회피에 성공하면 다음 공격 피해 +3" },

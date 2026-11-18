@@ -106,8 +106,8 @@ export function GuildScreen({
                               role="tooltip"
                               className="pointer-events-none absolute bottom-full left-0 z-20 mb-1.5 hidden w-56 rounded-sm border border-edge bg-ink px-2.5 py-2 text-xs leading-relaxed text-bone shadow-lg group-hover:block group-focus:block"
                             >
+                              <span className="mb-0.5 block font-bold text-ember">{passive.name}</span>
                               {passive.description}
-                              <span className="mt-1 block text-[11px] text-ash">전투 효과는 아직 준비 중</span>
                             </span>
                           </li>
                         )

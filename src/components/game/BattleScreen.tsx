@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { SKILLS, STATUS, SUPPLY, type SupplyKind } from "@/data/combat";
-import { currentActor, validate, type Battle, type BattleAction, type Unit } from "@/game/combat/engine";
+import { SKILLS, STATUS, SUPPLY, type StatusKind, type SupplyKind } from "@/data/combat";
+import { currentActor, speedOf, validate, type Battle, type BattleAction, type Unit } from "@/game/combat/engine";
 import { describe } from "@/game/combat/text";
 import { GUIDE } from "@/game/party";
 import { Button } from "./parts";
@@ -12,6 +12,14 @@ type Props = {
 };
 
 const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
+
+const STATUS_STYLE: Record<StatusKind, string> = {
+  bleed: "bg-blood/20 text-blood",
+  poison: "bg-moss/20 text-moss",
+  crack: "bg-ember/15 text-ember",
+  weaken: "bg-edge/60 text-ash",
+  awaken: "bg-ember/25 text-ember",
+};
 
 export function BattleScreen({ battle, onAct, onLeave }: Props) {
   const actor = currentActor(battle);
@@ -64,6 +72,7 @@ export function BattleScreen({ battle, onAct, onLeave }: Props) {
         </div>
         <SupplyCounts battle={battle} />
       </header>
+
 
       <section aria-label="적" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {enemies.map((u) => (
@@ -245,8 +254,13 @@ function UnitCard({ unit, active = false, children }: { unit: Unit; active?: boo
             style={{ width: `${ratio * 100}%` }}
           />
         </div>
-        <p className="mt-1 text-[11px] text-ash">
-          체력 {unit.hp} / {unit.maxHp}
+        <p className="mt-1 flex justify-between text-[11px] text-ash">
+          <span>
+            체력 {unit.hp} / {unit.maxHp}
+          </span>
+          <span title="방어: 받는 피해에서 뺀다 · 속도: 높을수록 먼저 행동한다">
+            방어 {unit.defense} · 속도 {speedOf(unit)}
+          </span>
         </p>
       </div>
       {unit.statuses.length > 0 && (
@@ -254,7 +268,7 @@ function UnitCard({ unit, active = false, children }: { unit: Unit; active?: boo
           {unit.statuses.map((s) => (
             <li
               key={s.kind}
-              className={`rounded-sm px-1.5 py-0.5 text-[11px] ${s.kind === "bleed" ? "bg-blood/20 text-blood" : "bg-moss/20 text-moss"}`}
+              className={`rounded-sm px-1.5 py-0.5 text-[11px] ${STATUS_STYLE[s.kind]}`}
             >
               {STATUS[s.kind].name} {s.turns}
             </li>
