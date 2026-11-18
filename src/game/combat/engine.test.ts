@@ -361,3 +361,66 @@ describe("전투 문장", () => {
     );
   });
 });
+
+describe("마법사·정령사", () => {
+  const first = (job: string): Merc[] => [{ ...varn, job }, { ...kass, job: "dagger" }, { ...elke, job: "nun" }];
+
+  it("불꽃 창: 2.5배 피해를 주고 자기 체력 4를 태운다", () => {
+    let b = startBattle(first("mage"), 1, [dummy("e0", 999)]);
+    expect(unitById(b, varn.id)!.skill).toBe("firelance");
+    const hp = unitById(b, varn.id)!.hp;
+    b = act(b, { type: "skill", target: "e0" });
+    const hit = b.log.find((e) => e.type === "attack" && e.actor === varn.id);
+    expect(hit && hit.type === "attack" && hit.damage).toBeGreaterThanOrEqual(Math.round(3 * 2.5));
+    expect(b.log).toContainEqual({ type: "recoil", target: varn.id, damage: 4 });
+    expect(unitById(b, varn.id)!.hp).toBeLessThanOrEqual(hp - 4);
+  });
+
+  it("정령의 가호: 대개 보호막 6을 주고, 가끔(약 20%) 정령이 답하지 않는다", () => {
+    let shields = 0;
+    let fizzles = 0;
+    for (let seed = 1; seed <= 500; seed++) {
+      const b = act(startBattle(first("spiritcaller"), seed, [dummy("e0", 999)]), { type: "skill", target: kass.id });
+      if (b.log.some((e) => e.type === "shield")) shields++;
+      if (b.log.some((e) => e.type === "fizzle")) fizzles++;
+      if (b.log.some((e) => e.type === "shield")) expect(unitById(b, kass.id)!.shield).toBe(6);
+    }
+    expect(shields + fizzles).toBe(500);
+    expect(fizzles / 500).toBeGreaterThan(0.12);
+    expect(fizzles / 500).toBeLessThan(0.28);
+  });
+
+  it("보호막이 공격 피해를 먼저 받아 낸다", () => {
+    let b = startBattle(party, 1, [dummy("e0", 999, { attack: [4, 4] })]);
+    b = edit(b, (c) => c.units.forEach((u) => u.side === "merc" && (u.shield = 6)));
+    for (let i = 0; i < 6 && !b.outcome; i++) b = act(b, { type: "attack", target: "e0" });
+    const hits = b.log.filter((e) => e.type === "attack" && e.actor === "e0");
+    const first = hits[0];
+    expect(first.type === "attack" && first.absorbed).toBeGreaterThan(0);
+    // 막힌 양 + 실제 피해 = 원래 피해 (치명타가 아니면 4)
+    if (first.type === "attack" && !first.crit) expect(first.damage + (first.absorbed ?? 0)).toBe(4);
+  });
+
+  it("마법사·정령사가 섞인 파티도 전투 한 번은 쉽게 이긴다", () => {
+    // 탱커·딜러 + 마법사 + 정령사 (보조 직업이 하나인 흔한 조합)
+    const mixed: Merc[] = [
+      { ...varn, job: "spearman" },
+      { ...kass, job: "greatsword" },
+      { ...elke, job: "mage" },
+      { ...varn, id: "m4", job: "spiritcaller" },
+    ];
+    let wins = 0;
+    for (let seed = 1; seed <= 1000; seed++) {
+      let b = startBattle(mixed, seed);
+      for (let n = 0; n < 500 && !b.outcome; n++) {
+        const actor = currentActor(b)!;
+        const hurt = living(b, "merc").find((u) => u.hp < u.maxHp / 2);
+        if (hurt && !b.guideUsed && b.supplies.potion > 0) b = act(b, { type: "guide", item: "potion", target: hurt.id });
+        b = act(b, simplePolicy(b, actor));
+      }
+      if (b.outcome === "victory") wins++;
+    }
+    console.info(`[밸런스] 마법사·정령사 파티 승률 ${((wins / 1000) * 100).toFixed(1)}%`);
+    expect(wins / 1000).toBeGreaterThan(0.9);
+  });
+});

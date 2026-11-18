@@ -63,6 +63,7 @@ export type TalkAction = z.infer<typeof TalkAction>;
 
 /** 코드가 뽑은 특성 조합 (data/traits.ts의 id) */
 export const MercTraits = z.object({
+  race: z.string().max(40),
   job: z.string().max(40),
   personalities: z.array(z.string().max(40)).min(1).max(2),
   background: z.string().max(40),

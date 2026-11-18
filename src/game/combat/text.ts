@@ -29,7 +29,7 @@ export function describe(event: BattleEvent, b: Battle): string {
     case "round":
       return `── ${event.round}라운드 ──`;
     case "attack":
-      return `${josa(name(event.actor), "이", "가")} ${josa(name(event.target), "을", "를")} 공격했다. ${event.damage} 피해${event.crit ? " (치명타!)" : ""}`;
+      return `${josa(name(event.actor), "이", "가")} ${josa(name(event.target), "을", "를")} 공격했다. ${event.damage} 피해${event.crit ? " (치명타!)" : ""}${event.absorbed ? ` · 보호막이 ${event.absorbed} 막음` : ""}`;
     case "status":
       return `${josa(name(event.target), "이", "가")} ${STATUS_NAME(event.kind)}에 걸렸다.`;
     case "tick":
@@ -55,8 +55,14 @@ export function describe(event: BattleEvent, b: Battle): string {
         ? `${who} ${event.target === event.actor ? "자신" : name(event.target)}에게 ${josa(skill, "을", "를")} 썼다.`
         : `${who} ${josa(skill, "을", "를")} 썼다.`;
     }
-    case "recoil":
-      return `${josa(name(event.target), "이", "가")} 반동으로 ${event.damage} 피해를 입었다.`;
+    case "recoil": {
+      const by = (b.units.find((u) => u.id === event.target)?.skill ?? "") === "firelance" ? "불꽃에 몸이 타" : "반동으로";
+      return `${josa(name(event.target), "이", "가")} ${by} ${event.damage} 피해를 입었다.`;
+    }
+    case "shield":
+      return `${name(event.target)}의 몸을 정령의 보호막(${event.amount})이 감쌌다.`;
+    case "fizzle":
+      return `${name(event.actor)}의 부름에 정령이 답하지 않았다.`;
     case "down":
       return `${josa(name(event.target), "이", "가")} 쓰러졌다.`;
     case "end":

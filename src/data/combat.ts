@@ -30,9 +30,11 @@ export const JOB_STATS: Record<string, UnitStats> = {
   archer: { hp: 24, attack: [6, 10] },
   greatsword: { hp: 36, attack: [8, 12] },
   herbalist: { hp: 22, attack: [4, 7], onHit: { status: "poison", chance: 0.5 } },
+  mage: { hp: 20, attack: [4, 7] },
+  spiritcaller: { hp: 22, attack: [4, 7] },
 };
 
-export type SkillId = "guard" | "pierce" | "pray" | "volley" | "cleave" | "miasma" | "power";
+export type SkillId = "guard" | "pierce" | "pray" | "volley" | "cleave" | "miasma" | "firelance" | "ward" | "power";
 
 /** 스킬 대상: 적 하나, 아군 하나(자신 포함), 대상 없음(자신 또는 적 전체) */
 export type SkillTarget = "enemy" | "ally" | "none";
@@ -52,6 +54,8 @@ export const SKILLS: Record<SkillId, Skill> = {
   volley: { name: "화살비", description: "모든 적에게 3~5 피해", target: "none", cooldown: 3 },
   cleave: { name: "내려찍기", description: "적 하나에게 1.8배 피해. 반동으로 자신도 3 피해 (쓰러지지는 않는다)", target: "enemy", cooldown: 2 },
   miasma: { name: "독안개", description: "모든 적을 중독시킨다", target: "none", cooldown: 3 },
+  firelance: { name: "불꽃 창", description: "적 하나에게 2.5배 피해. 자기 체력 4를 태운다 (쓰러지지는 않는다)", target: "enemy", cooldown: 3 },
+  ward: { name: "정령의 가호", description: "아군 하나에게 피해를 먼저 막는 보호막 6. 정령이 답하지 않을 때도 있다 (20%)", target: "ally", cooldown: 2 },
   power: { name: "전력 공격", description: "적 하나에게 1.5배 피해", target: "enemy", cooldown: 3 },
 };
 
@@ -61,6 +65,10 @@ export const VOLLEY_DAMAGE = [3, 5] as const;
 export const CLEAVE_MULTIPLIER = 1.8;
 export const CLEAVE_RECOIL = 3;
 export const POWER_MULTIPLIER = 1.5;
+export const FIRELANCE_MULTIPLIER = 2.5;
+export const FIRELANCE_COST = 4;
+export const WARD_SHIELD = 6;
+export const WARD_FAIL_CHANCE = 0.2;
 /** 막아서기 중에 받는 피해 배율 */
 export const GUARD_MULTIPLIER = 0.5;
 
@@ -72,6 +80,8 @@ export const JOB_SKILL: Record<string, SkillId> = {
   archer: "volley",
   greatsword: "cleave",
   herbalist: "miasma",
+  mage: "firelance",
+  spiritcaller: "ward",
 };
 export const DEFAULT_SKILL: SkillId = "power";
 

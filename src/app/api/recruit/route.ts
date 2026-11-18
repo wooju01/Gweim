@@ -50,7 +50,7 @@ const MAX_REROLLS = 10;
 /** count명의 특성을 뽑는다. 직업+첫 성격이 겹치면 다시 뽑는다 (몇 번 해도 안 되면 그대로 둔다) */
 function rollDistinct(count: number): MercTraits[] {
   const batch: MercTraits[] = [];
-  const keyOf = (t: MercTraits) => `${t.job}/${t.personalities[0]}`;
+  const keyOf = (t: MercTraits) => `${t.race}/${t.job}/${t.personalities[0]}`;
   for (let i = 0; i < count; i++) {
     let traits = rollTraits(Math.random);
     for (let n = 0; n < MAX_REROLLS && batch.some((b) => keyOf(b) === keyOf(traits)); n++) {

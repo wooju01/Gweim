@@ -3,6 +3,89 @@ import type { Trait } from "../game/types";
 // 랜덤 용병의 재료. 여기 표만 늘리면 조합이 늘어난다.
 // reactions: 태도별 (호감도, 고용 의향) 반응 -2~+2. 여러 특성의 반응은 더해진 뒤 -2~+2로 잘린다.
 // rarity: 등장 가중치. excludes: 같이 못 나오는 특성. requires: 이 중 하나가 있어야 나온다.
+// 뽑는 순서: 종족 → 직업(종족의 jobWeights 반영) → 성격 → 배경.
+
+/**
+ * 용병 종족. 플레이어(길안내자)는 인간으로 고정이다.
+ * 종족 반응은 ±1로 성격(±2)보다 약하다. 종족 차이는 말투와 (나중에) 전투 패시브로만 드러낸다.
+ * 현실의 인종·민족을 연상시키는 묘사, 실제 지역 사투리, 다른 작품의 고유 설정은 쓰지 않는다.
+ */
+export const RACES: Trait[] = [
+  {
+    id: "human",
+    kind: "race",
+    name: "인간",
+    description: "평범하지만 적응이 빠르고 서로 뭉칠 줄 안다. 선함과 탐욕이 한 몸에 같이 산다.",
+    rarity: 12,
+    view: "같은 처지의 사람. 특별한 선입견은 없다.",
+    speech: "종족 특유의 말투는 없다. 성격과 배경이 말투를 정한다.",
+    nameStyle: "2~3음절의 소박한 이름. 성은 없다.",
+  },
+  {
+    id: "dwarf",
+    kind: "race",
+    name: "드워프",
+    description: "땅속 왕국이 무너져 던전의 일부가 되었다. 손재주 좋은 장인들이고, 받은 원한은 잊지 않는다.",
+    rarity: 6,
+    affinityMod: -5,
+    view: "고향의 폐허를 뒤지는 도굴꾼. 길안내자라는 말부터 곱게 들리지 않는다.",
+    speech: "호쾌하다. 크게 웃고, 술과 노래를 좋아한다. 거친 농담을 잘 한다.",
+    nameStyle: "받침이 많은 단단한 소리의 짧은 이름. 뒤에 씨족 이름을 붙이기도 한다.",
+    reactions: {
+      honesty: { affinity: 1, willingness: 0, note: "드워프는 돌려 말하지 않는 자를 믿는다." },
+      greed: { affinity: -1, willingness: 0, note: "무너진 고향을 돈으로 보는 소리 같다." },
+    },
+    jobWeights: { greatsword: 1.5, spearman: 1.5, mage: 0.3, spiritcaller: 0.3 },
+  },
+  {
+    id: "elf",
+    kind: "race",
+    name: "엘프",
+    description: "태어날 때 정령과 영혼이 묶인다. 세상의 정령이 병들어 가면서 엘프도 함께 시들어 간다.",
+    rarity: 5,
+    affinityMod: -5,
+    view: "짧게 살다 가는 시끄러운 종족.",
+    speech: "느리고 고풍스럽다. 말을 고르고, 오래된 표현을 쓴다.",
+    nameStyle: "모음이 흐르는 3~4음절 이름. 묶인 정령에게서 받은 이름이다.",
+    reactions: {
+      respect: { affinity: 1, willingness: 0, note: "예를 아는 인간은 드물다." },
+      mockery: { affinity: -1, willingness: 0, note: "짧은 생에 걸맞은 가벼운 입이다." },
+    },
+    jobWeights: { spiritcaller: 3, archer: 1.5, mage: 1.2, greatsword: 0.5 },
+  },
+  {
+    id: "beastfolk",
+    kind: "race",
+    name: "수인",
+    description: "짐승의 피를 이은 몇 갈래 혈통의 부족들. 인간에게 사냥당하고 부림당한 과거가 있다.",
+    rarity: 6,
+    affinityMod: -10,
+    view: "자신들을 사냥하고 부리던 자들. 쉽게 등을 보이지 않는다.",
+    speech: "감각적이고 본능적이다. 냄새, 소리, 기척으로 사람을 판단하는 말을 한다.",
+    nameStyle: "짧고 소리 나는 대로 부르는 이름. 앞에 혈통 이름을 붙이기도 한다.",
+    reactions: {
+      mercy: { affinity: 1, willingness: 0, note: "인간에게서 이런 말을 들을 줄은 몰랐다." },
+      threat: { affinity: -1, willingness: 0, note: "사냥꾼들이 늘 이렇게 말했다." },
+    },
+    jobWeights: { dagger: 1.5, archer: 1.5, mage: 0.5 },
+  },
+  {
+    id: "barbarian",
+    kind: "race",
+    name: "바바리안",
+    description:
+      "북쪽 부족 사람들. '바바리안'은 인간이 붙인 멸칭이다. 몸에 맹세를 문신으로 새기고, 마법을 믿지 않는다.",
+    rarity: 5,
+    affinityMod: -5,
+    view: "약속을 쉽게 깨는 자들.",
+    speech: "단순하고 직설적이다. 약속과 맹세를 무겁게 여기고, 돌려 말하는 것을 싫어한다.",
+    nameStyle: "짧고 힘 있는 이름. 맹세나 업적에서 딴 이름을 쓰기도 한다.",
+    reactions: {
+      honesty: { affinity: 1, willingness: 0, note: "말한 대로 하는 자인지 지켜본다." },
+    },
+    jobWeights: { greatsword: 2, spearman: 1.5, nun: 0.5, mage: 0.1, spiritcaller: 0.2 },
+  },
+];
 
 export const JOBS: Trait[] = [
   { id: "spearman", kind: "job", name: "창병", description: "긴 창으로 적의 돌격을 막아서는 보병", rarity: 10 },
@@ -11,6 +94,20 @@ export const JOBS: Trait[] = [
   { id: "archer", kind: "job", name: "궁수", description: "사냥꾼 출신으로 먼 거리에서 활을 쏘는 사수", rarity: 10 },
   { id: "greatsword", kind: "job", name: "대검사", description: "몸만 한 대검을 휘두르며 앞장서는 돌격병", rarity: 7 },
   { id: "herbalist", kind: "job", name: "약초꾼", description: "독과 약을 함께 다루는 떠돌이 약사", rarity: 5 },
+  {
+    id: "mage",
+    kind: "job",
+    name: "마법사",
+    description: "불꽃을 부리는 술사. 마법이 세상을 망친 재앙의 원인이라는 의심을 받아 어디서나 곁눈질을 당한다",
+    rarity: 4,
+  },
+  {
+    id: "spiritcaller",
+    kind: "job",
+    name: "정령사",
+    description: "정령과 말을 나누고 그 힘을 빌려 동료를 지키는 자. 부름에 정령이 늘 답하지는 않는다",
+    rarity: 4,
+  },
 ];
 
 export const PERSONALITIES: Trait[] = [
@@ -349,7 +446,7 @@ export const BACKGROUNDS: Trait[] = [
   },
 ];
 
-export const ALL_TRAITS: Trait[] = [...JOBS, ...PERSONALITIES, ...BACKGROUNDS];
+export const ALL_TRAITS: Trait[] = [...RACES, ...JOBS, ...PERSONALITIES, ...BACKGROUNDS];
 
 export function getTrait(id: string): Trait | undefined {
   return ALL_TRAITS.find((t) => t.id === id);

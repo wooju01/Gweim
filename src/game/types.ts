@@ -21,7 +21,7 @@ export type Reaction = {
  */
 export type Trait = {
   id: string;
-  kind: "job" | "personality" | "background";
+  kind: "race" | "job" | "personality" | "background";
   /** 카드에 보이는 이름. 예: "오만함", "창병", "탈영병" */
   name: string;
   /** 호칭에 쓰는 꾸밈말. 성격에만. 예: "오만한" */
@@ -41,12 +41,22 @@ export type Trait = {
   willingnessMod?: number;
   /** 배경에만. AI가 비밀을 지을 때 쓰는 씨앗 */
   secretHint?: string;
+  /** 종족에만. 직업 id별 등장 가중치 배율 (없으면 1) */
+  jobWeights?: Record<string, number>;
+  /** 종족에만. 인간(플레이어)을 처음 볼 때의 시선 */
+  view?: string;
+  /** 종족에만. 말투 힌트. 같은 종족이라도 성격이 말투를 덮어쓴다 */
+  speech?: string;
+  /** 종족에만. 이름 짓는 방식 */
+  nameStyle?: string;
 };
 
 export type Merc = {
   id: string;
   /** 카드에 보이는 특성 이름들. 랜덤 용병에만 있다 */
   tags?: string[];
+  /** 종족 id (traits.ts). 랜덤 용병에만 있다 */
+  race?: string;
   /** 직업 id (traits.ts). 전투 능력을 정한다 */
   job?: string;
   name: string;

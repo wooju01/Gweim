@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { ALL_TRAITS, BACKGROUNDS, JOBS, PERSONALITIES, getTrait } from "../data/traits";
+import { ALL_TRAITS, BACKGROUNDS, JOBS, PERSONALITIES, RACES, getTrait } from "../data/traits";
 import type { MercSeed } from "../lib/schemas";
 import { dislikedTones, likedTones } from "./affinity";
 import {
   pickImpression,
+  jobsFor,
   START_AFFINITY_RANGE,
   START_WILLINGNESS_RANGE,
   buildMerc,
@@ -145,14 +146,15 @@ describe("combineReactions", () => {
 describe("buildMerc", () => {
   const seed: MercSeed = {
     id: "r-test",
-    traits: { job: "nun", personalities: ["rude"], background: "excommunicated" },
+    traits: { race: "human", job: "nun", personalities: ["rude"], background: "excommunicated" },
     start: { affinity: 15, willingness: 40 },
     profile,
   };
 
   it("싸가지없는 수녀: 반응표는 특성에서 계산되고 태그가 붙는다", () => {
     const merc = buildMerc(seed)!;
-    expect(merc.tags).toEqual(["수녀", "싸가지없음", "파문"]);
+    expect(merc.tags).toEqual(["인간", "수녀", "싸가지없음", "파문"]);
+    expect(merc.race).toBe("human");
     expect(merc.reactions.mockery).toMatchObject({ affinity: 2, willingness: 1 });
     expect(merc.startWillingness).toBe(40);
   });
@@ -162,6 +164,8 @@ describe("buildMerc", () => {
     expect(buildMerc({ ...seed, traits: { ...seed.traits, personalities: ["kind", "rude"] } })).toBeNull();
     expect(buildMerc({ ...seed, traits: { ...seed.traits, job: "dragon" } })).toBeNull();
     expect(buildMerc({ ...seed, traits: { ...seed.traits, job: "kind" } })).toBeNull(); // 성격을 직업 자리에
+    expect(buildMerc({ ...seed, traits: { ...seed.traits, race: "dragon" } })).toBeNull();
+    expect(buildMerc({ ...seed, traits: { ...seed.traits, race: "nun" } })).toBeNull(); // 직업을 종족 자리에
   });
 });
 
@@ -189,5 +193,47 @@ describe("첫인상", () => {
     const picked = pickImpression("merc-abc", traits);
     expect(getTrait("greedy")!.impressions).toContain(picked);
     expect(pickImpression("merc-abc", traits)).toBe(picked);
+  });
+});
+
+describe("종족", () => {
+  it("모든 종족이 나오고, 뽑힌 조합은 언제나 규칙을 지킨다", () => {
+    const rand = seededRandom(11);
+    const seen = new Set<string>();
+    for (let i = 0; i < 2000; i++) {
+      const traits = rollTraits(rand);
+      seen.add(traits.race);
+      expect(resolveTraits(traits), JSON.stringify(traits)).not.toBeNull();
+    }
+    expect([...seen].sort()).toEqual(RACES.map((r) => r.id).sort());
+  });
+
+  it("종족 반응은 ±1을 넘지 않고, 성격 반응과 더해진다", () => {
+    for (const race of RACES) {
+      for (const r of Object.values(race.reactions ?? {})) {
+        expect(Math.abs(r.affinity)).toBeLessThanOrEqual(1);
+        expect(Math.abs(r.willingness)).toBeLessThanOrEqual(1);
+      }
+    }
+    // 오만함(존중 +1/+1) + 엘프(존중 +1/0)
+    const table = combineReactions([getTrait("elf")!, getTrait("proud")!]);
+    expect(table.respect).toMatchObject({ affinity: 2, willingness: 1 });
+  });
+
+  it("엘프는 정령사가, 바바리안은 대검사가 더 잘 나오고 바바리안 마법사는 드물다", () => {
+    const weight = (race: string, job: string) => jobsFor(getTrait(race)!).find((j) => j.id === job)!.rarity;
+    expect(weight("elf", "spiritcaller")).toBeGreaterThan(weight("human", "spiritcaller"));
+    expect(weight("barbarian", "greatsword")).toBeGreaterThan(weight("human", "greatsword"));
+    expect(weight("barbarian", "mage")).toBeLessThan(weight("human", "mage"));
+  });
+
+  it("수인은 시작 호감이 낮다", () => {
+    const rand = seededRandom(5);
+    const avg = (race: string) => {
+      let sum = 0;
+      for (let i = 0; i < 300; i++) sum += rollStart([getTrait(race)!], rand).affinity;
+      return sum / 300;
+    };
+    expect(avg("beastfolk")).toBeLessThan(avg("human") - 5);
   });
 });

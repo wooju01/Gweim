@@ -1,6 +1,6 @@
 // 랜덤 용병 생성 규칙. 특성 뽑기, 반응표 합치기, 시작 수치 계산.
 // React/Next/AI에 의존하지 않는 순수 함수만 둔다. 난수는 주입받는다.
-import { BACKGROUNDS, JOBS, PERSONALITIES, getTrait } from "../data/traits";
+import { BACKGROUNDS, JOBS, PERSONALITIES, RACES, getTrait } from "../data/traits";
 import { ChoiceTone, type MercSeed, type MercTraits } from "../lib/schemas";
 import { clampStat } from "./affinity";
 import type { Level, Merc, Reaction, Trait } from "./types";
@@ -63,10 +63,16 @@ export function weightedPick(items: Trait[], rand: Rand): Trait | undefined {
   return items[items.length - 1];
 }
 
-/** 직업 1, 성격 1~2, 배경 1을 뽑는다 */
+/** 종족에 따라 직업 등장 가중치를 바꾼 직업 목록 */
+export function jobsFor(race: Trait): Trait[] {
+  return JOBS.map((job) => ({ ...job, rarity: job.rarity * (race.jobWeights?.[job.id] ?? 1) }));
+}
+
+/** 종족 1, 직업 1, 성격 1~2, 배경 1을 이 순서로 뽑는다 */
 export function rollTraits(rand: Rand): MercTraits {
-  const job = weightedPick(JOBS, rand)!;
-  const chosen: Trait[] = [job];
+  const race = weightedPick(RACES, rand)!;
+  const job = weightedPick(jobsFor(race), rand)!;
+  const chosen: Trait[] = [race, job];
 
   const first = weightedPick(PERSONALITIES.filter((p) => fits(p, chosen)), rand)!;
   chosen.push(first);
@@ -82,18 +88,19 @@ export function rollTraits(rand: Rand): MercTraits {
 
   // 모든 배경을 제외하는 조합은 없도록 데이터를 짜 두었다 (떠돌이는 제외 규칙이 없다)
   const background = weightedPick(BACKGROUNDS.filter((b) => fits(b, chosen)), rand)!;
-  return { job: job.id, personalities, background: background.id };
+  return { race: race.id, job: job.id, personalities, background: background.id };
 }
 
 /** id를 실제 특성으로 바꾸고, 종류와 조합 규칙까지 검사한다. 잘못됐으면 null */
 export function resolveTraits(traits: MercTraits): Trait[] | null {
+  const race = getTrait(traits.race);
   const job = getTrait(traits.job);
   const personalities = traits.personalities.map(getTrait);
   const background = getTrait(traits.background);
-  if (job?.kind !== "job" || background?.kind !== "background") return null;
+  if (race?.kind !== "race" || job?.kind !== "job" || background?.kind !== "background") return null;
   if (personalities.some((p) => p?.kind !== "personality")) return null;
 
-  const all = [job, ...(personalities as Trait[]), background];
+  const all = [race, job, ...(personalities as Trait[]), background];
   for (let i = 1; i < all.length; i++) {
     if (!fits(all[i], all.slice(0, i))) return null;
   }
@@ -140,7 +147,6 @@ export function rollStart(traits: Trait[], rand: Rand): MercSeed["start"] {
   };
 }
 
-/** 카드에 보이는 특성 이름: [직업, 성격..., 배경] */
 /**
  * 첫 번째 성격의 첫인상 문구 중 하나를 용병 id로 고른다.
  * 같은 용병은 언제 다시 만들어도 같은 문구가 나온다.
@@ -153,6 +159,7 @@ export function pickImpression(id: string, traits: Trait[]): string | undefined 
   return options[hash % options.length];
 }
 
+/** 카드에 보이는 특성 이름: [종족, 직업, 성격..., 배경] */
 export function traitTags(traits: Trait[]): string[] {
   return traits.map((t) => t.name);
 }
@@ -168,6 +175,7 @@ export function buildMerc(seed: MercSeed): Merc | null {
   return {
     id: seed.id,
     tags: traitTags(traits),
+    race: seed.traits.race,
     job: seed.traits.job,
     name: profile.name,
     title: profile.title,

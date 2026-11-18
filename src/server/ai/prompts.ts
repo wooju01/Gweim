@@ -3,6 +3,8 @@ import { ChoiceTone, type HistoryLine, type Stage } from "../../lib/schemas";
 import type { Resolve } from "../../game/affinity";
 import type { Level, Merc } from "../../game/types";
 import { MEMORY_MAX_CHARS } from "../../game/memory";
+import { getTrait } from "../../data/traits";
+import type { Trait } from "../../game/types";
 import type { Direction, ProfileInput, ReplyContext, SummaryInput, TurnEvent } from "./types";
 
 const TONE_NAME: Record<ChoiceTone, string> = {
@@ -60,6 +62,19 @@ function reactionTable(merc: Merc): string {
     .join("\n");
 }
 
+// 세계관 핵심은 아직 미정. 특정 소재(재 등)로 쏠리지 않게 중립적으로 둔다.
+const WORLD =
+  "전쟁과 역병이 휩쓸고 간 몰락한 땅. 사람들은 땅 밑 무너진 던전에서 건진 유물로 먹고산다. 인간, 드워프, 엘프, 수인, 북쪽 부족이 섞여 산다.";
+
+/** 종족 설명. 플레이어(길안내자)는 인간이다. 말투는 성격이 우선한다 */
+function raceLines(race: Trait | undefined): string {
+  if (!race) return "";
+  return `- 종족: ${race.name} — ${race.description}
+- 인간(플레이어)을 보는 눈: ${race.view}
+- 종족의 말버릇: ${race.speech} 단, 성격이 말투를 덮어쓴다.
+`;
+}
+
 /**
  * 용병마다 고정된 시스템 프롬프트. 매 턴 같은 내용이라 프롬프트 캐싱 대상이다.
  * 여기에 매 턴 바뀌는 값(단계, 시간 등)을 넣으면 캐시가 깨지므로 넣지 말 것.
@@ -68,11 +83,11 @@ export function systemPrompt(merc: Merc): string {
   return `당신은 다크 판타지 텍스트 RPG의 대사 작가다. 지금은 용병 "${merc.name}"을(를) 연기한다.
 
 # 세계
-재가 내리는 몰락한 땅. 전쟁과 역병이 휩쓸고 지나갔고, 사람들은 던전의 유물로 먹고산다. 마을 용병 길드에서 플레이어가 용병에게 동행을 청하는 장면이다. 플레이어는 무너진 던전의 길을 아는 길안내자로, 고용한 용병 넷을 이끌고 깊은 곳으로 내려가려 한다.
+${WORLD} 마을 용병 길드에서 플레이어가 용병에게 동행을 청하는 장면이다. 플레이어는 무너진 던전의 길을 아는 길안내자로, 고용한 용병 넷을 이끌고 깊은 곳으로 내려가려 한다.
 
 # 캐릭터
 - 이름: ${merc.name} (${merc.title})
-- 성격: ${merc.persona}
+${raceLines(merc.race ? getTrait(merc.race) : undefined)}- 성격: ${merc.persona}
 - 과거: ${merc.background}
 - 말투: ${merc.speechStyle}
 - 예시 대사: ${merc.exampleLines.map((l) => `"${l}"`).join(" / ")}
@@ -186,11 +201,10 @@ ${transcript(merc, lines)}
 - 호감도 같은 숫자나 게임 시스템은 적지 않는다.`;
 }
 
-const WORLD =
-  "재가 내리는 몰락한 땅. 전쟁과 역병이 휩쓸고 지나갔고, 사람들은 던전의 유물로 먹고산다.";
 
 /** 랜덤 용병 프로필 생성. 특성은 코드가 정했고, AI는 그걸 살아 있는 인물로 만든다. */
 export function profilePrompt(input: ProfileInput): string {
+  const race = input.traits.find((t) => t.kind === "race");
   const job = input.traits.find((t) => t.kind === "job")!;
   const personalities = input.traits.filter((t) => t.kind === "personality");
   const background = input.traits.find((t) => t.kind === "background")!;
@@ -203,16 +217,17 @@ export function profilePrompt(input: ProfileInput): string {
 # 세계
 ${WORLD}
 현실의 국가, 종교, 역사 인물, 유명 작품의 이름이나 설정은 쓰지 않는다. 전부 오리지널로 만든다.
+종족을 현실의 인종·민족처럼 묘사하지 않는다(피부색 등). 실제 지역 사투리를 쓰지 않는다.
 
 # 정해진 특성 (반드시 반영)
-- 직업: ${job.name} — ${job.description}
+${race ? `- 종족: ${race.name} — ${race.description} 인간을 보는 눈: ${race.view} 말버릇: ${race.speech}\n` : ""}- 직업: ${job.name} — ${job.description}
 - 성격: ${personalities.map((p) => `${p.name} — ${p.description}`).join(" / ")}
 - 배경: ${background.name} — ${background.description}
 - 비밀의 씨앗: ${background.secretHint}
 
 # 만들 것
-- name: 한국어 2~3음절의 판타지풍 이름. 성은 없다. 다음 이름과 겹치지 않게: ${avoid}
-- title: 카드에 붙는 짧은 호칭. 성격이나 배경이 묻어나게. 예: "잿빛 창병", "빚쟁이 단검수"
+- name: 한국어로 쓴 판타지풍 이름, 띄어쓰기 포함 12자 이내. ${race?.nameStyle ?? "2~3음절, 성은 없다."} 종족의 문화에서 나온 이름처럼. 다음 이름과 겹치지 않게: ${avoid}
+- title: 카드에 붙는 짧은 호칭. 성격이나 배경이 묻어나게. 예: "외눈 창병", "빚쟁이 단검수"
 - persona: 성격 요약 1~2문장. 정해진 성격들이 어떻게 한 사람 안에 섞였는지 드러나게.
 - background: 다른 사람도 알 수 있는 과거 1~2문장.
 - secret: 숨긴 비밀 1문장. 비밀의 씨앗을 이 인물에 맞게 구체화한다.

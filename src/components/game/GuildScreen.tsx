@@ -30,7 +30,7 @@ export function GuildScreen({
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-4 py-10 sm:px-8">
       <header className="flex flex-col gap-4 border-b border-edge pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-2">
-          <p className="text-xs tracking-[0.3em] text-ash">재가 내리는 마을 · 용병 길드</p>
+          <p className="text-xs tracking-[0.3em] text-ash">변경 마을 · 용병 길드</p>
           <h1 className="text-3xl font-bold text-bone">길드 홀</h1>
           <p className="text-sm text-ash">
             길안내자인 당신에게는 함께 던전으로 내려갈 용병 넷이 필요하다. 말을 걸어 동행을 청해 보라.

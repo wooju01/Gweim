@@ -233,6 +233,9 @@ function UnitCard({ unit, active = false, children }: { unit: Unit; active?: boo
         <h3 className="truncate text-sm font-bold">{unit.name}</h3>
         {down && <span className="text-[11px] text-blood">쓰러짐</span>}
         {!down && unit.guarding && <span className="text-[11px] text-ember">막아서는 중</span>}
+        {!down && !unit.guarding && (unit.shield ?? 0) > 0 && (
+          <span className="text-[11px] text-sky-300">보호막 {unit.shield}</span>
+        )}
       </div>
       {unit.title && <p className="truncate text-[11px] text-ash">{unit.title}</p>}
       <div>

@@ -10,6 +10,10 @@ import {
   CRIT_CHANCE,
   CRIT_MULTIPLIER,
   DEFAULT_SKILL,
+  FIRELANCE_COST,
+  FIRELANCE_MULTIPLIER,
+  WARD_FAIL_CHANCE,
+  WARD_SHIELD,
   DEFAULT_STATS,
   GUARD_MULTIPLIER,
   JOB_SKILL,
@@ -53,6 +57,8 @@ export type Unit = {
   cooldown: number;
   /** 막아서기 중 (자기 다음 차례가 오면 풀린다) */
   guarding: boolean;
+  /** 보호막. 공격 피해를 체력보다 먼저 받아 낸다. 전투가 끝날 때까지 남는다 (상태이상 피해는 못 막는다) */
+  shield?: number;
 };
 
 export type Outcome = "victory" | "defeat";
@@ -62,7 +68,8 @@ export type Actor = string | "guide";
 
 export type BattleEvent =
   | { type: "round"; round: number }
-  | { type: "attack"; actor: string; target: string; damage: number; crit: boolean }
+  /** damage: 실제로 깎인 체력. absorbed: 보호막이 막은 양 */
+  | { type: "attack"; actor: string; target: string; damage: number; crit: boolean; absorbed?: number }
   | { type: "status"; target: string; kind: StatusKind }
   | { type: "tick"; target: string; kind: StatusKind; damage: number }
   /** via: 무엇으로 치료했나 */
@@ -70,6 +77,9 @@ export type BattleEvent =
   | { type: "heal"; target: string; amount: number; by: Actor }
   | { type: "skill"; actor: string; skill: SkillId; target?: string }
   | { type: "recoil"; target: string; damage: number }
+  | { type: "shield"; target: string; amount: number; by: string }
+  /** 스킬이 실패했다 (정령이 답하지 않음 등) */
+  | { type: "fizzle"; actor: string; skill: SkillId }
   | { type: "down"; target: string }
   | { type: "end"; outcome: Outcome };
 
@@ -313,7 +323,19 @@ function strike(b: Battle, rng: Rng, actor: Unit, target: Unit, base: number, on
   const crit = rng.next() < CRIT_CHANCE;
   let amount = crit ? Math.round(base * CRIT_MULTIPLIER) : base;
   if (target.guarding) amount = Math.ceil(amount * GUARD_MULTIPLIER);
-  b.log.push({ type: "attack", actor: actor.id, target: target.id, damage: amount, crit });
+  const absorbed = Math.min(target.shield ?? 0, amount);
+  if (absorbed > 0) {
+    target.shield! -= absorbed;
+    amount -= absorbed;
+  }
+  b.log.push({
+    type: "attack",
+    actor: actor.id,
+    target: target.id,
+    damage: amount,
+    crit,
+    ...(absorbed > 0 ? { absorbed } : {}),
+  });
   damage(b, target, amount);
   if (onHit && target.hp > 0 && actor.onHit && rng.next() < actor.onHit.chance) {
     applyStatus(b, target, actor.onHit.status);
@@ -354,22 +376,38 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, target: Unit | undefined) {
         strike(b, rng, actor, enemy, rollInt(rng.next, VOLLEY_DAMAGE[0], VOLLEY_DAMAGE[1]), false);
       }
       break;
-    case "cleave": {
+    case "cleave":
       strike(b, rng, actor, target!, Math.round(roll() * CLEAVE_MULTIPLIER));
-      // 반동은 체력 1 아래로는 깎지 않는다 (스킬로 자멸하지 않게)
-      const recoil = Math.min(CLEAVE_RECOIL, actor.hp - 1);
-      if (recoil > 0 && !b.outcome) {
-        actor.hp -= recoil;
-        b.log.push({ type: "recoil", target: actor.id, damage: recoil });
-      }
+      recoil(b, actor, CLEAVE_RECOIL);
       break;
-    }
+    case "firelance":
+      strike(b, rng, actor, target!, Math.round(roll() * FIRELANCE_MULTIPLIER), false);
+      recoil(b, actor, FIRELANCE_COST);
+      break;
+    case "ward":
+      if (rng.next() < WARD_FAIL_CHANCE) {
+        b.log.push({ type: "fizzle", actor: actor.id, skill });
+        break;
+      }
+      // 보호막은 겹쳐 쌓지 않고 큰 쪽으로 채운다
+      target!.shield = Math.max(target!.shield ?? 0, WARD_SHIELD);
+      b.log.push({ type: "shield", target: target!.id, amount: WARD_SHIELD, by: actor.id });
+      break;
     case "miasma":
       for (const enemy of living(b, "enemy")) applyStatus(b, enemy, "poison");
       break;
     case "power":
       strike(b, rng, actor, target!, Math.round(roll() * POWER_MULTIPLIER));
       break;
+  }
+}
+
+/** 스킬 반동. 체력 1 아래로는 깎지 않는다 (스킬로 자멸하지 않게) */
+function recoil(b: Battle, actor: Unit, amount: number) {
+  const dealt = Math.min(amount, actor.hp - 1);
+  if (dealt > 0 && !b.outcome) {
+    actor.hp -= dealt;
+    b.log.push({ type: "recoil", target: actor.id, damage: dealt });
   }
 }
 
