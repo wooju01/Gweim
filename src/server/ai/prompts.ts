@@ -154,6 +154,10 @@ const WILLINGNESS_FEELING: Record<Direction, string> = {
   none: "같이 갈지에 대한 생각은 그대로다",
 };
 
+/** 던전 휴식 중 대화. 시스템 프롬프트(길드 장면, 캐시됨)는 그대로 두고 이번 턴에만 장면을 알려 준다 */
+const REST_SCENE = (merc: Merc) =>
+  `[장면 바뀜] 지금은 길드가 아니다. ${merc.name}은(는) 이미 길안내자의 파티로 던전에 들어와 있고, 무너진 통로 구석에서 잠시 쉬는 중이다. 고용이나 동행 이야기는 하지 않는다. 지나온 길, 피로, 동료, 자기 이야기를 짧게 나눈다. 짧은 휴식이라 한두 마디로 끝맺는다.\n`;
+
 /** 처음 만나는 자리면 코드가 정한 첫인상을 첫마디에 드러내게 한다 */
 function firstMeeting(merc: Merc, history: HistoryLine[], event: TurnEvent): string {
   if (event.kind !== "open" || history.length > 0 || !merc.impression) return "";
@@ -178,7 +182,7 @@ ${merc.name}은(는) ${AFFINITY_FEELING[event.affinity]}. 그리고 ${WILLINGNES
 }
 
 /** 매 턴 바뀌는 부분. 시스템 프롬프트 뒤, user 메시지로 들어간다. */
-export function turnPrompt({ merc, stage, resolve, history, memory, event, talksLeft }: ReplyContext): string {
+export function turnPrompt({ merc, stage, resolve, history, memory, event, talksLeft, scene = "guild" }: ReplyContext): string {
   const remembered = memory.trim()
     ? `# 오래전 대화의 기억 (${merc.name}이(가) 기억하는 것)\n${memory.trim()}\n\n`
     : "";
@@ -190,7 +194,7 @@ ${remembered}# 최근 대화
 ${transcript(merc, history)}
 
 # 이번 턴
-${eventLine(merc, event)}${firstMeeting(merc, history, event)}${talksLeft <= 0 && event.kind !== "propose" ? `\n- ${merc.name}은(는) 이제 더 길게 이야기할 생각이 없다. 이번 말로 대화를 끝맺는다. 같이 가자는 제안이라면 아직 들어 줄 수 있다는 여지는 남겨도 좋다.` : ""}`;
+${scene === "rest" ? REST_SCENE(merc) : ""}${eventLine(merc, event)}${scene === "rest" ? "" : firstMeeting(merc, history, event)}${scene !== "rest" && talksLeft <= 0 && event.kind !== "propose" ? `\n- ${merc.name}은(는) 이제 더 길게 이야기할 생각이 없다. 이번 말로 대화를 끝맺는다. 같이 가자는 제안이라면 아직 들어 줄 수 있다는 여지는 남겨도 좋다.` : ""}`;
 }
 
 /**

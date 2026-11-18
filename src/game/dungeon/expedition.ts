@@ -4,7 +4,8 @@
 import { HARMFUL, POTION_HEAL, START_SUPPLIES, type SupplyKind } from "../../data/combat";
 import { REST_HEAL_RATIO, TREASURE_COUNT, TREASURE_WEIGHTS, type RoomKind } from "../../data/dungeon";
 import { EVENTS, getEvent, type EventEffect, type EventOutcome } from "../../data/events";
-import type { ChoiceTone } from "../../lib/schemas";
+import type { ChoiceTone, Stage } from "../../lib/schemas";
+import { BOND } from "../../data/bond";
 import { mercUnit, startBattleFrom, type Battle, type Status, type Unit } from "../combat/engine";
 import { josa } from "../combat/text";
 import { createRng, rollInt, type Rng } from "../random";
@@ -25,7 +26,8 @@ export type Member = {
 
 /** 지금 들어와 있는 칸에서 벌어진 일. null이면 맵에서 다음 칸을 고르는 중 */
 export type Room =
-  | { kind: "rest"; lines: string[] }
+  /** talked: 이번 휴식에서 누군가와 이미 이야기했나 (휴식마다 한 번) */
+  | { kind: "rest"; lines: string[]; talked: boolean }
   | { kind: "treasure"; lines: string[] }
   | {
       kind: "event";
@@ -90,6 +92,7 @@ export function moveTo(
   mercs: Merc[],
   nodeId: string,
   seed: number,
+  bonds: Record<string, Stage> = {},
 ): { exp: Expedition; battle: Battle | null; kind: RoomKind } | null {
   if (!canMove(exp, nodeId)) return null;
   const node = nodeById(exp.map, nodeId)!;
@@ -98,9 +101,9 @@ export function moveTo(
 
   switch (node.kind) {
     case "battle":
-      return { exp: next, battle: battleFor(next, mercs, seed), kind: node.kind };
+      return { exp: next, battle: battleFor(next, mercs, seed, bonds), kind: node.kind };
     case "rest":
-      next.room = { kind: "rest", lines: rest(next) };
+      next.room = { kind: "rest", lines: rest(next), talked: false };
       break;
     case "treasure":
       next.room = { kind: "treasure", lines: treasure(next, rng) };
@@ -115,6 +118,25 @@ export function moveTo(
   return { exp: next, battle: null, kind: node.kind };
 }
 
+/** 휴식 칸에서 한 명과 이야기했다고 표시한다 (휴식마다 한 번) */
+export function markRestTalk(exp: Expedition): Expedition {
+  if (exp.room?.kind !== "rest" || exp.room.talked) return exp;
+  return { ...exp, room: { ...exp.room, talked: true } };
+}
+
+/**
+ * 탐험을 끝낼 때(귀환·후퇴) 쓰러진 동료를 데리고 돌아왔으면 호감이 오른다.
+ * 쓰러진 용병 본인과, 함께 돌아온 동료들. 전멸했으면 없다. 용병 id → 호감 변화
+ */
+export function rescueBonds(exp: Expedition): Record<string, number> {
+  if (exp.room?.kind === "defeat") return {};
+  const downed = exp.members.filter((m) => m.down);
+  if (downed.length === 0) return {};
+  return Object.fromEntries(
+    exp.members.map((m) => [m.id, m.down ? BOND.rescuedAffinity : BOND.rescuerAffinity * downed.length]),
+  );
+}
+
 /** 칸에서 할 일을 마치고 맵으로 돌아간다 */
 export function leaveRoom(exp: Expedition): Expedition {
   if (!exp.room || exp.room.kind === "goal" || exp.room.kind === "defeat") return exp;
@@ -124,12 +146,12 @@ export function leaveRoom(exp: Expedition): Expedition {
 
 // ── 전투 ────────────────────────────────────────────────
 
-/** 살아 있는 용병만, 남은 체력과 상태이상을 그대로 들고 전투에 들어간다 */
-export function battleFor(exp: Expedition, mercs: Merc[], seed: number): Battle {
+/** 살아 있는 용병만, 남은 체력과 상태이상, 지금 호감 단계를 들고 전투에 들어간다 */
+export function battleFor(exp: Expedition, mercs: Merc[], seed: number, bonds: Record<string, Stage> = {}): Battle {
   const units: Unit[] = alive(exp).flatMap((m) => {
     const merc = mercs.find((x) => x.id === m.id);
     if (!merc) return [];
-    return [{ ...mercUnit(merc), hp: m.hp, maxHp: m.maxHp, statuses: structuredClone(m.statuses) }];
+    return [{ ...mercUnit(merc), hp: m.hp, maxHp: m.maxHp, statuses: structuredClone(m.statuses), bond: bonds[m.id] }];
   });
   return startBattleFrom(units, seed, { depth: exp.depth, supplies: exp.supplies, walked: exp.visited.length - 1 });
 }
@@ -204,14 +226,16 @@ export function supplyProblem(exp: Expedition, item: SupplyKind, target: string)
   return null;
 }
 
-export function giveSupply(exp: Expedition, item: SupplyKind, target: string): Expedition {
+/** bond: 받는 용병의 호감 단계 (호의 이상이면 물약 +25%) */
+export function giveSupply(exp: Expedition, item: SupplyKind, target: string, bond?: Stage): Expedition {
   if (supplyProblem(exp, item, target)) return exp;
   const next = structuredClone(exp);
   const m = next.members.find((x) => x.id === target)!;
   next.supplies[item]--;
   if (item === "bandage") m.statuses = m.statuses.filter((s) => s.kind !== "bleed");
   if (item === "antidote") m.statuses = m.statuses.filter((s) => s.kind !== "poison");
-  if (item === "potion") m.hp = Math.min(m.maxHp, m.hp + POTION_HEAL);
+  const multiplier = bond === "warm" || bond === "trusted" ? BOND.supplyMultiplier : 1;
+  if (item === "potion") m.hp = Math.min(m.maxHp, m.hp + Math.round(POTION_HEAL * multiplier));
   return next;
 }
 

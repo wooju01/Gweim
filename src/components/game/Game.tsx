@@ -40,6 +40,7 @@ export function Game() {
         merc: entry,
         state: { affinity, willingness, recentTones, history, memory, talks },
         action,
+        scene: "guild",
       });
       dispatch({ type: "resolved", mercId, playerText: playerLineFor(action), res });
     } catch (e) {
@@ -89,6 +90,25 @@ export function Game() {
     }
   }
 
+  /** 휴식 칸 대화. 용병이 먼저 한마디 하고, 플레이어가 한 번 답하면 끝난다 (호감만 움직인다) */
+  async function sendRest(mercId: string, action: TalkAction) {
+    const entry = findEntry(mercId);
+    if (!entry) return;
+    const { affinity, willingness, recentTones, history, memory, talks } = state.progress[mercId];
+    try {
+      const res = await postTalk({
+        merc: entry,
+        state: { affinity, willingness, recentTones, history, memory, talks },
+        action,
+        scene: "rest",
+      });
+      dispatch({ type: "resolved", mercId, playerText: playerLineFor(action), res });
+      dispatch({ type: "restTalkReply", res, done: action.type !== "open" });
+    } catch (e) {
+      dispatch({ type: "restTalkFailed", error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   if (state.screen.kind === "battle") {
     return (
       <BattleScreen
@@ -113,7 +133,18 @@ export function Game() {
         onChoose={(choiceId) => dispatch({ type: "chooseEvent", choiceId, seed: roll() })}
         onLeaveRoom={() => dispatch({ type: "leaveRoom" })}
         onGive={(item, target) => dispatch({ type: "giveSupply", item, target })}
-        onEnd={() => dispatch({ type: "endExpedition" })}
+        onEnd={() => dispatch({ type: "endExpedition", seed: roll() })}
+        restTalk={state.restTalk}
+        progress={state.progress}
+        onRestTalk={(mercId) => {
+          dispatch({ type: "restTalkStart", mercId });
+          void sendRest(mercId, { type: "open" });
+        }}
+        onRestReply={(action) => {
+          if (!state.restTalk || state.restTalk.pending || state.restTalk.done) return;
+          dispatch({ type: "restTalkPending" });
+          void sendRest(state.restTalk.mercId, action);
+        }}
       />
     );
   }
@@ -144,6 +175,8 @@ export function Game() {
       onTalk={startTalk}
       onDismiss={(mercId) => dispatch({ type: "dismiss", mercId })}
       onEnterDungeon={() => dispatch({ type: "enterDungeon", seed: roll() })}
+      notices={state.notices}
+      onDismissNotices={() => dispatch({ type: "dismissNotices" })}
     />
   );
 }

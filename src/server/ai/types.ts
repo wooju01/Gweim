@@ -41,6 +41,8 @@ export type ReplyContext = {
   event: TurnEvent;
   /** 남은 대화 횟수. 0이면 이번 말로 대화를 마무리한다 */
   talksLeft: number;
+  /** 대화 장면. 없으면 길드 */
+  scene?: "guild" | "rest";
 };
 
 /** 기억 요약 입력. 기존 기억에 오래된 대화를 합쳐 새 기억을 만든다. */

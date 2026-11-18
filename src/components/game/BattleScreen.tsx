@@ -41,6 +41,13 @@ const BOND: Record<Stage, { name: string; style: string }> = {
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
+/** 호감 단계가 전투에 주는 효과 (경계·중립은 없음) */
+const BOND_EFFECT: Partial<Record<Stage, string>> = {
+  hostile: "가끔 명령을 무시하고 제멋대로 공격한다",
+  warm: "건네받은 물약 효과 +25%",
+  trusted: "공격 +1, 건네받은 물약 효과 +25%",
+};
+
 const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
 
 const STATUS_STYLE: Record<StatusKind, string> = {
@@ -97,6 +104,8 @@ function floatsFor(e: BattleEvent): Omit<Float, "id">[] {
       return [{ unit: e.target, text: `보호막 ${e.amount}`, tone: "frost" }];
     case "evade":
       return [{ unit: e.target, text: "회피", tone: "frost" }];
+    case "disobey":
+      return [{ unit: e.unit, text: "명령 무시", tone: "info" }];
     case "skill":
       return [{ unit: e.actor, text: getSkill(e.skill)?.name ?? "", tone: "gold" }];
     case "fizzle":
@@ -594,6 +603,7 @@ function ActorStats({ battle, unit }: { battle: Battle; unit: Unit }) {
           ))}
         </p>
       )}
+      {unit.bond && BOND_EFFECT[unit.bond] && <p className={BOND[unit.bond].style}>{BOND[unit.bond].name}: {BOND_EFFECT[unit.bond]}</p>}
       {unit.passives?.map((id) => {
         const passive = getPassive(id);
         const note = passiveNote(battle, unit, id);

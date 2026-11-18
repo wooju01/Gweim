@@ -11,7 +11,9 @@ import {
   finishBattle,
   giveSupply,
   leaveRoom,
+  markRestTalk,
   moveTo,
+  rescueBonds,
   startExpedition,
   supplyProblem,
   type Expedition,
@@ -166,5 +168,31 @@ describe("탐험", () => {
         }
       }
     }
+  });
+});
+
+describe("탐험과 호감", () => {
+  it("쓰러진 동료를 데리고 돌아오면 그 용병과 동료들 호감이 오른다 (전멸은 제외)", () => {
+    const exp = startExpedition(mercs, 1);
+    expect(rescueBonds(exp)).toEqual({});
+    exp.members[1].down = true;
+    const bonds = rescueBonds(exp);
+    expect(bonds[kass.id]).toBe(8);
+    expect(bonds[varn.id]).toBe(3);
+    expect(rescueBonds({ ...exp, room: { kind: "defeat" } })).toEqual({});
+  });
+
+  it("호의 이상이면 지도 위에서 건넨 물약도 +25%", () => {
+    const exp = startExpedition(mercs, 2);
+    exp.members[0].hp = 1;
+    expect(giveSupply(exp, "potion", varn.id).members[0].hp).toBe(13);
+    expect(giveSupply(exp, "potion", varn.id, "warm").members[0].hp).toBe(16);
+  });
+
+  it("휴식 대화는 휴식마다 한 번", () => {
+    const exp: Expedition = { ...startExpedition(mercs, 3), room: { kind: "rest", lines: [], talked: false } };
+    const once = markRestTalk(exp);
+    expect(once.room).toMatchObject({ talked: true });
+    expect(markRestTalk(once)).toBe(once);
   });
 });

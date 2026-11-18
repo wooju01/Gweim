@@ -29,6 +29,8 @@ import {
   type SupplyKind,
 } from "../../data/combat";
 import type { SkillEffect } from "../../data/skills";
+import { BOND } from "../../data/bond";
+import type { Stage } from "../../lib/schemas";
 import { createRng, rollInt, type Rng } from "../random";
 import type { Merc } from "../types";
 
@@ -58,6 +60,8 @@ export type Unit = {
   shield?: number;
   /** 용병만: 종족 패시브 id (data/passives.ts) */
   passives?: string[];
+  /** 용병만: 길안내자에 대한 호감 단계 (전투 시작 때 정해진다) */
+  bond?: Stage;
   /** 적만: 정보에 보이는 특징 한 줄 */
   note?: string;
   /** 용병만: 화면에 그릴 때 쓰는 직업·종족 id (규칙에는 쓰지 않는다) */
@@ -106,6 +110,8 @@ export type BattleEvent =
   /** 종족 패시브 발동. target은 패시브마다 뜻이 다르다 (전사의 긍지: 지켜 준 아군) */
   | { type: "passive"; unit: string; passive: string; target?: string }
   | { type: "evade"; actor: string; target: string }
+  /** 적대 단계 용병이 명령을 무시했다 */
+  | { type: "disobey"; unit: string }
   /** 스킬이 실패했다 (정령이 답하지 않음 등) */
   | { type: "fizzle"; actor: string; skill: SkillId }
   | { type: "down"; target: string }
@@ -201,6 +207,20 @@ export function validate(b: Battle, action: BattleAction): string | null {
 }
 
 // ── 시작 ────────────────────────────────────────────────
+
+/** 길안내자가 건넨 물약의 효과 배율 (손발이 맞는다, 호의·신뢰) */
+export function potionMultiplier(u: Unit): number {
+  return (has(u, "in_sync") ? PASSIVE.inSyncMultiplier : 1) * (u.bond === "warm" || u.bond === "trusted" ? BOND.supplyMultiplier : 1);
+}
+
+/** 이 전투에서 길안내자에게 물자를 받은 횟수 (용병 id별) */
+export function giftsReceived(b: Battle): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const e of b.log) {
+    if ((e.type === "heal" || e.type === "cure") && e.by === "guide") out[e.target] = (out[e.target] ?? 0) + 1;
+  }
+  return out;
+}
 
 /** 행동이 쓰려는 스킬. 생략하면 첫 번째 칸 */
 export function skillOf(actor: Unit, action: { skill?: SkillId }): SkillId | undefined {
@@ -349,6 +369,13 @@ export function act(battle: Battle, action: BattleAction): Battle {
   const actor = currentActor(b)!;
   const enemiesBefore = living(b, "enemy").length;
 
+  // 적대 단계: 가끔 명령을 무시하고 아무 적이나 공격한다
+  if (action.type !== "guide" && actor.bond === "hostile" && rng.next() < BOND.disobeyChance) {
+    const foes = living(b, "enemy");
+    b.log.push({ type: "disobey", unit: actor.id });
+    action = { type: "attack", target: foes[Math.floor(rng.next() * foes.length)].id };
+  }
+
   switch (action.type) {
     case "attack":
       attack(b, rng, actor, unitById(b, action.target)!);
@@ -368,7 +395,8 @@ export function act(battle: Battle, action: BattleAction): Battle {
       if (action.item === "antidote") cure(b, target, "poison", "guide", "antidote");
       if (action.item === "potion") {
         // 손발이 맞는다: 길안내자가 건넨 물약 효과 +50%
-        const amount = has(target, "in_sync") ? Math.round(POTION_HEAL * PASSIVE.inSyncMultiplier) : POTION_HEAL;
+        // 호의 이상이면 +25%
+        const amount = Math.round(POTION_HEAL * potionMultiplier(target));
         heal(b, target, amount, "guide");
       }
       break;
@@ -482,6 +510,7 @@ export function strikeFactors(b: Battle, actor: Unit, target: Unit, opts: Strike
   if (has(actor, "solidarity") && living(b, "merc").length >= 4) bonus += PASSIVE.solidarityBonus;
   if (hasStatus(actor, "awaken")) bonus += PASSIVE.awakenBonus;
   if (hasStatus(actor, "weaken")) bonus -= PASSIVE.weakenAmount;
+  if (actor.bond === "trusted") bonus += BOND.trustAttack;
   if (has(actor, "chase_instinct") && target.hp <= target.maxHp * PASSIVE.chaseRatio) bonus += PASSIVE.chaseBonus;
   let focus: StrikeFactors["uses"]["focus"] = null;
   if (has(actor, "hunters_focus") && !opts.aoe) {

@@ -67,6 +67,8 @@ export function describe(event: BattleEvent, b: Battle): string {
       return `${name(event.target)}의 몸을 정령의 보호막(${event.amount})이 감쌌다.`;
     case "fizzle":
       return `${name(event.actor)}의 부름에 정령이 답하지 않았다.`;
+    case "disobey":
+      return `${josa(name(event.unit), "은", "는")} 명령을 듣지 않고 제멋대로 움직인다.`;
     case "evade":
       return `${josa(name(event.target), "이", "가")} ${name(event.actor)}의 공격을 피했다.`;
     case "passive": {

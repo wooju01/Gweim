@@ -7,6 +7,7 @@ import type { Merc } from "../types";
 import {
   act,
   currentActor,
+  giftsReceived,
   mercUnit,
   neighbors,
   previewAction,
@@ -832,5 +833,48 @@ describe("장착 슬롯", () => {
     const b = start([varn, kass, elke], 1, [dummy("e0", 999)]);
     expect(neighbors(b, unitById(b, kass.id)!).map((u) => u.id)).toEqual([varn.id, elke.id]);
     expect(neighbors(b, unitById(b, varn.id)!).map((u) => u.id)).toEqual([kass.id]);
+  });
+});
+
+describe("호감 단계", () => {
+  const withBond = (bond: Unit["bond"], extra: Partial<Unit> = {}) =>
+    startBattleWithUnits([{ ...mercUnit(varn), defense: 0, speed: 100, attack: [5, 5] as const, bond, ...extra }, dummy("e0", 999)], 1);
+
+  it("신뢰: 공격 +1 (미리보기에도 반영)", () => {
+    expect(previewAction(withBond("trusted"), { type: "attack", target: "e0" })!.damage[0].min).toBe(6);
+    expect(previewAction(withBond("neutral"), { type: "attack", target: "e0" })!.damage[0].min).toBe(5);
+  });
+
+  it("호의 이상: 건네받은 물약 +25%, 손발이 맞는다와 겹친다", () => {
+    const potion = (bond: Unit["bond"], passives: string[] = []) => {
+      const b = act(withBond(bond, { hp: 1, passives }), { type: "guide", item: "potion", target: varn.id });
+      const e = b.log.find((x) => x.type === "heal");
+      return e?.type === "heal" ? e.amount : 0;
+    };
+    expect(potion("neutral")).toBe(12);
+    expect(potion("warm")).toBe(15);
+    expect(potion("trusted")).toBe(15);
+    expect(potion("warm", ["in_sync"])).toBe(23);
+  });
+
+  it("적대: 가끔(약 10%) 명령을 무시하고 아무 적이나 공격한다", () => {
+    let disobeyed = 0;
+    for (let seed = 0; seed < 600; seed++) {
+      const units = [{ ...mercUnit({ ...varn, job: "nun" }), defense: 0, speed: 100, bond: "hostile" as const }, dummy("e0", 999), dummy("e1", 999)];
+      const c = act(startBattleWithUnits(units, seed), { type: "skill", target: varn.id });
+      if (c.log.some((e) => e.type === "disobey")) {
+        disobeyed++;
+        expect(c.log.some((e) => e.type === "attack" && e.actor === varn.id)).toBe(true);
+        expect(c.log.some((e) => e.type === "skill")).toBe(false);
+      }
+    }
+    expect(disobeyed / 600).toBeGreaterThan(0.06);
+    expect(disobeyed / 600).toBeLessThan(0.14);
+  });
+
+  it("길안내자에게 받은 물자를 용병별로 센다", () => {
+    let b = withBond("neutral", { hp: 1 });
+    b = act(b, { type: "guide", item: "potion", target: varn.id });
+    expect(giftsReceived(b)).toEqual({ [varn.id]: 1 });
   });
 });

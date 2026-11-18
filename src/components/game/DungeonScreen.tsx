@@ -2,10 +2,12 @@ import { useState } from "react";
 import { STATUS, SUPPLY, type SupplyKind } from "@/data/combat";
 import { PATH_LENGTH, ROOM_NAME, type RoomKind } from "@/data/dungeon";
 import { getEvent } from "@/data/events";
-import { canMove, choiceAvailable, supplyProblem, type Expedition, type Member } from "@/game/dungeon/expedition";
+import { alive, canMove, choiceAvailable, supplyProblem, type Expedition, type Member } from "@/game/dungeon/expedition";
+import { getStage } from "@/game/affinity";
+import type { MercProgress, RestTalk } from "./state";
 import { byStep, type MapNode } from "@/game/dungeon/map";
 import { GUIDE } from "@/game/party";
-import type { EventResponse } from "@/lib/schemas";
+import { FREE_TEXT_MAX, type EventResponse, type Stage, type TalkAction } from "@/lib/schemas";
 import { Button } from "./parts";
 
 type Props = {
@@ -17,6 +19,10 @@ type Props = {
   onLeaveRoom: () => void;
   onGive: (item: SupplyKind, target: string) => void;
   onEnd: () => void;
+  restTalk: RestTalk | null;
+  progress: Record<string, MercProgress>;
+  onRestTalk: (mercId: string) => void;
+  onRestReply: (action: TalkAction) => void;
 };
 
 const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
@@ -30,7 +36,8 @@ const KIND_STYLE: Record<RoomKind, string> = {
   goal: "border-bone text-bone",
 };
 
-export function DungeonScreen({ exp, narration, reactions, onMove, onChoose, onLeaveRoom, onGive, onEnd }: Props) {
+export function DungeonScreen(props: Props) {
+  const { exp, reactions, onMove, onGive, onEnd, progress } = props;
   const [item, setItem] = useState<SupplyKind | null>(null);
   const over = exp.room?.kind === "goal" || exp.room?.kind === "defeat";
 
@@ -53,14 +60,17 @@ export function DungeonScreen({ exp, narration, reactions, onMove, onChoose, onL
       <DungeonMap exp={exp} onMove={onMove} />
 
       {exp.room ? (
-        <RoomPanel exp={exp} narration={narration} reactions={reactions} onChoose={onChoose} onLeaveRoom={onLeaveRoom} onEnd={onEnd} />
+        <RoomPanel {...props} />
       ) : (
-        <p className="text-sm text-ash">빛나는 칸 중 다음으로 갈 곳을 고른다. 체력과 물자는 다음 칸으로 그대로 이어진다.</p>
+        <>
+          <p className="text-sm text-ash">빛나는 칸 중 다음으로 갈 곳을 고른다. 체력과 물자는 다음 칸으로 그대로 이어진다.</p>
+          {reactions.length > 0 && <Lines lines={reactions} tone="ember" />}
+        </>
       )}
 
       <section aria-label="파티" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {exp.members.map((m) => (
-          <MemberCard key={m.id} member={m}>
+          <MemberCard key={m.id} member={m} stage={progress[m.id] ? getStage(progress[m.id].affinity) : undefined}>
             {item && !supplyProblem(exp, item, m.id) && (
               <Button
                 variant="ember"
@@ -171,14 +181,7 @@ function DungeonMap({ exp, onMove }: { exp: Expedition; onMove: (id: string) => 
   );
 }
 
-function RoomPanel({
-  exp,
-  narration,
-  reactions,
-  onChoose,
-  onLeaveRoom,
-  onEnd,
-}: Pick<Props, "exp" | "narration" | "reactions" | "onChoose" | "onLeaveRoom" | "onEnd">) {
+function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, restTalk, onRestTalk, onRestReply }: Props) {
   const room = exp.room!;
   const box = "flex flex-col items-start gap-3 rounded-sm border p-4";
   const next = (
@@ -193,7 +196,24 @@ function RoomPanel({
         <div className={`${box} border-moss/50 bg-moss/10`}>
           <p className="text-moss">무너진 기둥 아래 숨을 곳을 찾았다. 잠시 상처를 돌보며 쉬었다.</p>
           <Lines lines={room.lines} />
-          {next}
+          {reactions.length > 0 && <Lines lines={reactions} tone="ember" />}
+          {restTalk ? (
+            <RestTalkPanel exp={exp} talk={restTalk} onReply={onRestReply} />
+          ) : (
+            !room.talked && (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-ash">쉬는 동안 한 명과 짧게 이야기할 수 있다. (휴식마다 한 번, 호감만 움직인다)</p>
+                <div className="flex flex-wrap gap-2">
+                  {alive(exp).map((m) => (
+                    <Button key={m.id} onClick={() => onRestTalk(m.id)}>
+                      {m.name}와(과) 이야기한다
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )
+          )}
+          {!restTalk?.pending && next}
         </div>
       );
     case "treasure":
@@ -287,12 +307,83 @@ function Lines({ lines, tone = "ash" }: { lines: string[]; tone?: "ash" | "ember
   );
 }
 
-function MemberCard({ member, children }: { member: Member; children?: React.ReactNode }) {
+const STAGE_LABEL: Record<Stage, { name: string; style: string }> = {
+  hostile: { name: "적대", style: "text-blood" },
+  wary: { name: "경계", style: "text-ash" },
+  neutral: { name: "중립", style: "text-ash" },
+  warm: { name: "호의", style: "text-moss" },
+  trusted: { name: "신뢰", style: "text-ember" },
+};
+
+/** 휴식 칸 대화: 용병의 한마디 → 플레이어가 한 번 답한다 → 끝 */
+function RestTalkPanel({ exp, talk, onReply }: { exp: Expedition; talk: RestTalk; onReply: (a: TalkAction) => void }) {
+  const [draft, setDraft] = useState("");
+  const name = exp.members.find((m) => m.id === talk.mercId)?.name ?? "";
+  const delta = talk.done ? talk.reply?.delta.affinity ?? 0 : 0;
+  return (
+    <div className="flex w-full flex-col gap-2 rounded-sm border border-edge bg-ink/60 p-3">
+      {talk.reply && (
+        <p className="leading-relaxed">
+          {name}: “{talk.reply.message}”
+        </p>
+      )}
+      {talk.pending && <p className="animate-pulse text-sm text-ash">…</p>}
+      {talk.error && <p className="text-sm text-blood">{talk.error}</p>}
+      {talk.done ? (
+        <p className={`text-xs ${delta > 0 ? "text-moss" : delta < 0 ? "text-blood" : "text-ash"}`}>
+          {delta > 0 ? "호감이 올랐다." : delta < 0 ? "호감이 떨어졌다." : "마음은 그대로인 듯하다."}
+        </p>
+      ) : (
+        talk.reply &&
+        !talk.pending && (
+          <>
+            <ol className="flex flex-col gap-1.5">
+              {talk.reply.choices.map((c, i) => (
+                <li key={i}>
+                  <button
+                    onClick={() => onReply({ type: "choice", choice: c })}
+                    className="w-full rounded-sm border border-edge bg-panel px-3 py-2 text-left text-sm hover:border-ember/60 hover:bg-panel-hi"
+                  >
+                    {c.text}
+                  </button>
+                </li>
+              ))}
+            </ol>
+            <form
+              className="flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const text = draft.trim();
+                if (text) onReply({ type: "free", text });
+              }}
+            >
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value.slice(0, FREE_TEXT_MAX))}
+                maxLength={FREE_TEXT_MAX}
+                placeholder="직접 말한다…"
+                className="flex-1 rounded-sm border border-edge bg-ink px-3 py-1.5 text-sm text-bone placeholder:text-ash/60 focus:border-ember/60 focus:outline-none"
+              />
+              <Button type="submit" disabled={!draft.trim()}>
+                말하기
+              </Button>
+            </form>
+          </>
+        )
+      )}
+    </div>
+  );
+}
+
+function MemberCard({ member, stage, children }: { member: Member; stage?: Stage; children?: React.ReactNode }) {
   const ratio = member.hp / member.maxHp;
   return (
     <article className={`flex flex-col gap-2 rounded-sm border border-edge bg-panel p-3 ${member.down ? "opacity-40" : ""}`}>
       <div className="flex items-baseline justify-between gap-2">
-        <h3 className="truncate text-sm font-bold">{member.name}</h3>
+        <h3 className="truncate text-sm font-bold">
+          {member.name}
+          {stage && <span className={`ml-1.5 text-[11px] font-normal ${STAGE_LABEL[stage].style}`}>{STAGE_LABEL[stage].name}</span>}
+        </h3>
         {member.down && <span className="text-[11px] text-blood">쓰러짐</span>}
       </div>
       <div>

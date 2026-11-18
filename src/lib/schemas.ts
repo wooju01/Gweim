@@ -128,10 +128,18 @@ export type RecruitResponse = {
 
 // ── 대화 ───────────────────────────────────────────────────
 
+/**
+ * 대화 장면. guild: 길드에서 동행을 청하는 대화 (5번 제한, 고용 의향이 움직인다)
+ * rest: 던전 휴식 중 짧은 대화 (횟수에 들지 않고, 호감만 움직이고, 동행 제안은 없다)
+ */
+export const TalkScene = z.enum(["guild", "rest"]);
+export type TalkScene = z.infer<typeof TalkScene>;
+
 export const TalkRequest = z.object({
   merc: MercRef,
   state: TalkState,
   action: TalkAction,
+  scene: TalkScene.default("guild"),
 });
 export type TalkRequest = z.infer<typeof TalkRequest>;
 

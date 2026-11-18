@@ -1,20 +1,24 @@
 import { MERCS, getMerc } from "@/data/mercs";
 import { USE_SAMPLE_ROSTER, sampleSeeds } from "@/data/sampleRoster";
 import type { SupplyKind } from "@/data/combat";
-import { applyTone } from "@/game/affinity";
-import { act, type Battle, type BattleAction } from "@/game/combat/engine";
+import { BOND } from "@/data/bond";
+import { applyTone, clampStat, getStage } from "@/game/affinity";
+import { createRng } from "@/game/random";
+import { act, giftsReceived, type Battle, type BattleAction } from "@/game/combat/engine";
 import {
   chooseEvent,
   finishBattle,
   giveSupply,
   leaveRoom,
+  markRestTalk,
   moveTo,
+  rescueBonds,
   startExpedition,
   type Expedition,
 } from "@/game/dungeon/expedition";
 import { buildMerc } from "@/game/generate";
 import type { Merc } from "@/game/types";
-import type { EventResponse, HistoryLine, MercRef, MercSeed, TalkResponse, TalkState } from "@/lib/schemas";
+import type { EventResponse, HistoryLine, MercRef, MercSeed, Stage, TalkResponse, TalkState } from "@/lib/schemas";
 
 const HISTORY_LIMIT = 20;
 
@@ -46,6 +50,19 @@ export type GameState = {
   narration: { eventId: string; pending: boolean; data: EventResponse | null } | null;
   /** 마지막 사건 선택에 대한 용병들의 반응 (예: "케쉬: 호감 ↓") */
   reactions: string[];
+  /** 휴식 칸에서 한 명과 나누는 짧은 대화 */
+  restTalk: RestTalk | null;
+  /** 길드에 돌아왔을 때 알릴 일 (계약 파기, 감사 등) */
+  notices: string[];
+};
+
+export type RestTalk = {
+  mercId: string;
+  reply: TalkResponse | null;
+  pending: boolean;
+  error: string | null;
+  /** 플레이어가 한 번 말하고 답을 들었으면 끝 */
+  done: boolean;
 };
 
 export type GameAction =
@@ -68,8 +85,13 @@ export type GameAction =
   | { type: "battleAct"; action: BattleAction }
   /** 전투가 끝나고 맵으로 돌아간다 */
   | { type: "battleFinish" }
-  /** 탐험을 끝내고 길드로 (귀환, 후퇴, 전멸). 다음 탐험은 모두 회복한 채 시작한다 */
-  | { type: "endExpedition" };
+  /** 탐험을 끝내고 길드로 (귀환, 후퇴, 전멸). 다음 탐험은 모두 회복한 채 시작한다. seed: 계약 파기 판정 */
+  | { type: "endExpedition"; seed: number }
+  | { type: "restTalkStart"; mercId: string }
+  | { type: "restTalkPending" }
+  | { type: "restTalkReply"; res: TalkResponse; done: boolean }
+  | { type: "restTalkFailed"; error: string }
+  | { type: "dismissNotices" };
 
 export function entryId(entry: RosterEntry): string {
   return entry.kind === "unique" ? entry.id : entry.seed.id;
@@ -80,6 +102,31 @@ export function mercOf(entry: RosterEntry): Merc {
   const merc = entry.kind === "unique" ? getMerc(entry.id) : buildMerc(entry.seed);
   if (!merc) throw new Error(`잘못된 명단 항목: ${entryId(entry)}`);
   return merc;
+}
+
+/** 동행 중인 용병의 호감 단계 */
+function bondsOf(state: GameState): Record<string, Stage> {
+  return Object.fromEntries(state.party.map((id) => [id, getStage(state.progress[id]?.affinity ?? 0)]));
+}
+
+/** 여러 용병의 호감을 올리고, 화면에 보일 줄을 만든다 */
+function bumpAffinity(
+  state: GameState,
+  changes: Record<string, number>,
+  why: string,
+): { progress: GameState["progress"]; lines: string[] } {
+  const progress = { ...state.progress };
+  const lines: string[] = [];
+  for (const [id, n] of Object.entries(changes)) {
+    const p = progress[id];
+    if (!p || !n) continue;
+    const affinity = clampStat(p.affinity + n);
+    if (affinity === p.affinity) continue;
+    progress[id] = { ...p, affinity };
+    const entry = state.roster.find((e) => entryId(e) === id);
+    lines.push(`${entry ? mercOf(entry).name : id}: 호감 ${n >= BOND.rescuedAffinity ? "↑↑" : "↑"} (${why})`);
+  }
+  return { progress, lines };
 }
 
 /** 동행 중인 용병 */
@@ -146,6 +193,8 @@ export function initialState(): GameState {
     expedition: null,
     narration: null,
     reactions: [],
+    restTalk: null,
+    notices: [],
   };
 }
 
@@ -214,13 +263,14 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case "move": {
       if (!state.expedition) return state;
-      const moved = moveTo(state.expedition, partyMercs(state), action.nodeId, action.seed);
+      const moved = moveTo(state.expedition, partyMercs(state), action.nodeId, action.seed, bondsOf(state));
       if (!moved) return state;
       const room = moved.exp.room;
       return {
         ...state,
         expedition: moved.exp,
         reactions: [],
+        restTalk: null,
         narration: room?.kind === "event" ? { eventId: room.eventId, pending: true, data: null } : null,
         screen: moved.battle ? { kind: "battle", battle: moved.battle } : { kind: "dungeon" },
       };
@@ -240,11 +290,40 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case "leaveRoom":
       if (!state.expedition) return state;
-      return { ...state, expedition: leaveRoom(state.expedition), narration: null, reactions: [] };
+      if (state.restTalk?.pending) return state;
+      return { ...state, expedition: leaveRoom(state.expedition), narration: null, reactions: [], restTalk: null };
 
-    case "giveSupply":
+    case "giveSupply": {
       if (!state.expedition) return state;
-      return { ...state, expedition: giveSupply(state.expedition, action.item, action.target) };
+      const exp = giveSupply(state.expedition, action.item, action.target, bondsOf(state)[action.target]);
+      if (exp === state.expedition) return state;
+      // 물자를 받은 용병은 호감이 조금 오른다
+      const gained = bumpAffinity(state, { [action.target]: BOND.giftAffinity }, "물자를 받았다");
+      return { ...state, expedition: exp, ...gained, reactions: gained.lines };
+    }
+
+    case "restTalkStart":
+      if (!state.expedition || state.expedition.room?.kind !== "rest" || state.expedition.room.talked) return state;
+      return {
+        ...state,
+        expedition: markRestTalk(state.expedition),
+        restTalk: { mercId: action.mercId, reply: null, pending: true, error: null, done: false },
+      };
+
+    case "restTalkPending":
+      if (!state.restTalk) return state;
+      return { ...state, restTalk: { ...state.restTalk, pending: true, error: null } };
+
+    case "restTalkReply":
+      if (!state.restTalk) return state;
+      return { ...state, restTalk: { ...state.restTalk, reply: action.res, pending: false, done: action.done } };
+
+    case "restTalkFailed":
+      if (!state.restTalk) return state;
+      return { ...state, restTalk: { ...state.restTalk, pending: false, error: action.error } };
+
+    case "dismissNotices":
+      return { ...state, notices: [] };
 
     case "battleAct":
       if (state.screen.kind !== "battle") return state;
@@ -253,11 +332,52 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case "battleFinish": {
       if (state.screen.kind !== "battle" || !state.screen.battle.outcome) return state;
       if (!state.expedition) return { ...state, screen: { kind: "guild" } };
-      return { ...state, expedition: finishBattle(state.expedition, state.screen.battle), screen: { kind: "dungeon" } };
+      // 이번 전투에서 길안내자에게 물자를 받은 용병은 호감이 오른다
+      const gifts = giftsReceived(state.screen.battle);
+      const gained = bumpAffinity(
+        state,
+        Object.fromEntries(Object.entries(gifts).map(([id, n]) => [id, n * BOND.giftAffinity])),
+        "물자를 받았다",
+      );
+      return {
+        ...state,
+        ...gained,
+        reactions: gained.lines,
+        expedition: finishBattle(state.expedition, state.screen.battle),
+        screen: { kind: "dungeon" },
+      };
     }
 
-    case "endExpedition":
-      return { ...state, expedition: null, narration: null, reactions: [], screen: { kind: "guild" } };
+    case "endExpedition": {
+      const exp = state.expedition;
+      let next: GameState = { ...state, expedition: null, narration: null, reactions: [], restTalk: null, screen: { kind: "guild" } };
+      if (!exp) return next;
+      const notices: string[] = [];
+      // 쓰러진 동료를 데리고 돌아왔으면 그 용병과 동료들이 고마워한다
+      const rescue = rescueBonds(exp);
+      if (Object.keys(rescue).length) {
+        const gained = bumpAffinity(next, rescue, "쓰러진 동료를 데려왔다");
+        next = { ...next, progress: gained.progress };
+        notices.push(...gained.lines);
+      }
+      // 적대 단계인 용병은 확률로 계약을 깨고 떠난다
+      const rng = createRng(action.seed);
+      for (const id of exp.members.map((m) => m.id)) {
+        const p = next.progress[id];
+        if (!p || getStage(p.affinity) !== "hostile" || rng.next() >= BOND.leaveChance) continue;
+        const entry = next.roster.find((e) => entryId(e) === id);
+        notices.push(`${entry ? mercOf(entry).name : "누군가"}은(는) 계약을 깨고 길드를 떠났다.`);
+        const progress = { ...next.progress };
+        delete progress[id];
+        next = {
+          ...next,
+          roster: next.roster.filter((e) => entryId(e) !== id),
+          party: next.party.filter((x) => x !== id),
+          progress,
+        };
+      }
+      return { ...next, notices };
+    }
 
     case "dismiss":
       return {

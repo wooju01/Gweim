@@ -20,11 +20,15 @@ export async function POST(request: Request) {
     return Response.json({ error: "알 수 없는 용병이거나 잘못된 특성 조합" }, { status: 400 });
   }
 
-  // 대화 횟수는 서버에서도 막는다
-  if (usesTalk(action) && state.talks >= TALK_LIMIT) {
+  const rest = parsed.data.scene === "rest";
+  if (rest && action.type === "propose") {
+    return Response.json({ error: "휴식 중에는 동행을 제안하지 않는다" }, { status: 400 });
+  }
+  // 대화 횟수는 서버에서도 막는다 (휴식 대화는 횟수에 들지 않는다)
+  if (!rest && usesTalk(action) && state.talks >= TALK_LIMIT) {
     return Response.json({ error: `${merc.name}은(는) 더 할 말이 없다.` }, { status: 400 });
   }
-  const talks = state.talks + (usesTalk(action) ? 1 : 0);
+  const talks = state.talks + (!rest && usesTalk(action) ? 1 : 0);
 
   let tone: Tone | null = null;
   let { affinity, willingness, recentTones } = state;
@@ -45,6 +49,11 @@ export async function POST(request: Request) {
 
       const result = applyTone(merc, state, tone);
       ({ affinity, willingness, recentTones, delta } = result);
+      // 휴식 대화는 이미 동행 중이라 고용 의향은 움직이지 않는다
+      if (rest) {
+        willingness = state.willingness;
+        delta = { ...delta, willingness: 0 };
+      }
 
       // AI에게는 실제로 움직인 방향만 알려 준다 (반복 감쇠로 0이 됐으면 "none")
       event = {
@@ -83,6 +92,7 @@ export async function POST(request: Request) {
       memory: state.memory,
       event,
       talksLeft: TALK_LIMIT - talks,
+      scene: parsed.data.scene,
     }),
     plan ? summarize({ merc, memory: state.memory, lines: plan.fold }) : null,
   ]);

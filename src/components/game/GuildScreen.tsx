@@ -13,6 +13,9 @@ type Props = {
   onTalk: (mercId: string) => void;
   onDismiss: (mercId: string) => void;
   onEnterDungeon: () => void;
+  /** 탐험에서 돌아왔을 때 알릴 일 */
+  notices?: string[];
+  onDismissNotices?: () => void;
 };
 
 export function GuildScreen({
@@ -24,11 +27,27 @@ export function GuildScreen({
   onTalk,
   onDismiss,
   onEnterDungeon,
+  notices = [],
+  onDismissNotices,
 }: Props) {
   const byId = new Map(mercs.map((m) => [m.id, m]));
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-4 py-10 sm:px-8">
+      {notices.length > 0 && (
+        <section aria-label="알림" className="flex items-start justify-between gap-4 rounded-sm border border-ember/40 bg-ember/5 px-4 py-3 text-sm">
+          <ul className="flex flex-col gap-1">
+            {notices.map((n, i) => (
+              <li key={i} className={n.includes("떠났다") ? "text-blood" : "text-ember"}>
+                {n}
+              </li>
+            ))}
+          </ul>
+          <Button className="!px-2 !py-1 text-xs" onClick={onDismissNotices}>
+            확인
+          </Button>
+        </section>
+      )}
       <header className="flex flex-col gap-4 border-b border-edge pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-2">
           <p className="text-xs tracking-[0.3em] text-ash">변경 마을 · 용병 길드</p>
