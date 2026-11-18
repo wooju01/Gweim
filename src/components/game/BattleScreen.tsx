@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { SKILLS, STATUS, SUPPLY, type StatusKind, type SupplyKind } from "@/data/combat";
+import { SKILLS, SKILL_SLOTS, STATUS, SUPPLY, type StatusKind, type SupplyKind } from "@/data/combat";
 import { getPassive } from "@/data/passives";
 import {
   currentActor,
@@ -136,12 +136,12 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds }: Prop
   // 연출이 끝나기 전에는 입력을 받지 않는다
   const actor = play.playing ? null : currentActor(battle);
   const [item, setItem] = useState<SupplyKind | null>(null);
-  /** 대상을 골라야 하는 스킬을 겨누는 중 */
-  const [aiming, setAiming] = useState(false);
+  /** 대상을 골라야 하는 스킬을 겨누는 중 (스킬 id) */
+  const [aiming, setAiming] = useState<string | null>(null);
   const [floats, setFloats] = useState<Float[]>([]);
   /** 마우스를 올린 유닛, 스킬 버튼에 마우스를 올렸는지 */
   const [hover, setHover] = useState<string | null>(null);
-  const [skillHover, setSkillHover] = useState(false);
+  const [skillHover, setSkillHover] = useState<string | null>(null);
   const floatId = useRef(0);
   const logEnd = useRef<HTMLDivElement>(null);
 
@@ -162,7 +162,8 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds }: Prop
   }, [play.shown]);
 
   const can = (action: BattleAction) => !play.playing && validate(battle, action) === null;
-  const skill = actor?.skill ? SKILLS[actor.skill] : null;
+  /** 겨누고 있는 스킬 */
+  const skill = aiming ? SKILLS[aiming] : null;
   const round = [...battle.log.slice(0, play.shown)].reverse().find((e) => e.type === "round");
   const outcome = play.playing ? null : battle.outcome;
 
@@ -172,29 +173,28 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds }: Prop
     setItem(null);
   }
 
-  function cast(target?: string) {
-    onAct({ type: "skill", ...(target ? { target } : {}) });
-    setAiming(false);
+  function cast(id: string, target?: string) {
+    onAct({ type: "skill", skill: id, ...(target ? { target } : {}) });
+    setAiming(null);
   }
 
-  function onSkillButton() {
-    if (!skill) return;
-    if (skill.target === "none") cast();
+  function onSkillButton(id: string) {
+    if (SKILLS[id].target === "none") cast(id);
     else {
-      setAiming(!aiming);
+      setAiming(aiming === id ? null : id);
       setItem(null);
     }
   }
 
   /** 무대 위 유닛을 눌렀을 때: 겨눈 스킬, 건넬 물자, 공격 순서로 처리한다 */
   function clickUnit(u: Unit) {
-    if (aiming && skill && can({ type: "skill", target: u.id })) return cast(u.id);
+    if (aiming && can({ type: "skill", skill: aiming, target: u.id })) return cast(aiming, u.id);
     if (item && can({ type: "guide", item, target: u.id })) return give(u.id);
     if (!aiming && !item && can({ type: "attack", target: u.id })) onAct({ type: "attack", target: u.id });
   }
 
   function clickable(u: Unit): boolean {
-    if (aiming) return can({ type: "skill", target: u.id });
+    if (aiming) return can({ type: "skill", skill: aiming, target: u.id });
     if (item) return can({ type: "guide", item, target: u.id });
     return can({ type: "attack", target: u.id });
   }
@@ -206,9 +206,9 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds }: Prop
   const previewing: BattleAction | null = !actor
     ? null
     : aiming && hover
-      ? { type: "skill", target: hover }
-      : skillHover && skill?.target === "none"
-        ? { type: "skill" }
+      ? { type: "skill", skill: aiming, target: hover }
+      : skillHover && SKILLS[skillHover]?.target === "none"
+        ? { type: "skill", skill: skillHover }
         : !aiming && !item && hover
           ? { type: "attack", target: hover }
           : null;
@@ -322,22 +322,35 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds }: Prop
                     ? `${skill?.name}: 무대에서 ${skill?.target === "enemy" ? "적" : "아군"}을 누른다. 마우스를 올리면 예상 결과가 보인다.`
                     : "무대의 적을 눌러 공격한다. 마우스를 올리면 예상 피해가 보인다."}
                 </p>
-                {skill && (
-                  <Button
-                    variant={aiming ? "ember" : "ghost"}
-                    disabled={actor.cooldown > 0}
-                    onClick={onSkillButton}
-                    onMouseEnter={() => setSkillHover(true)}
-                    onMouseLeave={() => setSkillHover(false)}
-                    title={skill.description}
-                    className="text-left"
-                  >
-                    <span className="font-bold">{skill.name}</span>
-                    <span className="ml-2 text-xs text-ash">
-                      {actor.cooldown > 0 ? `${actor.cooldown}턴 뒤 사용 가능` : skill.description}
-                    </span>
-                  </Button>
-                )}
+                <div className="grid grid-cols-2 gap-2">
+                  {Array.from({ length: SKILL_SLOTS }, (_, i) => {
+                    const id = actor.skills[i];
+                    if (!id) {
+                      return (
+                        <div key={i} className="rounded-sm border border-dashed border-edge px-3 py-2 text-xs text-ash/50">
+                          빈 칸
+                        </div>
+                      );
+                    }
+                    const s = SKILLS[id];
+                    const wait = actor.cooldowns[id] ?? 0;
+                    return (
+                      <Button
+                        key={id}
+                        variant={aiming === id ? "ember" : "ghost"}
+                        disabled={wait > 0}
+                        onClick={() => onSkillButton(id)}
+                        onMouseEnter={() => setSkillHover(id)}
+                        onMouseLeave={() => setSkillHover((h) => (h === id ? null : h))}
+                        title={`${s.description} (대기 ${s.cooldown}턴)`}
+                        className="text-left !px-3"
+                      >
+                        <span className="block font-bold">{s.name}</span>
+                        <span className="block text-[11px] text-ash">{wait > 0 ? `${wait}턴 뒤 사용 가능` : `대기 ${s.cooldown}턴`}</span>
+                      </Button>
+                    );
+                  })}
+                </div>
                 <Button disabled={!can({ type: "bandage" })} onClick={() => onAct({ type: "bandage" })}>
                   붕대 감기 · 남은 {battle.supplies.bandage}
                 </Button>
@@ -363,7 +376,7 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds }: Prop
                       disabled={battle.supplies[kind] <= 0 || play.playing}
                       onClick={() => {
                         setItem(item === kind ? null : kind);
-                        setAiming(false);
+                        setAiming(null);
                       }}
                       title={SUPPLY[kind].description}
                     >

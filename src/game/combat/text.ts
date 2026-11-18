@@ -60,7 +60,7 @@ export function describe(event: BattleEvent, b: Battle): string {
         : `${who} ${josa(skill, "을", "를")} 썼다.`;
     }
     case "recoil": {
-      const by = (b.units.find((u) => u.id === event.target)?.skill ?? "") === "firelance" ? "불꽃에 몸이 타" : "반동으로";
+      const by = event.skill === "firelance" ? "불꽃에 몸이 타" : "반동으로";
       return `${josa(name(event.target), "이", "가")} ${by} ${event.damage} 피해를 입었다.`;
     }
     case "shield":

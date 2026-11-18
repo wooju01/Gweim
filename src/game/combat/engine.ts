@@ -13,6 +13,7 @@ import {
   GUARD_MULTIPLIER,
   JOB_SKILL,
   SKILLS,
+  SKILL_SLOTS,
   type SkillId,
   ENCOUNTER_SIZE,
   ENEMIES,
@@ -47,10 +48,10 @@ export type Unit = {
   speed: number;
   onHit?: OnHit;
   statuses: Status[];
-  /** 용병만: 직업 스킬 */
-  skill?: SkillId;
-  /** 스킬을 다시 쓸 수 있을 때까지 남은 자기 턴 수 (0이면 사용 가능) */
-  cooldown: number;
+  /** 용병만: 장착한 스킬 (최대 SKILL_SLOTS개). 공격과 붕대는 슬롯을 차지하지 않는 기본 행동 */
+  skills: SkillId[];
+  /** 스킬별로 다시 쓸 수 있을 때까지 남은 자기 턴 수 (없거나 0이면 사용 가능) */
+  cooldowns: Record<SkillId, number>;
   /** 막아서기 중 (자기 다음 차례가 오면 풀린다) */
   guarding: boolean;
   /** 보호막. 공격 피해를 체력보다 먼저 받아 낸다. 전투가 끝날 때까지 남는다 (상태이상 피해는 못 막는다) */
@@ -99,7 +100,8 @@ export type BattleEvent =
   | { type: "cure"; target: string; kind: StatusKind; by: Actor; via: "bandage" | "antidote" | "skill" }
   | { type: "heal"; target: string; amount: number; by: Actor }
   | { type: "skill"; actor: string; skill: SkillId; target?: string }
-  | { type: "recoil"; target: string; damage: number }
+  /** skill: 반동을 낸 스킬 (문장에 쓴다) */
+  | { type: "recoil"; target: string; damage: number; skill?: SkillId }
   | { type: "shield"; target: string; amount: number; by: string }
   /** 종족 패시브 발동. target은 패시브마다 뜻이 다르다 (전사의 긍지: 지켜 준 아군) */
   | { type: "passive"; unit: string; passive: string; target?: string }
@@ -132,7 +134,8 @@ export type Battle = {
 export type BattleAction =
   | { type: "attack"; target: string }
   | { type: "bandage" }
-  | { type: "skill"; target?: string }
+  /** skill을 생략하면 첫 번째 칸의 스킬 */
+  | { type: "skill"; skill?: SkillId; target?: string }
   | { type: "guide"; item: SupplyKind; target: string };
 
 // ── 조회 ────────────────────────────────────────────────
@@ -172,9 +175,11 @@ export function validate(b: Battle, action: BattleAction): string | null {
       if (!hasStatus(actor, "bleed")) return "출혈이 없다";
       return null;
     case "skill": {
-      if (!actor.skill) return "스킬이 없다";
-      if (actor.cooldown > 0) return `${actor.cooldown}턴 뒤에 쓸 수 있다`;
-      const kind = SKILLS[actor.skill].target;
+      const id = skillOf(actor, action);
+      if (!id || !actor.skills.includes(id) || !SKILLS[id]) return "장착하지 않은 스킬";
+      const wait = actor.cooldowns[id] ?? 0;
+      if (wait > 0) return `${wait}턴 뒤에 쓸 수 있다`;
+      const kind = SKILLS[id].target;
       const target = action.target ? unitById(b, action.target) : undefined;
       if (kind === "none") return action.target ? "대상을 고르지 않는 스킬" : null;
       if (!target || target.hp <= 0) return "대상을 골라야 한다";
@@ -197,6 +202,27 @@ export function validate(b: Battle, action: BattleAction): string | null {
 
 // ── 시작 ────────────────────────────────────────────────
 
+/** 행동이 쓰려는 스킬. 생략하면 첫 번째 칸 */
+export function skillOf(actor: Unit, action: { skill?: SkillId }): SkillId | undefined {
+  return action.skill ?? actor.skills[0];
+}
+
+/** 장착 스킬. 용병이 정해 둔 게 없으면 직업 스킬 (직업이 없으면 전력 공격) */
+function loadout(merc: Merc): SkillId[] {
+  const skills = merc.skills?.length ? merc.skills : [(merc.job && JOB_SKILL[merc.job]) || DEFAULT_SKILL];
+  return skills.filter((id) => SKILLS[id]).slice(0, SKILL_SLOTS);
+}
+
+/**
+ * "옆 아군": 지금은 파티 순서의 바로 앞뒤 사람.
+ * 나중에 진형(전열·중열·후열)이 생기면 같은 열의 동료로 이 함수만 바꾼다.
+ */
+export function neighbors(b: Battle, unit: Unit): Unit[] {
+  const side = b.units.filter((u) => u.side === unit.side);
+  const i = side.indexOf(unit);
+  return [side[i - 1], side[i + 1]].filter((u): u is Unit => !!u && u.hp > 0);
+}
+
 export function mercUnit(merc: Merc): Unit {
   const stats = (merc.job && JOB_STATS[merc.job]) || DEFAULT_STATS;
   return {
@@ -211,8 +237,8 @@ export function mercUnit(merc: Merc): Unit {
     speed: stats.speed,
     onHit: stats.onHit,
     statuses: [],
-    skill: (merc.job && JOB_SKILL[merc.job]) || DEFAULT_SKILL,
-    cooldown: 0,
+    skills: loadout(merc),
+    cooldowns: {},
     guarding: false,
     passives: merc.passives ?? [],
     fx: {},
@@ -251,7 +277,8 @@ export function rollEncounter(rng: Rng): Unit[] {
       onHit: k.onHit,
       note: k.note,
       statuses: [],
-      cooldown: 0,
+      skills: [],
+      cooldowns: {},
       guarding: false,
     };
   });
@@ -331,7 +358,7 @@ export function act(battle: Battle, action: BattleAction): Battle {
       cure(b, actor, "bleed", actor.id, "bandage");
       break;
     case "skill":
-      castSkill(b, rng, actor, action.target ? unitById(b, action.target) : undefined);
+      castSkill(b, rng, actor, skillOf(actor, action)!, action.target ? unitById(b, action.target) : undefined);
       break;
     case "guide": {
       const target = unitById(b, action.target)!;
@@ -621,9 +648,9 @@ function heal(b: Battle, target: Unit, amount: number, by: Actor) {
 }
 
 /** 스킬의 효과 조각을 차례로 처리한다. 스킬마다 코드를 따로 짜지 않는다 */
-function castSkill(b: Battle, rng: Rng, actor: Unit, target: Unit | undefined) {
-  const skill = SKILLS[actor.skill!];
-  actor.cooldown = skill.cooldown;
+function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: Unit | undefined) {
+  const skill = SKILLS[skillId];
+  actor.cooldowns[skillId] = skill.cooldown;
   b.log.push({ type: "skill", actor: actor.id, skill: skill.id, ...(target ? { target: target.id } : {}) });
   const enemiesAtStart = living(b, "enemy").length;
 
@@ -664,7 +691,7 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, target: Unit | undefined) {
         actor.guarding = true;
         break;
       case "selfCost":
-        recoil(b, actor, e.hp);
+        recoil(b, actor, e.hp, skill.id);
         break;
     }
   }
@@ -714,7 +741,7 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
   const b = structuredClone(battle);
   const actor = currentActor(b)!;
   const target = action.target ? unitById(b, action.target) : undefined;
-  const effects = action.type === "attack" ? [BASIC_ATTACK] : SKILLS[actor.skill!].effects;
+  const effects = action.type === "attack" ? [BASIC_ATTACK] : SKILLS[skillOf(actor, action)!].effects;
   const enemiesAtStart = living(b, "enemy").length;
   const out: ActionPreview = { damage: [], applies: [], heal: null, shield: null, cures: null, taunt: false, selfCost: 0, failChance: 0 };
 
@@ -821,11 +848,11 @@ export function unitStats(u: Unit) {
 }
 
 /** 스킬 반동. 체력 1 아래로는 깎지 않는다 (스킬로 자멸하지 않게) */
-function recoil(b: Battle, actor: Unit, amount: number) {
+function recoil(b: Battle, actor: Unit, amount: number, skill?: SkillId) {
   const dealt = Math.min(amount, actor.hp - 1);
   if (dealt > 0 && !b.outcome) {
     actor.hp -= dealt;
-    b.log.push({ type: "recoil", target: actor.id, damage: dealt });
+    b.log.push({ type: "recoil", target: actor.id, damage: dealt, ...(skill ? { skill } : {}) });
   }
 }
 
@@ -905,7 +932,7 @@ function advance(b: Battle, rng: Rng) {
 
     // 자기 차례가 오면 막아서기가 풀리고 스킬 대기가 줄어든다
     unit.guarding = false;
-    if (unit.cooldown > 0) unit.cooldown--;
+    for (const id of Object.keys(unit.cooldowns)) if (unit.cooldowns[id] > 0) unit.cooldowns[id]--;
 
     tick(b, unit);
     if (b.outcome || unit.hp <= 0) continue;

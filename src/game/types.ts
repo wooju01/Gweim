@@ -63,6 +63,8 @@ export type Merc = {
   level?: MercLevel;
   /** 종족 패시브 id (data/passives.ts) */
   passives?: string[];
+  /** 장착 스킬 id (data/skills.ts). 없으면 직업 스킬 하나 */
+  skills?: string[];
   name: string;
   /** 카드에 붙는 짧은 호칭 */
   title: string;

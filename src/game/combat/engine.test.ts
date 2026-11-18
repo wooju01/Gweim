@@ -8,6 +8,7 @@ import {
   act,
   currentActor,
   mercUnit,
+  neighbors,
   previewAction,
   startBattleFrom,
   startBattleWithUnits,
@@ -28,8 +29,9 @@ import { describe as describeEvent, josa } from "./text";
 function simplePolicy(b: Battle, actor: Unit): BattleAction {
   const weakest = [...living(b, "enemy")].sort((x, y) => x.hp - y.hp)[0].id;
   if (actor.statuses.some((s) => s.kind === "bleed") && b.supplies.bandage > 0) return { type: "bandage" };
-  if (actor.skill && actor.cooldown === 0) {
-    const kind = SKILLS[actor.skill].target;
+  const sk = actor.skills[0];
+  if (sk && !(actor.cooldowns[sk] > 0)) {
+    const kind = SKILLS[sk].target;
     if (kind === "none") return { type: "skill" };
     if (kind === "enemy") return { type: "skill", target: weakest };
     const hurt = [...living(b, "merc")].sort((x, y) => x.hp / x.maxHp - y.hp / y.maxHp)[0];
@@ -57,7 +59,7 @@ function start(mercs: Merc[], seed: number, enemies?: Unit[], depth = 1): Battle
 
 /** 테스트용 고정 적: 공격력이 낮아 금방 끝나지 않는다. 속도 -10이라 언제나 맨 마지막에 행동한다 */
 function dummy(id: string, hp = 30, overrides: Partial<Unit> = {}): Unit {
-  return { id, side: "enemy", name: "허수아비", title: "", hp, maxHp: hp, attack: [1, 1], defense: 0, speed: -10, statuses: [], cooldown: 0, guarding: false, ...overrides };
+  return { id, side: "enemy", name: "허수아비", title: "", hp, maxHp: hp, attack: [1, 1], defense: 0, speed: -10, statuses: [], skills: [], cooldowns: {}, guarding: false, ...overrides };
 }
 
 /** 상태를 손으로 고친 복사본 */
@@ -263,10 +265,10 @@ describe("스킬", () => {
 
   it("직업마다 스킬이 정해지고, 직업이 없으면 전력 공격", () => {
     const b = start([...party, { ...varn, id: "nojob", job: undefined }], 1, [dummy("e0")]);
-    expect(unitById(b, varn.id)!.skill).toBe("guard");
-    expect(unitById(b, kass.id)!.skill).toBe("pierce");
-    expect(unitById(b, elke.id)!.skill).toBe("pray");
-    expect(unitById(b, "nojob")!.skill).toBe("power");
+    expect(unitById(b, varn.id)!.skills[0]).toBe("guard");
+    expect(unitById(b, kass.id)!.skills[0]).toBe("pierce");
+    expect(unitById(b, elke.id)!.skills[0]).toBe("pray");
+    expect(unitById(b, "nojob")!.skills[0]).toBe("power");
   });
 
   it("쓰고 나면 대기 시간이 생기고, 자기 턴이 지나면 다시 쓸 수 있다", () => {
@@ -343,7 +345,7 @@ describe("스킬", () => {
   it("내려찍기: 반동을 받지만 반동으로 쓰러지지는 않는다", () => {
     const b = edit(start(withJob("greatsword"), 1, [dummy("e0", 999)]), (x) => (unitById(x, varn.id)!.hp = 2));
     const next = act(b, { type: "skill", target: "e0" });
-    expect(next.log).toContainEqual({ type: "recoil", target: varn.id, damage: 1 });
+    expect(next.log).toContainEqual({ type: "recoil", target: varn.id, damage: 1, skill: "cleave" });
     expect(unitById(next, varn.id)!.hp).toBeGreaterThanOrEqual(1);
   });
 
@@ -385,12 +387,12 @@ describe("마법사·정령사", () => {
 
   it("불꽃 창: 2.5배 피해를 주고 자기 체력 4를 태운다", () => {
     let b = start(first("mage"), 1, [dummy("e0", 999)]);
-    expect(unitById(b, varn.id)!.skill).toBe("firelance");
+    expect(unitById(b, varn.id)!.skills[0]).toBe("firelance");
     const hp = unitById(b, varn.id)!.hp;
     b = act(b, { type: "skill", target: "e0" });
     const hit = b.log.find((e) => e.type === "attack" && e.actor === varn.id);
     expect(hit && hit.type === "attack" && hit.damage).toBeGreaterThanOrEqual(Math.round(3 * 2.5));
-    expect(b.log).toContainEqual({ type: "recoil", target: varn.id, damage: 4 });
+    expect(b.log).toContainEqual({ type: "recoil", target: varn.id, damage: 4, skill: "firelance" });
     expect(unitById(b, varn.id)!.hp).toBeLessThanOrEqual(hp - 4);
   });
 
@@ -739,9 +741,9 @@ describe("미리보기", () => {
         const actor = currentActor(b)!;
         const enemies = living(b, "enemy");
         const pick = enemies[Math.floor(r.next() * enemies.length)];
-        const skill = actor.skill ? SKILLS[actor.skill] : null;
+        const skill = actor.skills[0] ? SKILLS[actor.skills[0]] : null;
         let action: BattleAction = { type: "attack", target: pick.id };
-        if (skill && actor.cooldown === 0 && r.next() < 0.5) {
+        if (skill && !(actor.cooldowns[skill.id] > 0) && r.next() < 0.5) {
           const ally = living(b, "merc")[0];
           action = skill.target === "none" ? { type: "skill" } : { type: "skill", target: skill.target === "enemy" ? pick.id : ally.id };
         }
@@ -800,3 +802,35 @@ describe("미리보기", () => {
 function fix2(b: Battle, id: string, patch: Partial<Unit>): Battle {
   return edit(b, (c) => Object.assign(unitById(c, id)!, patch));
 }
+
+describe("장착 슬롯", () => {
+  const multi: Merc = { ...varn, job: "spearman", skills: ["cleave", "pray", "volley", "guard", "power"] };
+
+  it("최대 4칸까지 장착하고, 장착하지 않은 스킬은 쓸 수 없다", () => {
+    const b = start([multi], 1, [dummy("e0", 999)]);
+    expect(unitById(b, varn.id)!.skills).toEqual(["cleave", "pray", "volley", "guard"]);
+    expect(validate(b, { type: "skill", skill: "power", target: "e0" })).toBe("장착하지 않은 스킬");
+    expect(validate(b, { type: "skill", skill: "firelance", target: "e0" })).toBe("장착하지 않은 스킬");
+  });
+
+  it("스킬마다 대기 시간이 따로 돈다", () => {
+    let b = start([multi], 1, [dummy("e0", 999)]);
+    b = act(b, { type: "skill", skill: "cleave", target: "e0" });
+    expect(validate(b, { type: "skill", skill: "cleave", target: "e0" })).toMatch(/턴 뒤에 쓸 수 있다/);
+    expect(validate(b, { type: "skill", skill: "volley" })).toBeNull();
+    b = act(b, { type: "skill", skill: "volley" });
+    expect(b.log.filter((e) => e.type === "skill").map((e) => (e.type === "skill" ? e.skill : ""))).toEqual(["cleave", "volley"]);
+  });
+
+  it("미리보기도 고른 스킬로 계산한다", () => {
+    const b = start([multi], 1, [dummy("e0", 999), dummy("e1", 999)]);
+    expect(previewAction(b, { type: "skill", skill: "volley" })!.damage).toHaveLength(2);
+    expect(previewAction(b, { type: "skill", skill: "pray", target: varn.id })!.heal).not.toBeNull();
+  });
+
+  it("옆 아군은 파티 순서의 바로 앞뒤 사람 (진형이 생기면 바뀐다)", () => {
+    const b = start([varn, kass, elke], 1, [dummy("e0", 999)]);
+    expect(neighbors(b, unitById(b, kass.id)!).map((u) => u.id)).toEqual([varn.id, elke.id]);
+    expect(neighbors(b, unitById(b, varn.id)!).map((u) => u.id)).toEqual([kass.id]);
+  });
+});

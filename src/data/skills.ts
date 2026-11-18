@@ -155,6 +155,9 @@ export const SKILLS: Record<string, Skill> = Object.fromEntries(DEFS.map((d) => 
 
 export type SkillId = string;
 
+/** 장착 슬롯 수. 공격과 붕대는 슬롯을 차지하지 않는다 */
+export const SKILL_SLOTS = 4;
+
 /** 직업별 스킬 (지금은 한 개씩. 장착 슬롯 4개는 다음 단계) */
 export const JOB_SKILL: Record<string, SkillId> = Object.fromEntries(
   DEFS.filter((d) => d.source.job && !d.source.race).map((d) => [d.source.job!, d.id]),

@@ -3,7 +3,7 @@ import type { Battle } from "@/game/combat/engine";
 import { displayedHp } from "./playback";
 
 const unit = (id: string, hp: number, maxHp = 30) =>
-  ({ id, side: "merc", name: id, title: "", hp, maxHp, attack: [1, 1], defense: 0, speed: 0, statuses: [], cooldown: 0, guarding: false }) as const;
+  ({ id, side: "merc", name: id, title: "", hp, maxHp, attack: [1, 1], defense: 0, speed: 0, statuses: [], skills: [], cooldowns: {}, guarding: false }) as const;
 
 describe("재생 중 체력", () => {
   // 엔진이 준 최종 체력: a 20 (30에서 13 맞고 3 회복), b 0 (30 맞음)
