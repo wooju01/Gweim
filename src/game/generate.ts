@@ -2,6 +2,7 @@
 // React/Next/AI에 의존하지 않는 순수 함수만 둔다. 난수는 주입받는다.
 import { BACKGROUNDS, JOBS, PERSONALITIES, RACES, getTrait } from "../data/traits";
 import { APPRENTICE_PASSIVE_CHANCE, LEVELS, getPassive, passivesOf } from "../data/passives";
+import { validSkills } from "../data/skillgen";
 import { ChoiceTone, type MercLevel, type MercSeed, type MercTraits } from "../lib/schemas";
 import { clampStat } from "./affinity";
 import type { Level, Merc, Reaction, Trait } from "./types";
@@ -188,6 +189,7 @@ export function buildMerc(seed: MercSeed): Merc | null {
   const traits = resolveTraits(seed.traits);
   if (!traits) return null;
   if (!validPassives(seed.traits.race, seed.level, seed.passives)) return null;
+  if (!validSkills(seed.skills)) return null;
   const { profile } = seed;
   return {
     id: seed.id,
@@ -196,6 +198,7 @@ export function buildMerc(seed: MercSeed): Merc | null {
     job: seed.traits.job,
     level: seed.level,
     passives: seed.passives,
+    skills: seed.skills,
     name: profile.name,
     title: profile.title,
     impression: pickImpression(seed.id, traits),

@@ -1,4 +1,5 @@
 import { RECRUIT_LEVEL, getPassive } from "@/data/passives";
+import { rollSkills } from "@/data/skillgen";
 import { resolveTraits, rollPassives, rollRecruitCount, rollStart, rollTraits } from "@/game/generate";
 import {
   MercProfile,
@@ -70,17 +71,18 @@ async function recruitOne(
   const start = rollStart(traits, Math.random);
   const level = RECRUIT_LEVEL;
   const passives = rollPassives(traitIds.race, level, Math.random);
+  const skills = rollSkills(traitIds.job, Math.random);
   const id = `r-${crypto.randomUUID().slice(0, 8)}`;
 
   const ai = getMercAI();
   const input = { traits, passives: passives.map((id) => getPassive(id)!), avoidNames };
   try {
     const profile = MercProfile.parse(await ai.createProfile(input));
-    return { seed: { id, traits: traitIds, start, level, passives, profile }, mode: ai.mode };
+    return { seed: { id, traits: traitIds, start, level, passives, skills, profile }, mode: ai.mode };
   } catch (error) {
     if (ai.mode === "mock") throw error;
     console.error("[ai] 용병 프로필 생성 실패, mock으로 대체:", error);
     const profile = await getMockAI().createProfile(input);
-    return { seed: { id, traits: traitIds, start, level, passives, profile }, mode: "fallback" };
+    return { seed: { id, traits: traitIds, start, level, passives, skills, profile }, mode: "fallback" };
   }
 }

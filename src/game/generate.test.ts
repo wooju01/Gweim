@@ -139,7 +139,7 @@ describe("combineReactions", () => {
 
   it("뽑힌 용병은 대부분 좋아하는 태도와 싫어하는 태도를 모두 가진다", () => {
     const mercs = rollMany().map(({ ids, start }) =>
-      buildMerc({ id: "x", traits: ids, start: start!, level: "apprentice", passives: [], profile }),
+      buildMerc({ id: "x", traits: ids, start: start!, level: "apprentice", passives: [], skills: [], profile }),
     );
     const complete = mercs.filter((m) => likedTones(m!).length > 0 && dislikedTones(m!).length > 0);
     expect(complete.length / mercs.length).toBeGreaterThan(0.95);
@@ -153,6 +153,7 @@ describe("buildMerc", () => {
     start: { affinity: 15, willingness: 40 },
     level: "apprentice",
     passives: [],
+    skills: [],
     profile,
   };
 
@@ -281,6 +282,7 @@ describe("등급과 패시브", () => {
       start: { affinity: 15, willingness: 40 },
       level: "apprentice",
       passives: ["rock_root"],
+      skills: [],
       profile,
     };
     expect(buildMerc(seed)).toMatchObject({ level: "apprentice", passives: ["rock_root"] });

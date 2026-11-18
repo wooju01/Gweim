@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { SKILLS, SKILL_SLOTS, STATUS, SUPPLY, type StatusKind, type SupplyKind } from "@/data/combat";
+import { getSkill, SKILL_SLOTS, STATUS, SUPPLY, type StatusKind, type SupplyKind } from "@/data/combat";
 import { getPassive } from "@/data/passives";
 import {
   currentActor,
@@ -98,7 +98,7 @@ function floatsFor(e: BattleEvent): Omit<Float, "id">[] {
     case "evade":
       return [{ unit: e.target, text: "회피", tone: "frost" }];
     case "skill":
-      return [{ unit: e.actor, text: SKILLS[e.skill].name, tone: "gold" }];
+      return [{ unit: e.actor, text: getSkill(e.skill)?.name ?? "", tone: "gold" }];
     case "fizzle":
       return [{ unit: e.actor, text: "실패", tone: "info" }];
     case "passive":
@@ -163,7 +163,7 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds }: Prop
 
   const can = (action: BattleAction) => !play.playing && validate(battle, action) === null;
   /** 겨누고 있는 스킬 */
-  const skill = aiming ? SKILLS[aiming] : null;
+  const skill = aiming ? getSkill(aiming)! : null;
   const round = [...battle.log.slice(0, play.shown)].reverse().find((e) => e.type === "round");
   const outcome = play.playing ? null : battle.outcome;
 
@@ -179,7 +179,7 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds }: Prop
   }
 
   function onSkillButton(id: string) {
-    if (SKILLS[id].target === "none") cast(id);
+    if (getSkill(id)?.target === "none") cast(id);
     else {
       setAiming(aiming === id ? null : id);
       setItem(null);
@@ -207,7 +207,7 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds }: Prop
     ? null
     : aiming && hover
       ? { type: "skill", skill: aiming, target: hover }
-      : skillHover && SKILLS[skillHover]?.target === "none"
+      : skillHover && getSkill(skillHover)?.target === "none"
         ? { type: "skill", skill: skillHover }
         : !aiming && !item && hover
           ? { type: "attack", target: hover }
@@ -332,7 +332,7 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds }: Prop
                         </div>
                       );
                     }
-                    const s = SKILLS[id];
+                    const s = getSkill(id)!;
                     const wait = actor.cooldowns[id] ?? 0;
                     return (
                       <Button

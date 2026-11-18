@@ -22,7 +22,7 @@ import {
   type BattleEvent,
   type Unit,
 } from "./engine";
-import { SKILLS } from "../../data/combat";
+import { SKILLS, getSkill } from "../../data/combat";
 import { describe as describeEvent, josa } from "./text";
 
 /** 밸런스 측정용 단순 정책: 출혈이면 붕대, 스킬이 준비되면 스킬, 아니면 가장 약한 적 공격 */
@@ -31,7 +31,7 @@ function simplePolicy(b: Battle, actor: Unit): BattleAction {
   if (actor.statuses.some((s) => s.kind === "bleed") && b.supplies.bandage > 0) return { type: "bandage" };
   const sk = actor.skills[0];
   if (sk && !(actor.cooldowns[sk] > 0)) {
-    const kind = SKILLS[sk].target;
+    const kind = getSkill(sk)!.target;
     if (kind === "none") return { type: "skill" };
     if (kind === "enemy") return { type: "skill", target: weakest };
     const hurt = [...living(b, "merc")].sort((x, y) => x.hp / x.maxHp - y.hp / y.maxHp)[0];
@@ -741,7 +741,7 @@ describe("미리보기", () => {
         const actor = currentActor(b)!;
         const enemies = living(b, "enemy");
         const pick = enemies[Math.floor(r.next() * enemies.length)];
-        const skill = actor.skills[0] ? SKILLS[actor.skills[0]] : null;
+        const skill = actor.skills[0] ? getSkill(actor.skills[0])! : null;
         let action: BattleAction = { type: "attack", target: pick.id };
         if (skill && !(actor.cooldowns[skill.id] > 0) && r.next() < 0.5) {
           const ally = living(b, "merc")[0];

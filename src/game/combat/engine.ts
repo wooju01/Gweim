@@ -12,7 +12,7 @@ import {
   DEFAULT_STATS,
   GUARD_MULTIPLIER,
   JOB_SKILL,
-  SKILLS,
+  getSkill,
   SKILL_SLOTS,
   type SkillId,
   ENCOUNTER_SIZE,
@@ -176,10 +176,10 @@ export function validate(b: Battle, action: BattleAction): string | null {
       return null;
     case "skill": {
       const id = skillOf(actor, action);
-      if (!id || !actor.skills.includes(id) || !SKILLS[id]) return "장착하지 않은 스킬";
+      if (!id || !actor.skills.includes(id) || !getSkill(id)) return "장착하지 않은 스킬";
       const wait = actor.cooldowns[id] ?? 0;
       if (wait > 0) return `${wait}턴 뒤에 쓸 수 있다`;
-      const kind = SKILLS[id].target;
+      const kind = getSkill(id)!.target;
       const target = action.target ? unitById(b, action.target) : undefined;
       if (kind === "none") return action.target ? "대상을 고르지 않는 스킬" : null;
       if (!target || target.hp <= 0) return "대상을 골라야 한다";
@@ -210,7 +210,7 @@ export function skillOf(actor: Unit, action: { skill?: SkillId }): SkillId | und
 /** 장착 스킬. 용병이 정해 둔 게 없으면 직업 스킬 (직업이 없으면 전력 공격) */
 function loadout(merc: Merc): SkillId[] {
   const skills = merc.skills?.length ? merc.skills : [(merc.job && JOB_SKILL[merc.job]) || DEFAULT_SKILL];
-  return skills.filter((id) => SKILLS[id]).slice(0, SKILL_SLOTS);
+  return skills.filter((id) => getSkill(id)).slice(0, SKILL_SLOTS);
 }
 
 /**
@@ -649,7 +649,7 @@ function heal(b: Battle, target: Unit, amount: number, by: Actor) {
 
 /** 스킬의 효과 조각을 차례로 처리한다. 스킬마다 코드를 따로 짜지 않는다 */
 function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: Unit | undefined) {
-  const skill = SKILLS[skillId];
+  const skill = getSkill(skillId)!;
   actor.cooldowns[skillId] = skill.cooldown;
   b.log.push({ type: "skill", actor: actor.id, skill: skill.id, ...(target ? { target: target.id } : {}) });
   const enemiesAtStart = living(b, "enemy").length;
@@ -741,7 +741,7 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
   const b = structuredClone(battle);
   const actor = currentActor(b)!;
   const target = action.target ? unitById(b, action.target) : undefined;
-  const effects = action.type === "attack" ? [BASIC_ATTACK] : SKILLS[skillOf(actor, action)!].effects;
+  const effects = action.type === "attack" ? [BASIC_ATTACK] : getSkill(skillOf(actor, action)!)!.effects;
   const enemiesAtStart = living(b, "enemy").length;
   const out: ActionPreview = { damage: [], applies: [], heal: null, shield: null, cures: null, taunt: false, selfCost: 0, failChance: 0 };
 

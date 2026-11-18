@@ -97,6 +97,8 @@ export const MercSeed = z.object({
   level: MercLevel.default("apprentice"),
   /** 종족 패시브 id (data/passives.ts). 개수는 등급이 정한다 */
   passives: z.array(z.string().max(40)).max(4).default([]),
+  /** 장착 스킬 id (최대 4). 비어 있으면 직업 스킬 하나 */
+  skills: z.array(z.string().max(40)).max(4).default([]),
   profile: MercProfile,
 });
 export type MercSeed = z.infer<typeof MercSeed>;

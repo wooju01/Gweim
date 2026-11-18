@@ -3,6 +3,7 @@
 // 프로필은 AI 없이 직접 쓴 것이다. 실제 모집(모집 공고)은 그대로 AI로 만든다.
 // 끄려면 USE_SAMPLE_ROSTER를 false로 바꾼다.
 import { resolveTraits, rollStart, seededRandom } from "../game/generate";
+import { rollSkills } from "./skillgen";
 import type { MercProfile, MercSeed, MercTraits } from "../lib/schemas";
 
 export const USE_SAMPLE_ROSTER = true;
@@ -150,6 +151,8 @@ export function sampleSeeds(): MercSeed[] {
     },
     level: "apprentice",
     passives: s.passives,
+    // 직업 스킬 1 + 효과 조각을 무작위로 조합한 스킬 3 (시드 고정이라 매번 같다)
+    skills: rollSkills(s.traits.job, seededRandom(2000 + i)),
     profile: s.profile,
   }));
 }

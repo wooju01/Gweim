@@ -1,5 +1,5 @@
 // 전투 이벤트를 한국어 문장으로. 나중에 애니메이션을 붙여도 이 텍스트는 전투 기록으로 남긴다.
-import { SKILLS, STATUS, type StatusKind } from "../../data/combat";
+import { STATUS, getSkill, type StatusKind } from "../../data/combat";
 import { getPassive } from "../../data/passives";
 import type { Battle, BattleEvent } from "./engine";
 
@@ -52,7 +52,7 @@ export function describe(event: BattleEvent, b: Battle): string {
         ? `당신이 ${name(event.target)}에게 물약을 건넸다. 체력 ${event.amount} 회복.`
         : `${name(event.target)}의 체력이 ${event.amount} 회복되었다.`;
     case "skill": {
-      const skill = SKILLS[event.skill].name;
+      const skill = getSkill(event.skill)?.name ?? "스킬";
       const who = josa(name(event.actor), "이", "가");
       if (event.skill === "guard") return `${who} ${josa(skill, "을", "를")} 펼쳤다. 적의 공격이 그에게 몰린다.`;
       return event.target
