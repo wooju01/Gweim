@@ -3,7 +3,6 @@ import { buildMerc } from "@/game/generate";
 import type { Merc } from "@/game/types";
 import type { HistoryLine, MercRef, MercSeed, TalkResponse, TalkState } from "@/lib/schemas";
 
-export const PARTY_LIMIT = 3;
 const HISTORY_LIMIT = 20;
 
 export type MercProgress = TalkState & { hired: boolean };

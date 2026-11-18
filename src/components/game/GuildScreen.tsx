@@ -1,6 +1,7 @@
 import type { Merc } from "@/game/types";
 import { Button, MercStats, Portrait } from "./parts";
-import { PARTY_LIMIT, type MercProgress } from "./state";
+import { GUIDE, MERC_SLOTS } from "@/game/party";
+import type { MercProgress } from "./state";
 
 type Props = {
   mercs: Merc[];
@@ -22,7 +23,7 @@ export function GuildScreen({ mercs, progress, party, recruit, onRecruit, onTalk
           <p className="text-xs tracking-[0.3em] text-ash">재가 내리는 마을 · 용병 길드</p>
           <h1 className="text-3xl font-bold text-bone">길드 홀</h1>
           <p className="text-sm text-ash">
-            꺼져 가는 난롯불 아래, 떠돌이 용병들이 일거리를 기다린다. 말을 걸어 동행을 청해 보라.
+            길안내자인 당신에게는 함께 던전으로 내려갈 용병 넷이 필요하다. 말을 걸어 동행을 청해 보라.
           </p>
         </div>
         <div className="flex flex-col items-start gap-1 sm:items-end">
@@ -95,11 +96,11 @@ export function GuildScreen({ mercs, progress, party, recruit, onRecruit, onTalk
           <h2 className="flex items-baseline justify-between text-sm tracking-widest text-ash">
             <span>파티</span>
             <span>
-              {party.length + 1} / {PARTY_LIMIT + 1}
+              용병 {party.length} / {MERC_SLOTS}
             </span>
           </h2>
-          <PartySlot name="당신" sub="떠돌이 의뢰인" />
-          {Array.from({ length: PARTY_LIMIT }, (_, i) => {
+          <PartySlot name={GUIDE.name} sub={GUIDE.role} guide />
+          {Array.from({ length: MERC_SLOTS }, (_, i) => {
             const merc = party[i] ? byId.get(party[i]) : undefined;
             return merc ? (
               <PartySlot key={i} name={merc.name} sub={merc.title} />
@@ -118,9 +119,11 @@ export function GuildScreen({ mercs, progress, party, recruit, onRecruit, onTalk
   );
 }
 
-function PartySlot({ name, sub }: { name: string; sub: string }) {
+function PartySlot({ name, sub, guide = false }: { name: string; sub: string; guide?: boolean }) {
   return (
-    <div className="animate-rise rounded-sm border border-edge bg-panel-hi px-3 py-2">
+    <div
+      className={`animate-rise rounded-sm border bg-panel-hi px-3 py-2 ${guide ? "border-ember/40" : "border-edge"}`}
+    >
       <div className="text-sm font-bold">{name}</div>
       <div className="text-xs text-ash">{sub}</div>
     </div>

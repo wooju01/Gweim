@@ -5,7 +5,8 @@ import type { TalkAction } from "@/lib/schemas";
 import { postRecruit, postTalk } from "./api";
 import { DialogueScreen } from "./DialogueScreen";
 import { GuildScreen } from "./GuildScreen";
-import { PARTY_LIMIT, entryId, gameReducer, initialState, mercOf } from "./state";
+import { MERC_SLOTS } from "@/game/party";
+import { entryId, gameReducer, initialState, mercOf } from "./state";
 
 function playerLineFor(action: TalkAction): string | null {
   switch (action.type) {
@@ -72,7 +73,7 @@ export function Game() {
           merc={mercOf(entry)}
           screen={state.screen}
           progress={state.progress[state.screen.mercId]}
-          partyFull={state.party.length >= PARTY_LIMIT}
+          partyFull={state.party.length >= MERC_SLOTS}
           onAct={act}
           onLeave={() => dispatch({ type: "leave" })}
         />
