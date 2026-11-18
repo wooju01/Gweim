@@ -30,7 +30,7 @@ export const PASSIVES: Passive[] = [
   { id: "rock_root", race: "dwarf", name: "바위의 뿌리", description: "받는 피해 -1 (최소 1)" },
   { id: "crafters_eye", race: "dwarf", name: "장인의 눈썰미", description: "공격 시 20% 확률로 적에게 균열 (받는 피해 +2, 2턴)" },
   { id: "steel_heart", race: "dwarf", name: "강철 심장", description: "출혈·중독에 걸릴 확률 절반" },
-  { id: "deep_blood", race: "dwarf", name: "깊은 곳의 피", description: "던전 층이 깊어질수록 공격력 +1" },
+  { id: "deep_blood", race: "dwarf", name: "깊은 곳의 피", description: "탐험에서 지나온 칸 2칸마다 공격력 +1 (최대 +3)" },
   { id: "rising_cheer", race: "dwarf", name: "흥이 오른다", description: "맞을 때마다 흥 +1, 3이 되면 다음 공격 2배" },
   // 바바리안
   { id: "blood_thirst", race: "barbarian", name: "피의 갈증", description: "잃은 체력이 많을수록 공격력 증가 (최대 +5)" },
@@ -43,7 +43,7 @@ export const PASSIVES: Passive[] = [
   { id: "wind_blessing", race: "elf", name: "바람 정령의 가호", description: "속도 +3. 라운드에서 먼저 행동할 확률 증가" },
   { id: "feather_step", race: "elf", name: "깃털의 발걸음", description: "공격 회피 10%" },
   { id: "first_strike", race: "elf", name: "선제 일격", description: "전투에서 첫 공격 피해 +50%" },
-  { id: "wind_dance", race: "elf", name: "바람의 춤", description: "회피에 성공하면 다음 공격 피해 +3" },
+  { id: "wind_dance", race: "elf", name: "바람의 춤", description: "회피 5%. 회피에 성공하면 다음 공격 피해 +3" },
   // 수인
   { id: "hunters_focus", race: "beastfolk", name: "사냥꾼의 집념", description: "같은 적을 연속 공격할수록 피해 +1 (최대 +3, 대상을 바꾸면 초기화)" },
   { id: "finishing_bite", race: "beastfolk", name: "숨통 끊기", description: "적을 쓰러뜨리면 즉시 한 번 더 행동 (라운드당 1회)" },

@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { POTION_HEAL, START_SUPPLIES, STATUS } from "../../data/combat";
 import { TEST_MERCS } from "../../test/fixtures";
+import { PASSIVES } from "../../data/passives";
+import { createRng } from "../random";
 import type { Merc } from "../types";
 import {
   act,
   currentActor,
   mercUnit,
+  previewAction,
+  startBattleFrom,
   startBattleWithUnits,
   hasStatus,
   living,
@@ -483,7 +487,15 @@ describe("종족 패시브", () => {
   it("피의 갈증·무쌍의 투혼·깊은 곳의 피·추격 본능·결속", () => {
     expect(myHit(["blood_thirst"], undefined, { hp: 1 })).toBe(5 + 5);
     expect(myHit(["peerless_spirit"], [dummy("e0", 999), dummy("e1", 999), dummy("e2", 999)])).toBe(5 + 3);
-    expect(myHit(["deep_blood"], undefined, {}, 3)).toBe(5 + 2);
+    const walkedHit = (walked: number) =>
+      plainHit((seed) => {
+        const units = [{ ...mercUnit(P(["deep_blood"])), attack: [5, 5] as const, defense: 0, speed: 100 }, dummy("e0", 999)];
+        const b = startBattleFrom(units, seed, { depth: 1, supplies: START_SUPPLIES, walked, enemies: [] });
+        return act(b, { type: "attack", target: "e0" });
+      });
+    expect(walkedHit(0)).toBe(5);
+    expect(walkedHit(5)).toBe(5 + 2);
+    expect(walkedHit(20)).toBe(5 + 3);
     expect(myHit(["chase_instinct"], [dummy("e0", 999, { hp: 10 })])).toBe(5 + 3);
     const others = [kass, elke, { ...varn, id: "v4" }];
     expect(myHit(["solidarity"], undefined, {}, 1, others)).toBe(5 + 1);
@@ -706,3 +718,85 @@ describe("빈 전투", () => {
     expect(b.outcome).toBe("defeat");
   });
 });
+
+describe("미리보기", () => {
+  type AttackEvent = Extract<BattleEvent, { type: "attack" }>;
+  const ALL_PASSIVES = PASSIVES.map((p) => p.id);
+  const JOBS_ = ["spearman", "dagger", "nun", "archer", "greatsword", "herbalist", "mage", "spiritcaller"];
+
+  it("실제 피해는 언제나 미리보기 범위 안이다 (무작위 파티·패시브·스킬 수천 번)", () => {
+    let checked = 0;
+    for (let seed = 0; seed < 300; seed++) {
+      const r = createRng(seed);
+      const party: Merc[] = [0, 1, 2, 3].map((i) => ({
+        ...varn,
+        id: `m${i}`,
+        job: JOBS_[Math.floor(r.next() * JOBS_.length)],
+        passives: [ALL_PASSIVES[Math.floor(r.next() * ALL_PASSIVES.length)]],
+      }));
+      let b = startBattle(party, seed);
+      for (let step = 0; step < 200 && !b.outcome; step++) {
+        const actor = currentActor(b)!;
+        const enemies = living(b, "enemy");
+        const pick = enemies[Math.floor(r.next() * enemies.length)];
+        const skill = actor.skill ? SKILLS[actor.skill] : null;
+        let action: BattleAction = { type: "attack", target: pick.id };
+        if (skill && actor.cooldown === 0 && r.next() < 0.5) {
+          const ally = living(b, "merc")[0];
+          action = skill.target === "none" ? { type: "skill" } : { type: "skill", target: skill.target === "enemy" ? pick.id : ally.id };
+        }
+        const preview = previewAction(b, action);
+        expect(preview, JSON.stringify(action)).not.toBeNull();
+        const before = b.log.length;
+        b = act(b, action);
+        // 이 행동에서 나온 이 용병의 타격 (반격 등 나중 일은 빼고, 미리보기한 대상 수만큼)
+        const hits = b.log
+          .slice(before)
+          .filter((e): e is AttackEvent => e.type === "attack" && e.actor === actor.id)
+          .slice(0, preview!.damage.length);
+        for (const hit of hits) {
+          const p = preview!.damage.find((d) => d.target === hit.target)!;
+          const total = hit.damage + (hit.absorbed ?? 0);
+          const [lo, hi] = hit.crit ? [p.critMin, p.critMax] : [p.min, p.max];
+          expect(total, `${actor.id} ${JSON.stringify(action)} seed ${seed}`).toBeGreaterThanOrEqual(lo);
+          expect(total).toBeLessThanOrEqual(hi);
+          checked++;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(3000);
+  });
+
+  it("처치 판정, 자기 소모, 실패 확률, 회복과 보호막을 보여 준다", () => {
+    const b = start([{ ...varn, job: "mage" }], 1, [dummy("e0", 3), dummy("e1", 999)]);
+    const fire = previewAction(b, { type: "skill", target: "e0" })!;
+    expect(fire.damage[0].kill).toBe("sure");
+    expect(fire.selfCost).toBe(4);
+    expect(previewAction(b, { type: "skill", target: "e1" })!.damage[0].kill).toBe("no");
+
+    const w = start([{ ...varn, job: "spiritcaller" }], 1, [dummy("e0", 999)]);
+    const ward = previewAction(w, { type: "skill", target: varn.id })!;
+    expect(ward).toMatchObject({ failChance: 0.2, shield: { target: varn.id, amount: 6 } });
+
+    const n = fix2(start([{ ...varn, job: "nun" }], 1, [dummy("e0", 999)]), varn.id, { hp: 10 });
+    expect(previewAction(n, { type: "skill", target: varn.id })!.heal).toEqual({ target: varn.id, amount: 8 });
+    expect(previewAction(n, { type: "bandage" })).toBeNull();
+  });
+
+  it("전체 공격은 적마다 따로 보여 주고, 할 수 없는 행동은 null", () => {
+    const b = start([{ ...varn, job: "archer" }], 1, [dummy("e0", 999), dummy("e1", 999), dummy("e2", 999)]);
+    expect(previewAction(b, { type: "skill" })!.damage.map((d) => d.target)).toEqual(["e0", "e1", "e2"]);
+    expect(previewAction(b, { type: "attack", target: varn.id })).toBeNull();
+  });
+
+  it("스킬 설명은 효과 조각에서 만들어진다", () => {
+    expect(SKILLS.firelance.description).toContain("2.5배");
+    expect(SKILLS.firelance.description).toContain("자기 체력 4");
+    expect(SKILLS.ward.description).toContain("20% 확률로 실패");
+    expect(SKILLS.volley.description).toContain("모든 적에게 3~5 피해");
+  });
+});
+
+function fix2(b: Battle, id: string, patch: Partial<Unit>): Battle {
+  return edit(b, (c) => Object.assign(unitById(c, id)!, patch));
+}

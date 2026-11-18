@@ -53,6 +53,9 @@ export const PASSIVE = {
   featherEvade: 0.1,
   firstStrikeMultiplier: 1.5,
   windDanceBonus: 3,
+  windDanceEvade: 0.05,
+  deepBloodStep: 2,
+  deepBloodMax: 3,
   windBlessingSpeed: 3,
   huntersFocusMax: 3,
   chaseRatio: 0.3,
@@ -83,56 +86,11 @@ export const JOB_STATS: Record<string, UnitStats> = {
   spiritcaller: { hp: 22, attack: [4, 7], defense: 0, speed: 6 },
 };
 
-export type SkillId = "guard" | "pierce" | "pray" | "volley" | "cleave" | "miasma" | "firelance" | "ward" | "power";
+// 스킬은 data/skills.ts에서 효과 조각으로 정의한다
+export { DEFAULT_SKILL, JOB_SKILL, SKILLS, type Skill, type SkillId, type SkillTarget } from "./skills";
 
-/** 스킬 대상: 적 하나, 아군 하나(자신 포함), 대상 없음(자신 또는 적 전체) */
-export type SkillTarget = "enemy" | "ally" | "none";
-
-export type Skill = {
-  name: string;
-  description: string;
-  target: SkillTarget;
-  /** 쓰고 나서 다시 쓸 수 있을 때까지 기다리는 자기 턴 수 */
-  cooldown: number;
-};
-
-export const SKILLS: Record<SkillId, Skill> = {
-  guard: { name: "막아서기", description: "다음 차례까지 적의 공격을 자신에게 끌어오고, 받는 피해가 절반이 된다", target: "none", cooldown: 2 },
-  pierce: { name: "급소 찌르기", description: "적 하나를 공격력 +3으로 찌르고 반드시 출혈을 건다", target: "enemy", cooldown: 2 },
-  pray: { name: "기도", description: "아군 하나의 체력을 8 회복하고 출혈과 중독을 씻어 낸다", target: "ally", cooldown: 3 },
-  volley: { name: "화살비", description: "모든 적에게 3~5 피해", target: "none", cooldown: 3 },
-  cleave: { name: "내려찍기", description: "적 하나에게 1.8배 피해. 반동으로 자신도 3 피해 (쓰러지지는 않는다)", target: "enemy", cooldown: 2 },
-  miasma: { name: "독안개", description: "모든 적을 중독시킨다", target: "none", cooldown: 3 },
-  firelance: { name: "불꽃 창", description: "적 하나에게 2.5배 피해. 자기 체력 4를 태운다 (쓰러지지는 않는다)", target: "enemy", cooldown: 3 },
-  ward: { name: "정령의 가호", description: "아군 하나에게 피해를 먼저 막는 보호막 6. 정령이 답하지 않을 때도 있다 (20%)", target: "ally", cooldown: 2 },
-  power: { name: "전력 공격", description: "적 하나에게 1.5배 피해", target: "enemy", cooldown: 3 },
-};
-
-export const PIERCE_BONUS = 3;
-export const PRAY_HEAL = 8;
-export const VOLLEY_DAMAGE = [3, 5] as const;
-export const CLEAVE_MULTIPLIER = 1.8;
-export const CLEAVE_RECOIL = 3;
-export const POWER_MULTIPLIER = 1.5;
-export const FIRELANCE_MULTIPLIER = 2.5;
-export const FIRELANCE_COST = 4;
-export const WARD_SHIELD = 6;
-export const WARD_FAIL_CHANCE = 0.2;
 /** 막아서기 중에 받는 피해 배율 */
 export const GUARD_MULTIPLIER = 0.5;
-
-/** 직업별 스킬 */
-export const JOB_SKILL: Record<string, SkillId> = {
-  spearman: "guard",
-  dagger: "pierce",
-  nun: "pray",
-  archer: "volley",
-  greatsword: "cleave",
-  herbalist: "miasma",
-  mage: "firelance",
-  spiritcaller: "ward",
-};
-export const DEFAULT_SKILL: SkillId = "power";
 
 /** 직업 정보가 없는 용병 (테스트용 예시 등) */
 export const DEFAULT_STATS: UnitStats = { hp: 28, attack: [5, 8], defense: 1, speed: 5 };
@@ -151,7 +109,7 @@ export const SUPPLY: Record<SupplyKind, { name: string; description: string }> =
 };
 export const POTION_HEAL = 12;
 
-export type EnemyKind = UnitStats & { id: string; name: string; rarity: number };
+export type EnemyKind = UnitStats & { id: string; name: string; rarity: number; /** 적 정보에 보이는 특징 한 줄 */ note: string };
 
 /**
  * 오리지널 몬스터. rarity는 등장 가중치.
@@ -160,11 +118,11 @@ export type EnemyKind = UnitStats & { id: string; name: string; rarity: number }
  * 수치를 바꾸면 engine.test.ts의 밸런스 테스트 출력으로 확인한다.
  */
 export const ENEMIES: EnemyKind[] = [
-  { id: "ash_rat", name: "잿빛 쥐떼", hp: 21, attack: [5, 8], defense: 0, speed: 4, onHit: { status: "bleed", chance: 0.3 }, rarity: 10 },
-  { id: "pit_wretch", name: "구덩이 망자", hp: 29, attack: [6, 10], defense: 1, speed: 1, onHit: { status: "poison", chance: 0.35 }, rarity: 8 },
-  { id: "rust_warden", name: "녹슨 파수병", hp: 37, attack: [8, 12], defense: 3, speed: 0, rarity: 5 },
-  { id: "hollow_hound", name: "속 빈 사냥개", hp: 25, attack: [7, 11], defense: 0, speed: 5, onHit: { status: "bleed", chance: 0.35 }, rarity: 7 },
-  { id: "spore_husk", name: "포자 껍데기", hp: 27, attack: [4, 7], defense: 1, speed: 0, onHit: { status: "poison", chance: 0.7 }, rarity: 6 },
+  { id: "ash_rat", name: "잿빛 쥐떼", hp: 21, attack: [5, 8], defense: 0, speed: 4, onHit: { status: "bleed", chance: 0.3 }, rarity: 10, note: "떼로 물어뜯어 출혈을 일으킨다." },
+  { id: "pit_wretch", name: "구덩이 망자", hp: 29, attack: [6, 10], defense: 1, speed: 1, onHit: { status: "poison", chance: 0.35 }, rarity: 8, note: "썩은 손톱에 독이 묻어 있다." },
+  { id: "rust_warden", name: "녹슨 파수병", hp: 37, attack: [8, 12], defense: 3, speed: 0, rarity: 5, note: "녹슬었어도 갑옷이 두껍다. 느리지만 한 방이 무겁다." },
+  { id: "hollow_hound", name: "속 빈 사냥개", hp: 25, attack: [7, 11], defense: 0, speed: 5, onHit: { status: "bleed", chance: 0.35 }, rarity: 7, note: "사납게 달려든다. 물리면 피가 잘 멎지 않는다." },
+  { id: "spore_husk", name: "포자 껍데기", hp: 27, attack: [4, 7], defense: 1, speed: 0, onHit: { status: "poison", chance: 0.7 }, rarity: 6, note: "굼뜨지만 터지는 포자가 거의 언제나 독을 옮긴다." },
 ];
 
 /** 한 번 전투에 나오는 적 수 [최소, 최대] */

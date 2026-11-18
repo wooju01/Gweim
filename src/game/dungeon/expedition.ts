@@ -131,7 +131,7 @@ export function battleFor(exp: Expedition, mercs: Merc[], seed: number): Battle 
     if (!merc) return [];
     return [{ ...mercUnit(merc), hp: m.hp, maxHp: m.maxHp, statuses: structuredClone(m.statuses) }];
   });
-  return startBattleFrom(units, seed, { depth: exp.depth, supplies: exp.supplies });
+  return startBattleFrom(units, seed, { depth: exp.depth, supplies: exp.supplies, walked: exp.visited.length - 1 });
 }
 
 /** 전투 결과를 탐험에 반영한다. 쓰러진 용병은 빠지고, 강화·약화는 사라진다 */

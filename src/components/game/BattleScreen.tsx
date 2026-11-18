@@ -1,7 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { SKILLS, STATUS, SUPPLY, type StatusKind, type SupplyKind } from "@/data/combat";
 import { getPassive } from "@/data/passives";
-import { currentActor, speedOf, validate, type Battle, type BattleAction, type BattleEvent, type Unit } from "@/game/combat/engine";
+import {
+  currentActor,
+  passiveNote,
+  previewAction,
+  unitStats,
+  validate,
+  type ActionPreview,
+  type Battle,
+  type BattleAction,
+  type BattleEvent,
+  type TargetPreview,
+  type Unit,
+} from "@/game/combat/engine";
+import type { Stage } from "@/lib/schemas";
 import { describe } from "@/game/combat/text";
 import { GUIDE } from "@/game/party";
 import { displayedHp, usePlayback } from "./battle/playback";
@@ -14,7 +27,19 @@ type Props = {
   onLeave: () => void;
   /** 전투가 끝났을 때 버튼 문구 */
   leaveLabel?: { victory: string; defeat: string };
+  /** 용병별 호감 단계 (체력 옆에 표시) */
+  bonds?: Record<string, Stage>;
 };
+
+const BOND: Record<Stage, { name: string; style: string }> = {
+  hostile: { name: "적대", style: "text-blood" },
+  wary: { name: "경계", style: "text-ash" },
+  neutral: { name: "중립", style: "text-ash" },
+  warm: { name: "호의", style: "text-moss" },
+  trusted: { name: "신뢰", style: "text-ember" },
+};
+
+const pct = (n: number) => `${Math.round(n * 100)}%`;
 
 const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
 
@@ -104,7 +129,7 @@ function motionFor(unitId: string, e: BattleEvent | null): string {
   }
 }
 
-export function BattleScreen({ battle, onAct, onLeave, leaveLabel }: Props) {
+export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds }: Props) {
   const [speed, setSpeed] = useState(1);
   const play = usePlayback(battle, speed);
   const hp = displayedHp(battle, play.shown);
@@ -114,6 +139,9 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel }: Props) {
   /** 대상을 골라야 하는 스킬을 겨누는 중 */
   const [aiming, setAiming] = useState(false);
   const [floats, setFloats] = useState<Float[]>([]);
+  /** 마우스를 올린 유닛, 스킬 버튼에 마우스를 올렸는지 */
+  const [hover, setHover] = useState<string | null>(null);
+  const [skillHover, setSkillHover] = useState(false);
   const floatId = useRef(0);
   const logEnd = useRef<HTMLDivElement>(null);
 
@@ -174,6 +202,32 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel }: Props) {
   const mercs = battle.units.filter((u) => u.side === "merc");
   const enemies = battle.units.filter((u) => u.side === "enemy");
 
+  // 미리보기: 겨눈 스킬이나 공격을 마우스를 올린 대상에게 썼을 때 (전체 스킬은 버튼에 올렸을 때)
+  const previewing: BattleAction | null = !actor
+    ? null
+    : aiming && hover
+      ? { type: "skill", target: hover }
+      : skillHover && skill?.target === "none"
+        ? { type: "skill" }
+        : !aiming && !item && hover
+          ? { type: "attack", target: hover }
+          : null;
+  const preview = previewing ? previewAction(battle, previewing) : null;
+  const hovered = hover ? battle.units.find((u) => u.id === hover) : undefined;
+
+  const figureProps = (u: Unit) => ({
+    unit: u,
+    hp: hp[u.id],
+    clickable: clickable(u),
+    motion: motionFor(u.id, play.current),
+    motionKey: play.currentKey,
+    floats: floats.filter((f) => f.unit === u.id),
+    onClick: () => clickUnit(u),
+    onHover: (on: boolean) => setHover((h) => (on ? u.id : h === u.id ? null : h)),
+    preview: preview?.damage.find((d) => d.target === u.id),
+    bond: bonds?.[u.id],
+  });
+
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 px-4 py-6 sm:px-8">
       <header className="flex items-end justify-between border-b border-edge pb-3">
@@ -210,33 +264,18 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel }: Props) {
         </div>
 
         {mercs.map((u, i) => (
-          <Figure
-            key={u.id}
-            unit={u}
-            slot={SLOTS[i % SLOTS.length]}
-            hp={hp[u.id]}
-            active={actor?.id === u.id}
-            clickable={clickable(u)}
-            motion={motionFor(u.id, play.current)}
-            motionKey={play.currentKey}
-            floats={floats.filter((f) => f.unit === u.id)}
-            onClick={() => clickUnit(u)}
-          />
+          <Figure key={u.id} {...figureProps(u)} slot={SLOTS[i % SLOTS.length]} active={actor?.id === u.id} />
         ))}
         {enemies.map((u, i) => (
           <Figure
             key={u.id}
-            unit={u}
+            {...figureProps(u)}
             slot={{ ...SLOTS[i % SLOTS.length], x: 100 - SLOTS[i % SLOTS.length].x }}
-            hp={hp[u.id]}
             active={false}
-            clickable={clickable(u)}
-            motion={motionFor(u.id, play.current)}
-            motionKey={play.currentKey}
-            floats={floats.filter((f) => f.unit === u.id)}
-            onClick={() => clickUnit(u)}
           />
         ))}
+
+        {hovered && <InfoCard unit={hovered} hp={hp[hovered.id]} preview={preview} battle={battle} bond={bonds?.[hovered.id]} />}
 
         {play.current?.type === "round" && (
           <p key={play.currentKey} className="anim-banner pointer-events-none absolute inset-x-0 top-[14%] text-center text-xl text-bone/90">
@@ -277,16 +316,19 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel }: Props) {
                 <p className="text-sm">
                   <span className="font-bold text-ember">{actor.name}</span>의 차례
                 </p>
+                <ActorStats battle={battle} unit={actor} />
                 <p className="text-xs text-ash">
                   {aiming
-                    ? `${skill?.name}: 무대에서 ${skill?.target === "enemy" ? "적" : "아군"}을 누른다.`
-                    : "무대의 적을 눌러 공격하거나, 스킬을 쓰거나, 출혈이 있으면 붕대를 감는다."}
+                    ? `${skill?.name}: 무대에서 ${skill?.target === "enemy" ? "적" : "아군"}을 누른다. 마우스를 올리면 예상 결과가 보인다.`
+                    : "무대의 적을 눌러 공격한다. 마우스를 올리면 예상 피해가 보인다."}
                 </p>
                 {skill && (
                   <Button
                     variant={aiming ? "ember" : "ghost"}
                     disabled={actor.cooldown > 0}
                     onClick={onSkillButton}
+                    onMouseEnter={() => setSkillHover(true)}
+                    onMouseLeave={() => setSkillHover(false)}
                     title={skill.description}
                     className="text-left"
                   >
@@ -351,6 +393,9 @@ function Figure({
   motionKey,
   floats,
   onClick,
+  onHover,
+  preview,
+  bond,
 }: {
   unit: Unit;
   slot: { x: number; y: number; s: number };
@@ -361,6 +406,9 @@ function Figure({
   motionKey: number;
   floats: Float[];
   onClick: () => void;
+  onHover: (on: boolean) => void;
+  preview?: TargetPreview;
+  bond?: Stage;
 }) {
   const down = hp <= 0;
   const dir = unit.side === "merc" ? 1 : -1;
@@ -375,14 +423,23 @@ function Figure({
     >
       {/* 머리 위 정보 */}
       <div className={`mb-1 flex w-24 flex-col items-center gap-0.5 transition-opacity ${down ? "opacity-0" : ""}`}>
-        <span className={`truncate text-[11px] ${active ? "font-bold text-ember" : "text-bone/80"}`}>{unit.name}</span>
+        {preview && (
+          <span className="rounded-sm border border-blood/60 bg-ink/90 px-1.5 text-[11px] font-bold text-bone">
+            {preview.min === preview.max ? preview.min : `${preview.min}~${preview.max}`}
+            {preview.kill === "sure" ? " ☠" : preview.kill === "maybe" ? " ☠?" : ""}
+          </span>
+        )}
+        <span className={`truncate text-[11px] ${active ? "font-bold text-ember" : "text-bone/80"}`}>
+          {unit.name}
+          {bond && <span className={`ml-1 text-[10px] ${BOND[bond].style}`}>{BOND[bond].name}</span>}
+        </span>
         <div className="h-1 w-16 overflow-hidden rounded-full bg-ink ring-1 ring-edge">
           <div
             className={`h-full transition-all duration-500 ${ratio > 0.5 ? "bg-moss" : ratio > 0.25 ? "bg-ember" : "bg-blood"}`}
             style={{ width: `${ratio * 100}%` }}
           />
         </div>
-        <span className="text-[10px] text-ash" title={`방어 ${unit.defense} · 속도 ${speedOf(unit)}`}>
+        <span className="text-[10px] text-ash">
           {hp}/{unit.maxHp}
           {(unit.shield ?? 0) > 0 && <span className="ml-1 text-frost">◆{unit.shield}</span>}
         </span>
@@ -402,6 +459,8 @@ function Figure({
       <button
         type="button"
         onClick={onClick}
+        onMouseEnter={() => onHover(true)}
+        onMouseLeave={() => onHover(false)}
         disabled={!clickable}
         aria-label={`${unit.name} 체력 ${hp}`}
         className={`relative mx-auto block disabled:cursor-default ${clickable ? "cursor-pointer" : ""}`}
@@ -428,6 +487,110 @@ function Figure({
           </span>
         ))}
       </button>
+    </div>
+  );
+}
+
+/** 마우스를 올린 유닛 정보와 미리보기 (무대 왼쪽 위) */
+function InfoCard({
+  unit,
+  hp,
+  preview,
+  battle,
+  bond,
+}: {
+  unit: Unit;
+  hp: number;
+  preview: ActionPreview | null;
+  battle: Battle;
+  bond?: Stage;
+}) {
+  const stats = unitStats(unit);
+  const p = preview?.damage.find((d) => d.target === unit.id);
+  const applies = preview?.applies.filter((a) => a.target === unit.id) ?? [];
+  const mine = preview && (preview.heal?.target === unit.id || preview.shield?.target === unit.id || preview.cures?.target === unit.id);
+  return (
+    <div className="pointer-events-none absolute left-3 top-3 z-[200] w-60 rounded-sm border border-edge bg-ink/95 p-3 text-xs leading-relaxed shadow-lg">
+      <p className="font-bold text-bone">
+        {unit.name}
+        {bond && <span className={`ml-2 text-[11px] font-normal ${BOND[bond].style}`}>{BOND[bond].name}</span>}
+      </p>
+      {unit.note && <p className="text-ash">{unit.note}</p>}
+      <p className="mt-1 text-bone/80">
+        체력 {hp}/{unit.maxHp}
+        {(unit.shield ?? 0) > 0 && <span className="text-frost"> · 보호막 {unit.shield}</span>}
+      </p>
+      <p className="text-bone/80">
+        공격 {stats.attack[0]}~{stats.attack[1]} · 방어 {stats.defense} · 회피 {pct(stats.evadeChance)}
+      </p>
+      {unit.statuses.length > 0 && (
+        <p className="text-ash">{unit.statuses.map((s) => `${STATUS[s.kind].name} ${s.turns}턴`).join(" · ")}</p>
+      )}
+      {unit.passives && unit.passives.length > 0 && (
+        <p className="text-ember/90">
+          {unit.passives.map((id) => {
+            const note = passiveNote(battle, unit, id);
+            return `${getPassive(id)?.name ?? id}${note && note !== "상시" ? ` (${note})` : ""}`;
+          }).join(" · ")}
+        </p>
+      )}
+
+      {(p || applies.length > 0 || mine) && preview && (
+        <div className="mt-2 border-t border-edge pt-2 text-bone">
+          {p && (
+            <>
+              <p>
+                예상 피해 <b>{p.min === p.max ? p.min : `${p.min}~${p.max}`}</b>
+                {p.kill === "sure" ? <span className="ml-1 text-blood">처치 확실</span> : p.kill === "maybe" ? <span className="ml-1 text-ember">처치 가능</span> : null}
+              </p>
+              <p className="text-ash">
+                치명타({pct(p.critChance)}) {p.critMin}~{p.critMax}
+                {p.hitChance < 1 && ` · 명중 ${pct(p.hitChance)}`}
+              </p>
+              {p.statuses.length > 0 && <p className="text-ash">{p.statuses.map((s) => `${STATUS[s.kind].name} ${pct(s.chance)}`).join(" · ")}</p>}
+            </>
+          )}
+          {applies.length > 0 && <p className="text-ash">{applies.map((a) => `${STATUS[a.kind].name} 확정`).join(" · ")}</p>}
+          {preview.heal?.target === unit.id && <p className="text-moss">체력 +{preview.heal.amount}</p>}
+          {preview.shield?.target === unit.id && <p className="text-frost">보호막 {preview.shield.amount}</p>}
+          {preview.cures?.target === unit.id && preview.cures.kinds.length > 0 && (
+            <p className="text-moss">{preview.cures.kinds.map((k) => STATUS[k].name).join("·")} 해제</p>
+          )}
+          {preview.selfCost > 0 && <p className="text-blood">자기 체력 -{preview.selfCost}</p>}
+          {preview.failChance > 0 && <p className="text-ash">실패 확률 {pct(preview.failChance)}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 현재 차례 용병의 능력치, 효과, 패시브 (속도는 보여 주지 않는다) */
+function ActorStats({ battle, unit }: { battle: Battle; unit: Unit }) {
+  const stats = unitStats(unit);
+  return (
+    <div className="flex flex-col gap-1 rounded-sm bg-ink/60 px-2.5 py-2 text-[11px] text-bone/80">
+      <p>
+        공격 {stats.attack[0]}~{stats.attack[1]} · 방어 {stats.defense} · 치명타 {pct(stats.critChance)} · 회피 {pct(stats.evadeChance)}
+      </p>
+      {unit.statuses.length > 0 && (
+        <p className="flex flex-wrap gap-1">
+          {unit.statuses.map((s) => (
+            <span key={s.kind} className={`rounded-sm px-1 ${STATUS_STYLE[s.kind]}`}>
+              {STATUS[s.kind].name} {s.turns}턴
+            </span>
+          ))}
+        </p>
+      )}
+      {unit.passives?.map((id) => {
+        const passive = getPassive(id);
+        const note = passiveNote(battle, unit, id);
+        return (
+          <p key={id} title={passive?.description} className={note ? "text-ember" : "text-ash"}>
+            ✦ {passive?.name}
+            <span className="ml-1 text-[10px]">{note ? (note === "상시" ? "" : `· ${note}`) : "· 꺼짐"}</span>
+          </p>
+        );
+      })}
     </div>
   );
 }

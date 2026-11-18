@@ -7,6 +7,7 @@ import { BattleScreen } from "./BattleScreen";
 import { DungeonScreen } from "./DungeonScreen";
 import { alive, pickEvent } from "@/game/dungeon/expedition";
 import { nodeById } from "@/game/dungeon/map";
+import { getStage } from "@/game/affinity";
 import { DialogueScreen } from "./DialogueScreen";
 import { GuildScreen } from "./GuildScreen";
 import { MERC_SLOTS } from "@/game/party";
@@ -97,6 +98,7 @@ export function Game() {
         onAct={(action) => dispatch({ type: "battleAct", action })}
         onLeave={() => dispatch({ type: "battleFinish" })}
         leaveLabel={state.expedition ? { victory: "계속 나아간다", defeat: "결과를 본다" } : undefined}
+        bonds={Object.fromEntries(state.party.map((id) => [id, getStage(state.progress[id]?.affinity ?? 0)]))}
       />
     );
   }

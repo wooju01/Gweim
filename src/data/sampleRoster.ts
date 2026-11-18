@@ -124,8 +124,17 @@ const SAMPLES: Sample[] = [
   },
 ];
 
-/** 테스트하기 편하게 샘플 용병의 시작 호감도를 이 값으로 고정한다 */
-export const SAMPLE_AFFINITY = 100;
+/** 호감도 효과를 시험하려고 샘플 용병마다 단계가 다르게 둔다 (적대 ~ 신뢰) */
+const SAMPLE_AFFINITY: Record<string, number> = {
+  "s-bran": 60, // 호의
+  "s-durgan": 80, // 신뢰
+  "s-elowen": 30, // 경계
+  "s-kesh": 8, // 적대
+  "s-ragna": 45, // 중립
+  "s-mirel": 90, // 신뢰
+  "s-aithne": 40, // 중립
+  "s-tob": 18, // 경계
+};
 /** 고용 의향도 100으로 고정한다 (80 이상이라 동행 제안이 바로 성공한다) */
 export const SAMPLE_WILLINGNESS = 100;
 
@@ -136,7 +145,7 @@ export function sampleSeeds(): MercSeed[] {
     traits: s.traits,
     start: {
       ...rollStart(resolveTraits(s.traits) ?? [], seededRandom(1000 + i)),
-      affinity: SAMPLE_AFFINITY,
+      affinity: SAMPLE_AFFINITY[s.id] ?? 50,
       willingness: SAMPLE_WILLINGNESS,
     },
     level: "apprentice",
