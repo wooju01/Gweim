@@ -7,6 +7,7 @@ import type { Merc } from "../types";
 import {
   battleFor,
   canMove,
+  choiceProblem,
   chooseEvent,
   finishBattle,
   giveSupply,
@@ -130,13 +131,13 @@ describe("탐험", () => {
     expect(leaveRoom(entered)).toBe(entered);
     if (entered.room?.kind !== "event") throw new Error();
     const event = EVENTS.find((e) => e.id === (entered.room as { eventId: string }).eventId)!;
-    const choice = event.choices.find((c) => !c.needs)!;
+    const choice = event.choices.find((c) => !c.requires && !c.consumes)!;
     const done = chooseEvent(entered, choice.id, 7);
     expect(done.room).toMatchObject({ kind: "event", result: { choiceId: choice.id, tone: choice.tone } });
     expect(leaveRoom(done).room).toBeNull();
   });
 
-  it("사건 피해로는 쓰러지지 않고, 전문가가 있으면 그 결과 표를 쓴다", () => {
+  it("사건 피해로는 쓰러지지 않는다", () => {
     const base = startExpedition(mercs, 5);
     for (let seed = 0; seed < 50; seed++) {
       const exp: Expedition = { ...structuredClone(base), room: { kind: "event", eventId: "collapsing_tunnel", result: null } };
@@ -144,12 +145,45 @@ describe("탐험", () => {
       const done = chooseEvent(exp, "rush", seed);
       for (const m of done.members) expect(m.hp).toBeGreaterThanOrEqual(1);
     }
-    // 약초꾼이 있으면 수상한 샘은 언제나 안전하다
-    for (let seed = 0; seed < 30; seed++) {
-      const exp: Expedition = { ...structuredClone(base), room: { kind: "event", eventId: "strange_spring", result: null } };
-      const done = chooseEvent(exp, "drink", seed);
-      expect(done.members.every((m) => m.statuses.length === 0)).toBe(true);
-      if (done.room?.kind === "event") expect(done.room.result!.text).toContain(varn.name);
+  });
+
+  it("맞는 사람이 있으면 그 사람이 나서고, 없으면 이유가 보인다", () => {
+    const base = startExpedition(mercs, 5); // 약초꾼(v2) 있음, 드워프 없음
+    const spring: Expedition = { ...structuredClone(base), room: { kind: "event", eventId: "strange_spring", result: null } };
+    expect(choiceProblem(spring, "strange_spring", "check")).toBeNull();
+    const done = chooseEvent(spring, "check", 1);
+    expect(done.room?.kind === "event" && done.room.result!.text).toContain(varn.name);
+    expect(done.members.every((m) => m.statuses.length === 0)).toBe(true);
+    expect(choiceProblem(spring, "collapsing_tunnel", "read")).toBe("드워프 동료가 있어야 한다");
+  });
+
+  it("호감 단계 조건: 그 단계 이상인 동료가 있어야 한다", () => {
+    const exp: Expedition = { ...startExpedition(mercs, 6), room: { kind: "event", eventId: "collapsing_tunnel", result: null } };
+    expect(choiceProblem(exp, "collapsing_tunnel", "lead", {})).toBe("신뢰 단계인 동료가 있어야 한다");
+    expect(choiceProblem(exp, "collapsing_tunnel", "lead", { [kass.id]: "trusted" })).toBeNull();
+    const done = chooseEvent(exp, "lead", 1, { [kass.id]: "trusted" });
+    expect(done.room?.kind === "event" && done.room.result!.text).toContain(kass.name);
+  });
+
+  it("아이템 선택은 물자를 쓰고, 없으면 고를 수 없다", () => {
+    const exp: Expedition = { ...startExpedition(mercs, 7), room: { kind: "event", eventId: "sealed_door", result: null } };
+    const potions = exp.supplies.potion;
+    const done = chooseEvent(exp, "pour", 1);
+    // 물약 1을 쓰고 2를 얻는다
+    expect(done.supplies.potion).toBe(potions - 1 + 2);
+    exp.supplies.potion = 0;
+    expect(choiceProblem(exp, "sealed_door", "pour")).toBe("물약 1 필요");
+  });
+
+  it("모든 사건에 아이템·사람·위험 세 갈래가 있다", () => {
+    for (const event of EVENTS) {
+      const approaches = new Set(event.choices.map((c) => c.approach));
+      for (const a of ["item", "person", "risk"] as const) expect(approaches.has(a), `${event.id} ${a}`).toBe(true);
+      for (const c of event.choices) {
+        if (c.approach === "item") expect(c.requires?.items ?? c.consumes, `${event.id}/${c.id}`).toBeDefined();
+        if (c.approach === "person") expect(c.requires?.job ?? c.requires?.race ?? c.requires?.bond, `${event.id}/${c.id}`).toBeDefined();
+      }
+      expect(event.choices.length).toBeLessThanOrEqual(5);
     }
   });
 

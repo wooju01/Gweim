@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { STATUS, SUPPLY, type SupplyKind } from "@/data/combat";
 import { PATH_LENGTH, ROOM_NAME, type RoomKind } from "@/data/dungeon";
-import { getEvent } from "@/data/events";
-import { alive, canMove, choiceAvailable, supplyProblem, type Expedition, type Member } from "@/game/dungeon/expedition";
+import { getEvent, type Approach } from "@/data/events";
+import { alive, canMove, choiceProblem, helperFor, supplyProblem, type Expedition, type Member } from "@/game/dungeon/expedition";
 import { getStage } from "@/game/affinity";
 import type { MercProgress, RestTalk } from "./state";
 import { byStep, type MapNode } from "@/game/dungeon/map";
@@ -181,7 +181,15 @@ function DungeonMap({ exp, onMove }: { exp: Expedition; onMove: (id: string) => 
   );
 }
 
-function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, restTalk, onRestTalk, onRestReply }: Props) {
+/** 사건 해결 방식 표시 (그 밖의 선택은 표시하지 않는다) */
+const APPROACH: Partial<Record<Approach, { name: string; style: string }>> = {
+  item: { name: "물자", style: "bg-frost/15 text-frost" },
+  person: { name: "동료", style: "bg-moss/20 text-moss" },
+  risk: { name: "위험", style: "bg-blood/20 text-blood" },
+};
+
+function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, restTalk, onRestTalk, onRestReply, progress }: Props) {
+  const bonds = Object.fromEntries(Object.entries(progress).map(([id, p]) => [id, getStage(p.affinity)]));
   const room = exp.room!;
   const box = "flex flex-col items-start gap-3 rounded-sm border p-4";
   const next = (
@@ -270,23 +278,34 @@ function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, re
           ) : (
             !pending && (
               <ol className="flex w-full flex-col gap-2">
-                {template.choices.map((c, i) => (
-                  <li key={c.id}>
-                    <button
-                      disabled={!choiceAvailable(exp, room.eventId, c.id)}
-                      onClick={() => onChoose(c.id)}
-                      className="w-full rounded-sm border border-edge bg-ink px-4 py-2.5 text-left text-sm transition-colors hover:border-ember/60 hover:bg-panel-hi disabled:opacity-40"
-                    >
-                      <span className="mr-2 text-ash">{i + 1}.</span>
-                      {textOf(c.id)}
-                      {c.needs && (
-                        <span className="ml-2 text-[11px] text-ash">
-                          ({Object.entries(c.needs).map(([k, n]) => `${SUPPLY[k as SupplyKind].name} ${n}`).join(", ")} 필요)
+                {template.choices.map((c, i) => {
+                  const problem = choiceProblem(exp, room.eventId, c.id, bonds);
+                  const helper = helperFor(exp, c.requires, bonds);
+                  return (
+                    <li key={c.id}>
+                      <button
+                        disabled={!!problem}
+                        onClick={() => onChoose(c.id)}
+                        className="flex w-full items-baseline gap-2 rounded-sm border border-edge bg-ink px-4 py-2.5 text-left text-sm transition-colors hover:border-ember/60 hover:bg-panel-hi disabled:opacity-40"
+                      >
+                        <span className="text-ash">{i + 1}.</span>
+                        {APPROACH[c.approach] && (
+                          <span className={`shrink-0 rounded-sm px-1.5 text-[10px] ${APPROACH[c.approach]!.style}`}>{APPROACH[c.approach]!.name}</span>
+                        )}
+                        <span className="flex-1">{textOf(c.id)}</span>
+                        <span className="shrink-0 text-[11px] text-ash">
+                          {problem ??
+                            [
+                              c.consumes && `${Object.entries(c.consumes).map(([k, n]) => `${SUPPLY[k as SupplyKind].name} -${n}`).join(", ")}`,
+                              helper && `${helper.name}이(가) 나선다`,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
                         </span>
-                      )}
-                    </button>
-                  </li>
-                ))}
+                      </button>
+                    </li>
+                  );
+                })}
               </ol>
             )
           )}

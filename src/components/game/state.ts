@@ -282,7 +282,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case "chooseEvent": {
       if (!state.expedition) return state;
-      const exp = chooseEvent(state.expedition, action.choiceId, action.seed);
+      const exp = chooseEvent(state.expedition, action.choiceId, action.seed, bondsOf(state));
       if (exp === state.expedition || exp.room?.kind !== "event" || !exp.room.result) return state;
       const { progress, reactions } = reactToTone(state, exp, exp.room.result.tone);
       return { ...state, expedition: exp, progress, reactions };

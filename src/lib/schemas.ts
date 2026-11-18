@@ -177,7 +177,7 @@ export const EventNarration = z.object({
   choices: z
     .array(z.object({ id: z.string().max(40), text: z.string().min(1).max(80) }))
     .min(2)
-    .max(4),
+    .max(5),
 });
 export type EventNarration = z.infer<typeof EventNarration>;
 

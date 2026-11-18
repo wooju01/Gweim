@@ -3,7 +3,7 @@
 // 순수 함수만 둔다. 난수는 시드로 받는다.
 import { HARMFUL, POTION_HEAL, START_SUPPLIES, type SupplyKind } from "../../data/combat";
 import { REST_HEAL_RATIO, TREASURE_COUNT, TREASURE_WEIGHTS, type RoomKind } from "../../data/dungeon";
-import { EVENTS, getEvent, type EventEffect, type EventOutcome } from "../../data/events";
+import { EVENTS, getEvent, type EventEffect, type EventOutcome, type EventRequirement, type EventUnlock } from "../../data/events";
 import type { ChoiceTone, Stage } from "../../lib/schemas";
 import { BOND } from "../../data/bond";
 import { mercUnit, startBattleFrom, type Battle, type Status, type Unit } from "../combat/engine";
@@ -35,7 +35,8 @@ export type Room =
       kind: "event";
       eventId: string;
       /** 결과가 나오기 전에는 null */
-      result: { choiceId: string; text: string; lines: string[]; tone: ChoiceTone | null } | null;
+      /** unlocks: 이 선택이 연 숨겨진 칸·이어지는 사건 (아직 맵이 읽지 않는다) */
+      result: { choiceId: string; text: string; lines: string[]; tone: ChoiceTone | null; unlocks: EventUnlock[] } | null;
     }
   | { kind: "goal" }
   /** 전투에서 전멸했다 */
@@ -253,11 +254,51 @@ export function giveSupply(exp: Expedition, item: SupplyKind, target: string, bo
 
 // ── 사건 ────────────────────────────────────────────────
 
-/** 이 선택지를 지금 고를 수 있는가 (필요한 물자) */
-export function choiceAvailable(exp: Expedition, eventId: string, choiceId: string): boolean {
+const STAGE_ORDER: Stage[] = ["hostile", "wary", "neutral", "warm", "trusted"];
+const STAGE_NAME: Record<Stage, string> = { hostile: "적대", wary: "경계", neutral: "중립", warm: "호의", trusted: "신뢰" };
+const JOB_NAME: Record<string, string> = {
+  spearman: "창병",
+  dagger: "단검수",
+  nun: "수녀",
+  archer: "궁수",
+  greatsword: "대검사",
+  herbalist: "약초꾼",
+  mage: "마법사",
+  spiritcaller: "정령사",
+};
+const RACE_NAME: Record<string, string> = { human: "인간", dwarf: "드워프", elf: "엘프", beastfolk: "수인", barbarian: "바바리안" };
+
+/** 조건(직업·종족·호감)에 맞아 나설 살아 있는 동료. 조건이 없으면 undefined */
+export function helperFor(exp: Expedition, req: EventRequirement | undefined, bonds: Record<string, Stage> = {}): Member | undefined {
+  if (!req || (!req.job && !req.race && !req.bond)) return undefined;
+  return alive(exp).find(
+    (m) =>
+      (!req.job || m.job === req.job) &&
+      (!req.race || m.race === req.race) &&
+      (!req.bond || STAGE_ORDER.indexOf(bonds[m.id] ?? "neutral") >= STAGE_ORDER.indexOf(req.bond)),
+  );
+}
+
+/** 이 선택지를 지금 고를 수 없는 이유. 고를 수 있으면 null */
+export function choiceProblem(exp: Expedition, eventId: string, choiceId: string, bonds: Record<string, Stage> = {}): string | null {
   const choice = getEvent(eventId)?.choices.find((c) => c.id === choiceId);
-  if (!choice) return false;
-  return Object.entries(choice.needs ?? {}).every(([k, n]) => exp.supplies[k as SupplyKind] >= (n ?? 0));
+  if (!choice) return "없는 선택지";
+  const req = choice.requires;
+  const need = { ...req?.items };
+  for (const [k, n] of Object.entries(choice.consumes ?? {})) need[k as SupplyKind] = Math.max(need[k as SupplyKind] ?? 0, n ?? 0);
+  for (const [k, n] of Object.entries(need) as [SupplyKind, number][]) {
+    if (exp.supplies[k] < n) return `${SUPPLY_NAME[k]} ${n} 필요`;
+  }
+  if (req && (req.job || req.race || req.bond) && !helperFor(exp, req, bonds)) {
+    if (req.job) return `${JOB_NAME[req.job] ?? req.job}이(가) 있어야 한다`;
+    if (req.race) return `${RACE_NAME[req.race] ?? req.race} 동료가 있어야 한다`;
+    return `${STAGE_NAME[req.bond!]} 단계인 동료가 있어야 한다`;
+  }
+  return null;
+}
+
+export function choiceAvailable(exp: Expedition, eventId: string, choiceId: string, bonds: Record<string, Stage> = {}): boolean {
+  return choiceProblem(exp, eventId, choiceId, bonds) === null;
 }
 
 /** 이름에 붙는 조사까지 맞춰 {who}, {helper}를 채운다 */
@@ -312,24 +353,34 @@ function applyEffect(exp: Expedition, effect: EventEffect, rng: Rng): { lines: s
  * 사건 선택지를 고른다. 파티에 맞는 직업·종족이 있으면 그 결과 표를 쓴다.
  * tone은 돌려주기만 한다 (용병 호감도·고용 의향 반영은 상태를 가진 쪽에서 한다).
  */
-export function chooseEvent(exp: Expedition, choiceId: string, seed: number): Expedition {
+export function chooseEvent(exp: Expedition, choiceId: string, seed: number, bonds: Record<string, Stage> = {}): Expedition {
   const room = exp.room;
   if (room?.kind !== "event" || room.result) return exp;
-  const template = getEvent(room.eventId);
-  const choice = template?.choices.find((c) => c.id === choiceId);
-  if (!choice || !choiceAvailable(exp, room.eventId, choiceId)) return exp;
+  const choice = getEvent(room.eventId)?.choices.find((c) => c.id === choiceId);
+  if (!choice || !choiceAvailable(exp, room.eventId, choiceId, bonds)) return exp;
 
   const next = structuredClone(exp);
   const rng = createRng(seed);
-  const expert = choice.expertise
-    ? alive(next).find((m) => (choice.expertise!.job && m.job === choice.expertise!.job) || (choice.expertise!.race && m.race === choice.expertise!.race))
-    : undefined;
-  const outcome = pickOutcome(expert ? choice.expertise!.outcomes : choice.outcomes, rng);
-  const { lines, who } = applyEffect(next, outcome.effect, rng);
+  const helper = helperFor(next, choice.requires, bonds);
+  const lines: string[] = [];
+  // 소모 → 고정 보상 → 결과 순서
+  if (choice.consumes) {
+    lines.push(...supplyLines(next, Object.fromEntries(Object.entries(choice.consumes).map(([k, n]) => [k, -(n ?? 0)]))));
+  }
+  if (choice.rewards) lines.push(...applyEffect(next, choice.rewards, rng).lines);
+  const outcome = pickOutcome(choice.outcomes, rng);
+  const applied = applyEffect(next, outcome.effect, rng);
+  lines.push(...applied.lines);
   next.room = {
     kind: "event",
     eventId: room.eventId,
-    result: { choiceId, text: fill(outcome.text, who, expert?.name), lines, tone: choice.tone },
+    result: {
+      choiceId,
+      text: fill(outcome.text, applied.who, helper?.name),
+      lines,
+      tone: choice.tone,
+      unlocks: choice.unlocks ?? [],
+    },
   };
   return next;
 }
