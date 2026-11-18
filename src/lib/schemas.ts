@@ -23,7 +23,7 @@ export type Choice = z.infer<typeof Choice>;
 
 /** AI(또는 mock)가 돌려줘야 하는 한 턴의 응답 */
 export const MercReply = z.object({
-  message: z.string().min(1),
+  message: z.string().min(1).max(100),
   emotion: Emotion,
   choices: z.array(Choice).min(3).max(4),
 });
@@ -43,13 +43,18 @@ export const TalkState = z.object({
   history: z.array(HistoryLine).max(20),
   /** 오래된 대화를 요약한 기억. 비어 있을 수 있다 */
   memory: z.string().max(600).default(""),
+  /** 지금까지 주고받은 말 횟수. 한도는 game/affinity.ts의 TALK_LIMIT */
+  talks: z.number().int().min(0).max(99).default(0),
 });
 export type TalkState = z.infer<typeof TalkState>;
+
+/** 플레이어가 직접 입력하는 말의 최대 글자 수 */
+export const FREE_TEXT_MAX = 100;
 
 export const TalkAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("open") }),
   z.object({ type: z.literal("choice"), choice: Choice }),
-  z.object({ type: z.literal("free"), text: z.string().trim().min(1).max(200) }),
+  z.object({ type: z.literal("free"), text: z.string().trim().min(1).max(FREE_TEXT_MAX) }),
   z.object({ type: z.literal("propose") }),
 ]);
 export type TalkAction = z.infer<typeof TalkAction>;
@@ -142,4 +147,6 @@ export type TalkResponse = {
   memory: string;
   /** 기억으로 접혀서 대화 기록 앞에서 지워야 할 줄 수 */
   forget: number;
+  /** 이번 턴 이후 주고받은 말 횟수 */
+  talks: number;
 };

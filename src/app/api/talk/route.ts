@@ -1,4 +1,4 @@
-import { applyTone, getResolve, getStage, proposeJoin, reactionTo } from "@/game/affinity";
+import { TALK_LIMIT, applyTone, getResolve, getStage, proposeJoin, reactionTo, usesTalk } from "@/game/affinity";
 import { MEMORY_MAX_CHARS, planFold } from "@/game/memory";
 import { mercFromRef } from "@/game/roster";
 import type { Merc } from "@/game/types";
@@ -19,6 +19,12 @@ export async function POST(request: Request) {
   if (!merc) {
     return Response.json({ error: "알 수 없는 용병이거나 잘못된 특성 조합" }, { status: 400 });
   }
+
+  // 대화 횟수는 서버에서도 막는다
+  if (usesTalk(action) && state.talks >= TALK_LIMIT) {
+    return Response.json({ error: `${merc.name}은(는) 더 할 말이 없다.` }, { status: 400 });
+  }
+  const talks = state.talks + (usesTalk(action) ? 1 : 0);
 
   let tone: Tone | null = null;
   let { affinity, willingness, recentTones } = state;
@@ -69,7 +75,15 @@ export async function POST(request: Request) {
   // 대화가 길어졌으면 오래된 부분을 기억으로 접는다. 대사 생성과 동시에 돌려 기다리는 시간을 늘리지 않는다.
   const plan = planFold(state.history);
   const [{ reply, mode }, folded] = await Promise.all([
-    generateReply({ merc, stage, resolve, history: state.history, memory: state.memory, event }),
+    generateReply({
+      merc,
+      stage,
+      resolve,
+      history: state.history,
+      memory: state.memory,
+      event,
+      talksLeft: TALK_LIMIT - talks,
+    }),
     plan ? summarize({ merc, memory: state.memory, lines: plan.fold }) : null,
   ]);
   // 요약에 실패하면 기억도 기록도 그대로 둔다 (다음 턴에 다시 시도된다)
@@ -90,6 +104,7 @@ export async function POST(request: Request) {
     joined,
     memory,
     forget,
+    talks,
   };
   return Response.json(body);
 }

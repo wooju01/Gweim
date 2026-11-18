@@ -34,7 +34,7 @@ export type GameAction =
   | { type: "enterTalk"; mercId: string }
   | { type: "pending" }
   | { type: "resolved"; mercId: string; playerText: string | null; res: TalkResponse }
-  | { type: "failed"; error: string }
+  | { type: "failed"; mercId: string; error: string }
   | { type: "leave" }
   | { type: "dismiss"; mercId: string }
   | { type: "recruitStart" }
@@ -62,6 +62,7 @@ function freshProgress(merc: Merc): MercProgress {
     recentTones: [],
     history: [],
     memory: "",
+    talks: 0,
     hired: false,
   };
 }
@@ -89,7 +90,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, screen: { ...state.screen, pending: true, error: null } };
 
     case "failed":
-      if (state.screen.kind !== "talk") return state;
+      // 응답이 오기 전에 다른 용병과의 대화로 넘어갔으면 이 오류는 버린다
+      if (state.screen.kind !== "talk" || state.screen.mercId !== action.mercId) return state;
       return { ...state, screen: { ...state.screen, pending: false, error: action.error } };
 
     case "resolved": {
@@ -107,6 +109,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         // 기억으로 접힌 오래된 줄은 지우고, 이번 턴의 줄을 붙인다
         history: [...prev.history.slice(res.forget), ...lines].slice(-HISTORY_LIMIT),
         memory: res.memory,
+        talks: res.talks,
         hired: prev.hired || joined,
       };
       return {
@@ -114,7 +117,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         progress: { ...state.progress, [mercId]: progress },
         party: joined && !state.party.includes(mercId) ? [...state.party, mercId] : state.party,
         screen:
-          state.screen.kind === "talk"
+          // 수치·기록은 반영하되, 화면은 지금 그 용병과 대화 중일 때만 바꾼다
+          state.screen.kind === "talk" && state.screen.mercId === mercId
             ? { ...state.screen, reply: res, pending: false, error: null, ended: joined }
             : state.screen,
       };

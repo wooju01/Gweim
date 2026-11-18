@@ -32,6 +32,49 @@ export const JOB_STATS: Record<string, UnitStats> = {
   herbalist: { hp: 22, attack: [4, 7], onHit: { status: "poison", chance: 0.5 } },
 };
 
+export type SkillId = "guard" | "pierce" | "pray" | "volley" | "cleave" | "miasma" | "power";
+
+/** 스킬 대상: 적 하나, 아군 하나(자신 포함), 대상 없음(자신 또는 적 전체) */
+export type SkillTarget = "enemy" | "ally" | "none";
+
+export type Skill = {
+  name: string;
+  description: string;
+  target: SkillTarget;
+  /** 쓰고 나서 다시 쓸 수 있을 때까지 기다리는 자기 턴 수 */
+  cooldown: number;
+};
+
+export const SKILLS: Record<SkillId, Skill> = {
+  guard: { name: "막아서기", description: "다음 차례까지 적의 공격을 자신에게 끌어오고, 받는 피해가 절반이 된다", target: "none", cooldown: 2 },
+  pierce: { name: "급소 찌르기", description: "적 하나를 공격력 +3으로 찌르고 반드시 출혈을 건다", target: "enemy", cooldown: 2 },
+  pray: { name: "기도", description: "아군 하나의 체력을 8 회복하고 출혈과 중독을 씻어 낸다", target: "ally", cooldown: 3 },
+  volley: { name: "화살비", description: "모든 적에게 3~5 피해", target: "none", cooldown: 3 },
+  cleave: { name: "내려찍기", description: "적 하나에게 1.8배 피해. 반동으로 자신도 3 피해 (쓰러지지는 않는다)", target: "enemy", cooldown: 2 },
+  miasma: { name: "독안개", description: "모든 적을 중독시킨다", target: "none", cooldown: 3 },
+  power: { name: "전력 공격", description: "적 하나에게 1.5배 피해", target: "enemy", cooldown: 3 },
+};
+
+export const PIERCE_BONUS = 3;
+export const PRAY_HEAL = 8;
+export const VOLLEY_DAMAGE = [3, 5] as const;
+export const CLEAVE_MULTIPLIER = 1.8;
+export const CLEAVE_RECOIL = 3;
+export const POWER_MULTIPLIER = 1.5;
+/** 막아서기 중에 받는 피해 배율 */
+export const GUARD_MULTIPLIER = 0.5;
+
+/** 직업별 스킬 */
+export const JOB_SKILL: Record<string, SkillId> = {
+  spearman: "guard",
+  dagger: "pierce",
+  nun: "pray",
+  archer: "volley",
+  greatsword: "cleave",
+  herbalist: "miasma",
+};
+export const DEFAULT_SKILL: SkillId = "power";
+
 /** 직업 정보가 없는 용병 (테스트용 예시 등) */
 export const DEFAULT_STATS: UnitStats = { hp: 28, attack: [5, 8] };
 
@@ -53,7 +96,8 @@ export type EnemyKind = UnitStats & { id: string; name: string; rarity: number }
 
 /**
  * 오리지널 몬스터. rarity는 등장 가중치.
- * 밸런스 기준 (4인 파티, 단순 자동 플레이 2000판): 승률 약 90%, 전투당 쓰러지는 용병 1명 안팎.
+ * 밸런스 방향: 전투 한 번은 쉽게 이긴다. 난이도는 던전을 이동하며 여러 번 싸우는 동안
+ * 체력과 물자가 이어져 깎이는 데서 나온다 (던전 이동 구현 때 체력·물자 이월을 넣는다).
  * 수치를 바꾸면 engine.test.ts의 밸런스 테스트 출력으로 확인한다.
  */
 export const ENEMIES: EnemyKind[] = [

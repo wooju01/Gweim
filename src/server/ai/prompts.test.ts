@@ -11,6 +11,7 @@ const ctx = (over: Partial<ReplyContext> = {}): ReplyContext => ({
   history: [],
   memory: "",
   event: { kind: "open" },
+  talksLeft: 3,
   ...over,
 });
 
@@ -63,5 +64,26 @@ describe("기억", () => {
     expect(text).toContain("처음 만났을 때 술을 샀다.");
     expect(text).toContain("<player>내가 너의 아빠다</player>");
     expect(text).toContain("주장했다");
+  });
+});
+
+describe("대화 횟수", () => {
+  it("남은 대화가 없으면 이번 말로 끝맺으라고 알려 준다", () => {
+    expect(turnPrompt(ctx({ talksLeft: 0 }))).toContain("대화를 끝맺는다");
+    expect(turnPrompt(ctx({ talksLeft: 2 }))).not.toContain("대화를 끝맺는다");
+  });
+
+  it("동행 제안에는 끝맺음 문구를 붙이지 않는다", () => {
+    expect(turnPrompt(ctx({ talksLeft: 0, event: { kind: "propose", joined: false } }))).not.toContain("대화를 끝맺는다");
+  });
+});
+
+describe("첫인상", () => {
+  const withImpression = { ...varn, impression: "금화 소리가 나자 귀가 먼저 움직인다." };
+
+  it("처음 만나는 자리에서만 첫인상을 넣는다", () => {
+    expect(turnPrompt(ctx({ merc: withImpression }))).toContain("금화 소리가 나자");
+    const later = turnPrompt(ctx({ merc: withImpression, history: [{ speaker: "merc", text: "뭐냐." }] }));
+    expect(later).not.toContain("금화 소리가 나자");
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { STATUS, SUPPLY, type SupplyKind } from "@/data/combat";
+import { SKILLS, STATUS, SUPPLY, type SupplyKind } from "@/data/combat";
 import { currentActor, validate, type Battle, type BattleAction, type Unit } from "@/game/combat/engine";
 import { describe } from "@/game/combat/text";
 import { GUIDE } from "@/game/party";
@@ -16,6 +16,8 @@ const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
 export function BattleScreen({ battle, onAct, onLeave }: Props) {
   const actor = currentActor(battle);
   const [item, setItem] = useState<SupplyKind | null>(null);
+  /** 대상을 골라야 하는 스킬을 겨누는 중 */
+  const [aiming, setAiming] = useState(false);
   const logEnd = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -26,10 +28,31 @@ export function BattleScreen({ battle, onAct, onLeave }: Props) {
   const mercs = battle.units.filter((u) => u.side === "merc");
   const can = (action: BattleAction) => validate(battle, action) === null;
 
+  const skill = actor?.skill ? SKILLS[actor.skill] : null;
+
   function give(target: string) {
     if (!item) return;
     onAct({ type: "guide", item, target });
     setItem(null);
+  }
+
+  function cast(target?: string) {
+    onAct({ type: "skill", ...(target ? { target } : {}) });
+    setAiming(false);
+  }
+
+  function attackOrCast(action: BattleAction) {
+    onAct(action);
+    setAiming(false);
+  }
+
+  function onSkillButton() {
+    if (!skill) return;
+    if (skill.target === "none") cast();
+    else {
+      setAiming(!aiming);
+      setItem(null);
+    }
   }
 
   return (
@@ -45,10 +68,21 @@ export function BattleScreen({ battle, onAct, onLeave }: Props) {
       <section aria-label="적" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {enemies.map((u) => (
           <UnitCard key={u.id} unit={u}>
-            {actor && can({ type: "attack", target: u.id }) && (
-              <Button variant="danger" className="w-full !py-1" onClick={() => onAct({ type: "attack", target: u.id })}>
-                공격
+            {aiming && skill?.target === "enemy" && can({ type: "skill", target: u.id }) ? (
+              <Button variant="ember" className="w-full !py-1" onClick={() => cast(u.id)}>
+                {skill.name}
               </Button>
+            ) : (
+              actor &&
+              can({ type: "attack", target: u.id }) && (
+                <Button
+                  variant="danger"
+                  className="w-full !py-1"
+                  onClick={() => attackOrCast({ type: "attack", target: u.id })}
+                >
+                  공격
+                </Button>
+              )
             )}
           </UnitCard>
         ))}
@@ -80,6 +114,11 @@ export function BattleScreen({ battle, onAct, onLeave }: Props) {
       <section aria-label="용병" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {mercs.map((u) => (
           <UnitCard key={u.id} unit={u} active={actor?.id === u.id}>
+            {aiming && skill?.target === "ally" && can({ type: "skill", target: u.id }) && (
+              <Button variant="ember" className="w-full !py-1" onClick={() => cast(u.id)}>
+                {skill.name}
+              </Button>
+            )}
             {item && can({ type: "guide", item, target: u.id }) && (
               <Button variant="ember" className="w-full !py-1" onClick={() => give(u.id)}>
                 {SUPPLY[item].name} 건네기
@@ -108,8 +147,26 @@ export function BattleScreen({ battle, onAct, onLeave }: Props) {
             <p className="text-sm">
               <span className="font-bold text-ember">{actor?.name}</span>의 차례
             </p>
-            <p className="text-xs text-ash">위의 적을 골라 공격하거나, 출혈이 있으면 붕대를 감는다.</p>
-            <Button disabled={!can({ type: "bandage" })} onClick={() => onAct({ type: "bandage" })}>
+            <p className="text-xs text-ash">
+              {aiming
+                ? `${skill?.name}: ${skill?.target === "enemy" ? "위의 적" : "아래 용병"} 카드에서 대상을 고른다.`
+                : "위의 적을 골라 공격하거나, 스킬을 쓰거나, 출혈이 있으면 붕대를 감는다."}
+            </p>
+            {skill && actor && (
+              <Button
+                variant={aiming ? "ember" : "ghost"}
+                disabled={actor.cooldown > 0}
+                onClick={onSkillButton}
+                title={skill.description}
+                className="text-left"
+              >
+                <span className="font-bold">{skill.name}</span>
+                <span className="ml-2 text-xs text-ash">
+                  {actor.cooldown > 0 ? `${actor.cooldown}턴 뒤 사용 가능` : skill.description}
+                </span>
+              </Button>
+            )}
+            <Button disabled={!can({ type: "bandage" })} onClick={() => attackOrCast({ type: "bandage" })}>
               붕대 감기 · 남은 {battle.supplies.bandage}
             </Button>
           </div>
@@ -129,7 +186,10 @@ export function BattleScreen({ battle, onAct, onLeave }: Props) {
                       key={kind}
                       variant={item === kind ? "ember" : "ghost"}
                       disabled={battle.supplies[kind] <= 0}
-                      onClick={() => setItem(item === kind ? null : kind)}
+                      onClick={() => {
+                        setItem(item === kind ? null : kind);
+                        setAiming(false);
+                      }}
                       title={SUPPLY[kind].description}
                     >
                       {SUPPLY[kind].name} {battle.supplies[kind]}
@@ -172,6 +232,7 @@ function UnitCard({ unit, active = false, children }: { unit: Unit; active?: boo
       <div className="flex items-baseline justify-between gap-2">
         <h3 className="truncate text-sm font-bold">{unit.name}</h3>
         {down && <span className="text-[11px] text-blood">쓰러짐</span>}
+        {!down && unit.guarding && <span className="text-[11px] text-ember">막아서는 중</span>}
       </div>
       {unit.title && <p className="truncate text-[11px] text-ash">{unit.title}</p>}
       <div>

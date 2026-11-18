@@ -69,6 +69,7 @@ describe("createMockAI", () => {
             history: [],
             memory: "",
             event,
+            talksLeft: 3,
           });
           expect(MercReply.safeParse(reply).success).toBe(true);
         }

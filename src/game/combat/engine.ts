@@ -1,13 +1,24 @@
 // 턴제 전투 규칙. AI 없이 코드로만 돌아간다.
 // 모든 결과는 이벤트(BattleEvent)로 남긴다. 지금은 텍스트로, 나중에는 같은 이벤트로 애니메이션을 재생한다.
 //
-// 흐름: 라운드마다 살아 있는 용병이 한 명씩 행동(공격 또는 붕대) → 적들이 자동으로 행동.
+// 흐름: 라운드마다 살아 있는 용병이 한 명씩 행동(공격, 붕대, 직업 스킬) → 적들이 자동으로 행동.
 // 길안내자는 싸우지 않고, 라운드마다 한 번 물자(붕대·해독제·물약)를 용병에게 건넬 수 있다.
 // 출혈·중독은 그 유닛의 턴이 시작될 때 피해를 준다.
 import {
+  CLEAVE_MULTIPLIER,
+  CLEAVE_RECOIL,
   CRIT_CHANCE,
   CRIT_MULTIPLIER,
+  DEFAULT_SKILL,
   DEFAULT_STATS,
+  GUARD_MULTIPLIER,
+  JOB_SKILL,
+  PIERCE_BONUS,
+  POWER_MULTIPLIER,
+  PRAY_HEAL,
+  SKILLS,
+  VOLLEY_DAMAGE,
+  type SkillId,
   ENCOUNTER_SIZE,
   ENEMIES,
   JOB_STATS,
@@ -36,6 +47,12 @@ export type Unit = {
   attack: readonly [number, number];
   onHit?: OnHit;
   statuses: Status[];
+  /** 용병만: 직업 스킬 */
+  skill?: SkillId;
+  /** 스킬을 다시 쓸 수 있을 때까지 남은 자기 턴 수 (0이면 사용 가능) */
+  cooldown: number;
+  /** 막아서기 중 (자기 다음 차례가 오면 풀린다) */
+  guarding: boolean;
 };
 
 export type Outcome = "victory" | "defeat";
@@ -48,8 +65,11 @@ export type BattleEvent =
   | { type: "attack"; actor: string; target: string; damage: number; crit: boolean }
   | { type: "status"; target: string; kind: StatusKind }
   | { type: "tick"; target: string; kind: StatusKind; damage: number }
-  | { type: "cure"; target: string; kind: StatusKind; by: Actor }
+  /** via: 무엇으로 치료했나 */
+  | { type: "cure"; target: string; kind: StatusKind; by: Actor; via: "bandage" | "antidote" | "skill" }
   | { type: "heal"; target: string; amount: number; by: Actor }
+  | { type: "skill"; actor: string; skill: SkillId; target?: string }
+  | { type: "recoil"; target: string; damage: number }
   | { type: "down"; target: string }
   | { type: "end"; outcome: Outcome };
 
@@ -72,6 +92,7 @@ export type Battle = {
 export type BattleAction =
   | { type: "attack"; target: string }
   | { type: "bandage" }
+  | { type: "skill"; target?: string }
   | { type: "guide"; item: SupplyKind; target: string };
 
 // ── 조회 ────────────────────────────────────────────────
@@ -110,6 +131,17 @@ export function validate(b: Battle, action: BattleAction): string | null {
       if (b.supplies.bandage <= 0) return "붕대가 없다";
       if (!hasStatus(actor, "bleed")) return "출혈이 없다";
       return null;
+    case "skill": {
+      if (!actor.skill) return "스킬이 없다";
+      if (actor.cooldown > 0) return `${actor.cooldown}턴 뒤에 쓸 수 있다`;
+      const kind = SKILLS[actor.skill].target;
+      const target = action.target ? unitById(b, action.target) : undefined;
+      if (kind === "none") return action.target ? "대상을 고르지 않는 스킬" : null;
+      if (!target || target.hp <= 0) return "대상을 골라야 한다";
+      if (kind === "enemy" && target.side !== "enemy") return "적에게만 쓸 수 있다";
+      if (kind === "ally" && target.side !== "merc") return "아군에게만 쓸 수 있다";
+      return null;
+    }
     case "guide": {
       if (b.guideUsed) return "이번 라운드에는 이미 도왔다";
       if (b.supplies[action.item] <= 0) return "물자가 없다";
@@ -137,6 +169,9 @@ function mercUnit(merc: Merc): Unit {
     attack: stats.attack,
     onHit: stats.onHit,
     statuses: [],
+    skill: (merc.job && JOB_SKILL[merc.job]) || DEFAULT_SKILL,
+    cooldown: 0,
+    guarding: false,
   };
 }
 
@@ -167,6 +202,8 @@ export function rollEncounter(rng: Rng): Unit[] {
       attack: k.attack,
       onHit: k.onHit,
       statuses: [],
+      cooldown: 0,
+      guarding: false,
     };
   });
 }
@@ -211,19 +248,21 @@ export function act(battle: Battle, action: BattleAction): Battle {
       break;
     case "bandage":
       b.supplies.bandage--;
-      cure(b, actor, "bleed", actor.id);
+      cure(b, actor, "bleed", actor.id, "bandage");
+      advance(b, rng);
+      break;
+    case "skill":
+      castSkill(b, rng, actor, action.target ? unitById(b, action.target) : undefined);
       advance(b, rng);
       break;
     case "guide": {
       const target = unitById(b, action.target)!;
       b.supplies[action.item]--;
       b.guideUsed = true;
-      if (action.item === "bandage") cure(b, target, "bleed", "guide");
-      if (action.item === "antidote") cure(b, target, "poison", "guide");
+      if (action.item === "bandage") cure(b, target, "bleed", "guide", "bandage");
+      if (action.item === "antidote") cure(b, target, "poison", "guide", "antidote");
       if (action.item === "potion") {
-        const amount = Math.min(POTION_HEAL, target.maxHp - target.hp);
-        target.hp += amount;
-        b.log.push({ type: "heal", target: target.id, amount, by: "guide" });
+        heal(b, target, POTION_HEAL, "guide");
       }
       break;
     }
@@ -261,19 +300,76 @@ function applyStatus(b: Battle, target: Unit, kind: StatusKind) {
   b.log.push({ type: "status", target: target.id, kind });
 }
 
-function cure(b: Battle, target: Unit, kind: StatusKind, by: Actor) {
+function cure(b: Battle, target: Unit, kind: StatusKind, by: Actor, via: "bandage" | "antidote" | "skill") {
   target.statuses = target.statuses.filter((s) => s.kind !== kind);
-  b.log.push({ type: "cure", target: target.id, kind, by });
+  b.log.push({ type: "cure", target: target.id, kind, by, via });
+}
+
+/**
+ * 한 번의 타격. base에 치명타와 막아서기를 적용한다.
+ * onHit이 true면 공격자의 상태이상 부여 확률도 굴린다.
+ */
+function strike(b: Battle, rng: Rng, actor: Unit, target: Unit, base: number, onHit = true) {
+  const crit = rng.next() < CRIT_CHANCE;
+  let amount = crit ? Math.round(base * CRIT_MULTIPLIER) : base;
+  if (target.guarding) amount = Math.ceil(amount * GUARD_MULTIPLIER);
+  b.log.push({ type: "attack", actor: actor.id, target: target.id, damage: amount, crit });
+  damage(b, target, amount);
+  if (onHit && target.hp > 0 && actor.onHit && rng.next() < actor.onHit.chance) {
+    applyStatus(b, target, actor.onHit.status);
+  }
 }
 
 function attack(b: Battle, rng: Rng, actor: Unit, target: Unit) {
-  const base = rollInt(rng.next, actor.attack[0], actor.attack[1]);
-  const crit = rng.next() < CRIT_CHANCE;
-  const amount = crit ? Math.round(base * CRIT_MULTIPLIER) : base;
-  b.log.push({ type: "attack", actor: actor.id, target: target.id, damage: amount, crit });
-  damage(b, target, amount);
-  if (target.hp > 0 && actor.onHit && rng.next() < actor.onHit.chance) {
-    applyStatus(b, target, actor.onHit.status);
+  strike(b, rng, actor, target, rollInt(rng.next, actor.attack[0], actor.attack[1]));
+}
+
+function heal(b: Battle, target: Unit, amount: number, by: Actor) {
+  const healed = Math.min(amount, target.maxHp - target.hp);
+  target.hp += healed;
+  b.log.push({ type: "heal", target: target.id, amount: healed, by });
+}
+
+function castSkill(b: Battle, rng: Rng, actor: Unit, target: Unit | undefined) {
+  const skill = actor.skill!;
+  actor.cooldown = SKILLS[skill].cooldown;
+  b.log.push({ type: "skill", actor: actor.id, skill, ...(target ? { target: target.id } : {}) });
+  const roll = () => rollInt(rng.next, actor.attack[0], actor.attack[1]);
+
+  switch (skill) {
+    case "guard":
+      actor.guarding = true;
+      break;
+    case "pierce":
+      strike(b, rng, actor, target!, roll() + PIERCE_BONUS, false);
+      if (target!.hp > 0) applyStatus(b, target!, "bleed");
+      break;
+    case "pray":
+      heal(b, target!, PRAY_HEAL, actor.id);
+      for (const s of [...target!.statuses]) cure(b, target!, s.kind, actor.id, "skill");
+      break;
+    case "volley":
+      for (const enemy of living(b, "enemy")) {
+        if (b.outcome) break;
+        strike(b, rng, actor, enemy, rollInt(rng.next, VOLLEY_DAMAGE[0], VOLLEY_DAMAGE[1]), false);
+      }
+      break;
+    case "cleave": {
+      strike(b, rng, actor, target!, Math.round(roll() * CLEAVE_MULTIPLIER));
+      // 반동은 체력 1 아래로는 깎지 않는다 (스킬로 자멸하지 않게)
+      const recoil = Math.min(CLEAVE_RECOIL, actor.hp - 1);
+      if (recoil > 0 && !b.outcome) {
+        actor.hp -= recoil;
+        b.log.push({ type: "recoil", target: actor.id, damage: recoil });
+      }
+      break;
+    }
+    case "miasma":
+      for (const enemy of living(b, "enemy")) applyStatus(b, enemy, "poison");
+      break;
+    case "power":
+      strike(b, rng, actor, target!, Math.round(roll() * POWER_MULTIPLIER));
+      break;
   }
 }
 
@@ -309,12 +405,17 @@ function advance(b: Battle, rng: Rng) {
     const unit = unitById(b, b.order[b.turn]);
     if (!unit || unit.hp <= 0) continue;
 
+    // 자기 차례가 오면 막아서기가 풀리고 스킬 대기가 줄어든다
+    unit.guarding = false;
+    if (unit.cooldown > 0) unit.cooldown--;
+
     tick(b, unit);
     if (b.outcome || unit.hp <= 0) continue;
     if (unit.side === "merc") return; // 플레이어 입력을 기다린다
 
-    // 적: 살아 있는 용병 중 무작위로 공격
-    const targets = living(b, "merc");
+    // 적: 막아선 용병이 있으면 그쪽을, 없으면 살아 있는 용병 중 무작위로 공격
+    const guards = living(b, "merc").filter((u) => u.guarding);
+    const targets = guards.length > 0 ? guards : living(b, "merc");
     attack(b, rng, unit, targets[Math.floor(rng.next() * targets.length)]);
   }
   throw new Error("전투가 끝나지 않는다 (무한 루프 방지)");

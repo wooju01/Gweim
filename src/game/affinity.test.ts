@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { testMerc } from "../test/fixtures";
 import type { Tone } from "../lib/schemas";
 import {
+  SURE_JOIN,
+  TALK_LIMIT,
+  usesTalk,
   REFUSAL_PENALTY,
   AFFINITY_STEP as A,
   WILLINGNESS_STEP as W,
@@ -56,7 +59,7 @@ describe("applyTone: 호감도와 고용 의향은 따로 움직인다", () => {
   it("감소량은 반복해도 줄어들지 않는다", () => {
     expect(toneDeltas(varn, "mockery", ["mockery", "mockery", "mockery"])).toEqual({
       affinity: -2 * A,
-      willingness: 5, // 고용 의향 증가(20)는 세 번 반복 시 1/4로 줄어든다
+      willingness: 8, // 고용 의향 증가(30)는 세 번 반복 시 1/4로 줄어든다 (반올림)
     });
   });
 
@@ -139,7 +142,7 @@ describe("동행 제안: 고용 의향% 확률", () => {
 });
 
 describe("고용 의향은 호감도보다 크게, 반복에 덜 민감하게 움직인다", () => {
-  it("같은 태도 반복 시 고용 의향 증가량 (20 → 15 → 10 → 5)", () => {
+  it("같은 태도 반복 시 고용 의향 증가량 (30 → 23 → 15 → 8)", () => {
     let state = fresh(50, 0);
     const gains: number[] = [];
     for (let i = 0; i < 4; i++) {
@@ -147,6 +150,24 @@ describe("고용 의향은 호감도보다 크게, 반복에 덜 민감하게 �
       gains.push(r.delta.willingness);
       state = { ...r };
     }
-    expect(gains).toEqual([20, 15, 10, 5]);
+    expect(gains).toEqual([30, 23, 15, 8]);
+  });
+});
+
+describe("대화 횟수", () => {
+  it("선택지와 직접 입력만 횟수를 쓰고, 첫인사와 동행 제안은 쓰지 않는다", () => {
+    expect(usesTalk({ type: "choice" })).toBe(true);
+    expect(usesTalk({ type: "free" })).toBe(true);
+    expect(usesTalk({ type: "open" })).toBe(false);
+    expect(usesTalk({ type: "propose" })).toBe(false);
+    expect(TALK_LIMIT).toBe(5);
+  });
+});
+
+describe("확정 구간", () => {
+  it(`고용 의향 ${SURE_JOIN} 이상이면 주사위와 상관없이 합류한다`, () => {
+    expect(joinChance(SURE_JOIN)).toBe(1);
+    expect(proposeJoin(SURE_JOIN, () => 0.999)).toEqual({ joined: true, willingness: SURE_JOIN, delta: 0 });
+    expect(joinChance(SURE_JOIN - 1)).toBe((SURE_JOIN - 1) / 100);
   });
 });

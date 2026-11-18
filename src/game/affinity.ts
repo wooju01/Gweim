@@ -5,14 +5,23 @@ import type { Merc, Reaction } from "./types";
 export const STAT_MIN = 0;
 export const STAT_MAX = 100;
 
-/** 반응 세기 1칸당 변화량. 호감도(마음)는 천천히, 고용 의향(계약)은 크게 움직인다. */
+/** 반응 세기 1칸당 변화량. 호감도(마음)는 천천히, 고용 의향(계약)은 크게 움직인다.
+ *  대화가 용병당 TALK_LIMIT번뿐이라 고용 의향은 한 번에 크게 오르내린다. */
 export const AFFINITY_STEP = 5;
-export const WILLINGNESS_STEP = 10;
+export const WILLINGNESS_STEP = 15;
 /** 동행 제안이 거절되면 고용 의향이 이만큼 떨어진다 */
-export const REFUSAL_PENALTY = 10;
+export const REFUSAL_PENALTY = 15;
 
 /** 최근 몇 턴의 성향을 기억해 같은 성향 반복을 막을지 */
 export const REPEAT_WINDOW = 3;
+
+/** 한 용병과 말을 주고받을 수 있는 횟수 (선택지·직접 입력). 동행 제안은 세지 않는다 */
+export const TALK_LIMIT = 5;
+
+/** 이번 행동이 대화 횟수를 쓰는지 */
+export function usesTalk(action: { type: string }): boolean {
+  return action.type === "choice" || action.type === "free";
+}
 /**
  * 최근 창 안에서 같은 성향이 n번 나왔을 때 증가량 배율. 감소량은 줄어들지 않는다.
  * 호감도는 같은 말 반복이 금방 안 통하고, 고용 의향은 덜 민감하다.
@@ -113,7 +122,11 @@ export type ProposeResult = {
 };
 
 /** 동행 제안 성공 확률 (0~1). 고용 의향이 곧 확률이다. */
+/** 고용 의향이 이 이상이면 확률 없이 바로 합류한다 */
+export const SURE_JOIN = 80;
+
 export function joinChance(willingness: number): number {
+  if (willingness >= SURE_JOIN) return 1;
   return clampStat(willingness) / STAT_MAX;
 }
 
@@ -122,7 +135,8 @@ export function joinChance(willingness: number): number {
  * rand는 테스트에서 결과를 고정하려고 주입받는다.
  */
 export function proposeJoin(willingness: number, rand: () => number = Math.random): ProposeResult {
-  if (rand() < joinChance(willingness)) {
+  // 확정 구간에서는 주사위를 굴리지 않는다
+  if (willingness >= SURE_JOIN || rand() < joinChance(willingness)) {
     return { joined: true, willingness, delta: 0 };
   }
   const next = clampStat(willingness - REFUSAL_PENALTY);

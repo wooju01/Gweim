@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { SURE_JOIN, TALK_LIMIT } from "@/game/affinity";
 import type { Merc } from "@/game/types";
-import type { TalkAction } from "@/lib/schemas";
+import { FREE_TEXT_MAX, type TalkAction } from "@/lib/schemas";
 import { Button, MercStats, Portrait } from "./parts";
 import type { MercProgress, TalkScreen } from "./state";
 
@@ -17,6 +18,7 @@ export function DialogueScreen({ merc, screen, progress, partyFull, onAct, onLea
   const { reply, pending, error, ended } = screen;
   const [draft, setDraft] = useState("");
   const logEnd = useRef<HTMLDivElement>(null);
+  const talksLeft = Math.max(0, TALK_LIMIT - progress.talks);
 
   useEffect(() => {
     logEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -25,7 +27,7 @@ export function DialogueScreen({ merc, screen, progress, partyFull, onAct, onLea
   function submitFree(e: React.FormEvent) {
     e.preventDefault();
     const text = draft.trim();
-    if (!text || pending) return;
+    if (!text || pending || talksLeft <= 0) return;
     onAct({ type: "free", text });
     setDraft("");
   }
@@ -107,35 +109,60 @@ export function DialogueScreen({ merc, screen, progress, partyFull, onAct, onLea
             </div>
           ) : (
             <>
-              <ol className="flex flex-col gap-2">
-                {reply?.choices.map((choice, i) => (
-                  <li key={`${progress.history.length}-${i}`}>
-                    <button
-                      disabled={pending}
-                      onClick={() => onAct({ type: "choice", choice })}
-                      className="animate-rise w-full rounded-sm border border-edge bg-panel px-4 py-3 text-left text-sm transition-colors hover:border-ember/60 hover:bg-panel-hi disabled:opacity-40"
-                      style={{ animationDelay: `${i * 60}ms` }}
-                    >
-                      <span className="mr-2 text-ash">{i + 1}.</span>
-                      {choice.text}
-                    </button>
-                  </li>
-                ))}
-              </ol>
+              <p className="text-xs text-ash">
+                남은 대화{" "}
+                <span className={talksLeft > 0 ? "text-bone" : "text-blood"}>
+                  {talksLeft} / {TALK_LIMIT}
+                </span>
+              </p>
+              {talksLeft <= 0 ? (
+                <p className="rounded-sm border border-edge bg-panel px-4 py-3 text-sm text-ash">
+                  {merc.name}은(는) 더 할 말이 없어 보인다. 동행을 제안하거나 자리를 뜬다.
+                </p>
+              ) : (
+                <>
+                  <ol className="flex flex-col gap-2">
+                    {reply?.choices.map((choice, i) => (
+                      <li key={`${progress.history.length}-${i}`}>
+                        <button
+                          disabled={pending}
+                          onClick={() => onAct({ type: "choice", choice })}
+                          className="animate-rise w-full rounded-sm border border-edge bg-panel px-4 py-3 text-left text-sm transition-colors hover:border-ember/60 hover:bg-panel-hi disabled:opacity-40"
+                          style={{ animationDelay: `${i * 60}ms` }}
+                        >
+                          <span className="mr-2 text-ash">{i + 1}.</span>
+                          {choice.text}
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
 
-              <form onSubmit={submitFree} className="flex gap-2">
-                <input
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  maxLength={200}
-                  disabled={pending}
-                  placeholder="직접 말을 건다…"
-                  className="flex-1 rounded-sm border border-edge bg-ink px-3 py-2 text-sm text-bone placeholder:text-ash/60 focus:border-ember/60 focus:outline-none disabled:opacity-40"
-                />
-                <Button type="submit" disabled={pending || !draft.trim()}>
-                  말하기
-                </Button>
-              </form>
+                  <form onSubmit={submitFree} className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        value={draft}
+                        // 한글 조합 중에는 maxLength가 넘칠 수 있어 잘라서도 막는다
+                        onChange={(e) => setDraft(e.target.value.slice(0, FREE_TEXT_MAX))}
+                        maxLength={FREE_TEXT_MAX}
+                        disabled={pending}
+                        placeholder="직접 말을 건다…"
+                        className="w-full rounded-sm border border-edge bg-ink py-2 pl-3 pr-16 text-sm text-bone placeholder:text-ash/60 focus:border-ember/60 focus:outline-none disabled:opacity-40"
+                      />
+                      <span
+                        aria-live="polite"
+                        className={`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] tabular-nums ${
+                          draft.length >= FREE_TEXT_MAX ? "text-blood" : "text-ash"
+                        }`}
+                      >
+                        {draft.length}/{FREE_TEXT_MAX}
+                      </span>
+                    </div>
+                    <Button type="submit" disabled={pending || !draft.trim()}>
+                      말하기
+                    </Button>
+                  </form>
+                </>
+              )}
 
               <div className="flex items-center gap-3 border-t border-edge pt-4">
                 <Button
@@ -143,7 +170,7 @@ export function DialogueScreen({ merc, screen, progress, partyFull, onAct, onLea
                   disabled={pending || partyFull || !reply}
                   onClick={() => onAct({ type: "propose" })}
                 >
-                  동행을 제안한다 · {progress.willingness}%
+                  동행을 제안한다 · {progress.willingness >= SURE_JOIN ? "확정" : `${progress.willingness}%`}
                 </Button>
                 {partyFull && <span className="text-xs text-ash">파티에 빈 자리가 없다.</span>}
               </div>

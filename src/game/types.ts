@@ -26,6 +26,8 @@ export type Trait = {
   name: string;
   /** 호칭에 쓰는 꾸밈말. 성격에만. 예: "오만한" */
   adjective?: string;
+  /** 성격에만. 처음 봤을 때 눈에 띄는 모습. 카드와 첫 대사에 쓴다 */
+  impressions?: string[];
   /** AI가 캐릭터를 만들 때 참고하는 설명 */
   description: string;
   /** 등장 가중치. 클수록 자주 나온다 */
@@ -50,6 +52,8 @@ export type Merc = {
   name: string;
   /** 카드에 붙는 짧은 호칭 */
   title: string;
+  /** 첫인상. 성격이 드러나는 관찰 문구 (랜덤 용병은 성격 특성에서 고른다) */
+  impression?: string;
   /** 프롬프트용 성격 요약 */
   persona: string;
   /** 플레이어가 대화로 알 수 있는 과거 */

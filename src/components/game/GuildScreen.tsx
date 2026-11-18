@@ -86,6 +86,7 @@ export function GuildScreen({
                     ))}
                   </ul>
                 )}
+                {merc.impression && <p className="text-sm italic text-ember/80">{merc.impression}</p>}
                 <p className="flex-1 text-sm leading-relaxed text-bone/80">{merc.background}</p>
                 <MercStats affinity={p.affinity} willingness={p.willingness} />
                 {p.hired ? (

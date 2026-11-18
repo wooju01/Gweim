@@ -36,6 +36,8 @@ export type ReplyContext = {
   /** 오래된 대화를 요약한 기억 (없으면 빈 문자열) */
   memory: string;
   event: TurnEvent;
+  /** 남은 대화 횟수. 0이면 이번 말로 대화를 마무리한다 */
+  talksLeft: number;
 };
 
 /** 기억 요약 입력. 기존 기억에 오래된 대화를 합쳐 새 기억을 만든다. */

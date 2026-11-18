@@ -3,6 +3,7 @@ import { ALL_TRAITS, BACKGROUNDS, JOBS, PERSONALITIES, getTrait } from "../data/
 import type { MercSeed } from "../lib/schemas";
 import { dislikedTones, likedTones } from "./affinity";
 import {
+  pickImpression,
   START_AFFINITY_RANGE,
   START_WILLINGNESS_RANGE,
   buildMerc,
@@ -175,5 +176,18 @@ describe("rollRecruitCount", () => {
     expect([...counts.keys()].sort()).toEqual([1, 2, 3, 4, 5]);
     expect(RECRUIT_COUNT_RANGE).toEqual([1, 5]);
     for (const c of counts.values()) expect(c).toBeGreaterThan(1700); // 기대값 2000
+  });
+});
+
+describe("첫인상", () => {
+  it("모든 성격에 첫인상 문구가 있다", () => {
+    for (const p of PERSONALITIES) expect(p.impressions?.length, p.id).toBeGreaterThan(0);
+  });
+
+  it("첫 번째 성격의 문구를 고르고, 같은 id면 항상 같은 문구다", () => {
+    const traits = [getTrait("archer")!, getTrait("greedy")!, getTrait("kind")!];
+    const picked = pickImpression("merc-abc", traits);
+    expect(getTrait("greedy")!.impressions).toContain(picked);
+    expect(pickImpression("merc-abc", traits)).toBe(picked);
   });
 });

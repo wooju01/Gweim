@@ -141,6 +141,18 @@ export function rollStart(traits: Trait[], rand: Rand): MercSeed["start"] {
 }
 
 /** 카드에 보이는 특성 이름: [직업, 성격..., 배경] */
+/**
+ * 첫 번째 성격의 첫인상 문구 중 하나를 용병 id로 고른다.
+ * 같은 용병은 언제 다시 만들어도 같은 문구가 나온다.
+ */
+export function pickImpression(id: string, traits: Trait[]): string | undefined {
+  const options = traits.find((t) => t.kind === "personality")?.impressions;
+  if (!options?.length) return undefined;
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (Math.imul(hash, 31) + id.charCodeAt(i)) >>> 0;
+  return options[hash % options.length];
+}
+
 export function traitTags(traits: Trait[]): string[] {
   return traits.map((t) => t.name);
 }
@@ -159,6 +171,7 @@ export function buildMerc(seed: MercSeed): Merc | null {
     job: seed.traits.job,
     name: profile.name,
     title: profile.title,
+    impression: pickImpression(seed.id, traits),
     persona: profile.persona,
     background: profile.background,
     secret: profile.secret,

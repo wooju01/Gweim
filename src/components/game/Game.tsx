@@ -30,16 +30,16 @@ export function Game() {
   async function send(mercId: string, action: TalkAction) {
     const entry = findEntry(mercId);
     if (!entry) return;
-    const { affinity, willingness, recentTones, history, memory } = state.progress[mercId];
+    const { affinity, willingness, recentTones, history, memory, talks } = state.progress[mercId];
     try {
       const res = await postTalk({
         merc: entry,
-        state: { affinity, willingness, recentTones, history, memory },
+        state: { affinity, willingness, recentTones, history, memory, talks },
         action,
       });
       dispatch({ type: "resolved", mercId, playerText: playerLineFor(action), res });
     } catch (e) {
-      dispatch({ type: "failed", error: e instanceof Error ? e.message : String(e) });
+      dispatch({ type: "failed", mercId, error: e instanceof Error ? e.message : String(e) });
     }
   }
 

@@ -1,5 +1,5 @@
 // 전투 이벤트를 한국어 문장으로. 나중에 애니메이션을 붙여도 이 텍스트는 전투 기록으로 남긴다.
-import { STATUS, type StatusKind } from "../../data/combat";
+import { SKILLS, STATUS, type StatusKind } from "../../data/combat";
 import type { Battle, BattleEvent } from "./engine";
 
 /** 마지막 글자에 받침이 있나. 한글이 아니면 없다고 본다 */
@@ -34,12 +34,29 @@ export function describe(event: BattleEvent, b: Battle): string {
       return `${josa(name(event.target), "이", "가")} ${STATUS_NAME(event.kind)}에 걸렸다.`;
     case "tick":
       return `${josa(name(event.target), "이", "가")} ${euro(STATUS_NAME(event.kind))} ${event.damage} 피해를 입었다.`;
-    case "cure":
-      return event.by === "guide"
-        ? `당신이 ${name(event.target)}에게 ${event.kind === "bleed" ? "붕대를 감아 주었다" : "해독제를 건넸다"}. ${josa(STATUS_NAME(event.kind), "이", "가")} 멎었다.`
-        : `${josa(name(event.target), "이", "가")} 붕대를 감아 출혈을 멈췄다.`;
+    case "cure": {
+      const status = josa(STATUS_NAME(event.kind), "이", "가");
+      if (event.via === "skill") return `${name(event.target)}의 ${status} 씻겨 나갔다.`;
+      if (event.by === "guide") {
+        const how = event.via === "bandage" ? "붕대를 감아 주었다" : "해독제를 건넸다";
+        return `당신이 ${name(event.target)}에게 ${how}. ${status} 멎었다.`;
+      }
+      return `${josa(name(event.target), "이", "가")} 붕대를 감아 출혈을 멈췄다.`;
+    }
     case "heal":
-      return `당신이 ${name(event.target)}에게 물약을 건넸다. 체력 ${event.amount} 회복.`;
+      return event.by === "guide"
+        ? `당신이 ${name(event.target)}에게 물약을 건넸다. 체력 ${event.amount} 회복.`
+        : `${name(event.target)}의 체력이 ${event.amount} 회복되었다.`;
+    case "skill": {
+      const skill = SKILLS[event.skill].name;
+      const who = josa(name(event.actor), "이", "가");
+      if (event.skill === "guard") return `${who} ${josa(skill, "을", "를")} 펼쳤다. 적의 공격이 그에게 몰린다.`;
+      return event.target
+        ? `${who} ${event.target === event.actor ? "자신" : name(event.target)}에게 ${josa(skill, "을", "를")} 썼다.`
+        : `${who} ${josa(skill, "을", "를")} 썼다.`;
+    }
+    case "recoil":
+      return `${josa(name(event.target), "이", "가")} 반동으로 ${event.damage} 피해를 입었다.`;
     case "down":
       return `${josa(name(event.target), "이", "가")} 쓰러졌다.`;
     case "end":
