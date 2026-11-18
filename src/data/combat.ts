@@ -1,7 +1,7 @@
 // 전투 수치 데이터. 규칙(engine.ts)과 분리해 두어 밸런스를 여기서만 만진다.
 
 /** bleed·poison은 피해를 주는 상태이상. 나머지는 피해 없는 강화·약화 (패시브가 건다) */
-export type StatusKind = "bleed" | "poison" | "crack" | "weaken" | "awaken";
+export type StatusKind = "bleed" | "poison" | "crack" | "weaken" | "awaken" | "brace" | "haste";
 export type SupplyKind = "bandage" | "antidote" | "potion";
 
 /** 공격이 상태이상을 걸 확률 */
@@ -31,6 +31,10 @@ export const STATUS: Record<StatusKind, { name: string; damage: number; turns: n
   weaken: { name: "위축", damage: 0, turns: 2 },
   /** 사선 돌파: 공격력 +4 */
   awaken: { name: "각성", damage: 0, turns: 2 },
+  /** 조합 스킬(드워프 버팀): 방어 +2. 쓴 행동이 끝나면 1이 남아 다음 자기 행동까지 간다 */
+  brace: { name: "버팀", damage: 0, turns: 2 },
+  /** 조합 스킬(엘프 선제): 다음 라운드에 맨 먼저 행동 */
+  haste: { name: "선제", damage: 0, turns: 2 },
 };
 
 /** 붕대·해독제·기도로 치료할 수 있는 상태이상 */
@@ -67,6 +71,8 @@ export const PASSIVE = {
   solidarityBonus: 1,
   inSyncMultiplier: 1.5,
   adaptMax: 2,
+  braceDefense: 2,
+  hasteSpeed: 100,
 } as const;
 
 export const CRIT_CHANCE = 0.1;
@@ -127,4 +133,4 @@ export const ENEMIES: EnemyKind[] = [
 ];
 
 /** 한 번 전투에 나오는 적 수 [최소, 최대] */
-export const ENCOUNTER_SIZE = [3, 5] as const;
+export const ENCOUNTER_SIZE = [3, 4] as const;

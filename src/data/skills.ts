@@ -10,7 +10,18 @@ export type SkillEffect =
    * fixed가 있으면 공격력 대신 그 범위를 쓴다. area "all"이면 살아 있는 적 전체.
    * onHit: 공격자의 상태이상 부여(단검수 출혈 등)를 굴리나 (기본 true)
    */
-  | { kind: "damage"; multiplier?: number; bonus?: number; fixed?: readonly [number, number]; area?: "one" | "all"; onHit?: boolean }
+  | {
+      kind: "damage";
+      multiplier?: number;
+      bonus?: number;
+      fixed?: readonly [number, number];
+      area?: "one" | "all";
+      onHit?: boolean;
+      /** 같은 대상을 몇 번 치나 (기본 1). 대상이 쓰러지면 멈춘다 */
+      hits?: number;
+      /** 이 공격의 치명타 확률 추가 */
+      critBonus?: number;
+    }
   /**
    * 대상(또는 area "all"이면 적 전체)에게 상태이상. 대상이 살아 있을 때만.
    * who "self"면 대상 대신 자신 (heal, cure, shield도 같다)
@@ -26,7 +37,14 @@ export type SkillEffect =
   /** 자기 체력 소모 (체력 1 아래로는 깎지 않는다) */
   | { kind: "selfCost"; hp: number }
   /** 이 확률로 스킬 전체가 실패한다 (대기 시간은 그대로 든다) */
-  | { kind: "fail"; chance: number };
+  | { kind: "fail"; chance: number }
+  /** 앞의 피해로 대상을 쓰러뜨리면 이 스킬의 대기 시간을 없앤다 */
+  | { kind: "resetOnKill" }
+  /**
+   * 옆 아군에게도. 아군 스킬이면 대상의 옆 아군이 회복·보호막을 절반 받고,
+   * 아니면 자신의 옆 아군이 보호막 shield를 받는다
+   */
+  | { kind: "support"; shield: number };
 
 export type SkillSource = { job?: string; race?: string };
 
@@ -173,6 +191,8 @@ const STATUS_TEXT: Record<StatusKind, string> = {
   crack: "균열(받는 피해 +2)",
   weaken: "위축(공격 -2)",
   awaken: "각성(공격 +4)",
+  brace: "버팀(방어 +2)",
+  haste: "선제(다음 라운드에 먼저 행동)",
 };
 
 export function describeSkill(def: SkillDef): string {
@@ -183,8 +203,10 @@ export function describeSkill(def: SkillDef): string {
       case "damage": {
         const who = e.area === "all" ? "모든 적에게" : `${one}에게`;
         if (e.fixed) return [`${who} ${e.fixed[0]}~${e.fixed[1]} 피해`];
-        const power = e.multiplier && e.multiplier !== 1 ? `${e.multiplier}배` : "공격력";
-        return [`${who} ${power}${e.bonus ? ` +${e.bonus}` : ""} 피해`];
+        const power = e.multiplier && e.multiplier !== 1 ? `${Math.round(e.multiplier * 100) / 100}배` : "공격력";
+        const times = e.hits && e.hits > 1 ? ` ${e.hits}번` : "";
+        const crit = e.critBonus ? ` (치명타 +${Math.round(e.critBonus * 100)}%)` : "";
+        return [`${who} ${power}${e.bonus ? ` +${e.bonus}` : ""} 피해${times}${crit}`];
       }
       case "applyStatus":
         return [`${e.area === "all" ? "모든 적" : to(e)}에게 ${STATUS_TEXT[e.status]}`];
@@ -200,6 +222,10 @@ export function describeSkill(def: SkillDef): string {
         return [`자기 체력 ${e.hp} 소모 (쓰러지지는 않는다)`];
       case "fail":
         return [`${Math.round(e.chance * 100)}% 확률로 실패`];
+      case "resetOnKill":
+        return ["처치하면 대기 시간 초기화"];
+      case "support":
+        return [def.target === "ally" ? "옆 아군에게도 회복·보호막 절반" : `옆 아군에게 보호막 ${e.shield}`];
     }
   });
   return parts.join(". ");

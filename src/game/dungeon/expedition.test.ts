@@ -66,10 +66,13 @@ describe("탐험", () => {
     expect(moved.battle).not.toBeNull();
     const battle = fight(moved.exp, 3);
     const after = finishBattle(moved.exp, battle);
+    const won = battle.outcome === "victory";
     for (const m of after.members) {
       const unit = battle.units.find((u) => u.id === m.id)!;
-      expect(m.hp).toBe(unit.hp);
-      expect(m.down).toBe(unit.hp <= 0);
+      // 이기면 쓰러졌던 용병은 체력 1로 일어나고, 지면 쓰러진 채로 남는다
+      expect(m.hp).toBe(unit.hp <= 0 && won ? 1 : unit.hp);
+      expect(m.down).toBe(unit.hp <= 0 && !won);
+      expect(m.fell ?? false).toBe(unit.hp <= 0);
     }
     expect(after.supplies).toEqual(battle.supplies);
 
@@ -194,5 +197,22 @@ describe("탐험과 호감", () => {
     const once = markRestTalk(exp);
     expect(once.room).toMatchObject({ talked: true });
     expect(markRestTalk(once)).toBe(once);
+  });
+});
+
+describe("쓰러진 용병", () => {
+  it("전투에서 이기면 체력 1로 일어나고, 데려온 호감은 그대로 받는다", () => {
+    const exp = startExpedition(mercs, 9);
+    const b = battleFor(exp, mercs, 9);
+    const won = {
+      ...b,
+      outcome: "victory" as const,
+      units: b.units.map((u) => (u.id === kass.id ? { ...u, hp: 0 } : u.side === "enemy" ? { ...u, hp: 0 } : u)),
+    };
+    const after = finishBattle(exp, won);
+    const k = after.members.find((m) => m.id === kass.id)!;
+    expect(k).toMatchObject({ hp: 1, down: false, fell: true });
+    expect(rescueBonds(after)[kass.id]).toBe(8);
+    expect(battleFor(after, mercs, 10).units.some((u) => u.id === kass.id)).toBe(true);
   });
 });

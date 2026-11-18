@@ -3,6 +3,7 @@ import { buildMerc } from "../game/generate";
 import { sampleSeeds } from "./sampleRoster";
 import { generateSkill, getSkill, rollSkills, validSkills, validSkillsFor } from "./skillgen";
 import { JOB_SKILL, SKILLS, skillsFrom } from "./skills";
+import { comboId, earlyCombo } from "./combo";
 
 describe("무작위 조합 스킬", () => {
   const skills = Array.from({ length: 500 }, (_, n) => generateSkill(n));
@@ -93,5 +94,38 @@ describe("직업·종족 시작 스킬", () => {
     for (const id of [...JOBS.flatMap((job) => skillsFrom({ job })), ...RACES.flatMap((race) => skillsFrom({ race }))]) {
       expect(getSkill(id)!.description.length, id).toBeGreaterThan(5);
     }
+  });
+});
+
+describe("조합 스킬", () => {
+  const JOBS = ["spearman", "dagger", "nun", "archer", "greatsword", "herbalist", "mage", "spiritcaller"];
+  const RACES = ["human", "dwarf", "elf", "beastfolk", "barbarian"];
+
+  it("직업 8 × 종족 5 × 2 = 80개가 모두 만들어지고, 그 직업·종족만 가질 수 있다", () => {
+    const ids = JOBS.flatMap((job) => RACES.flatMap((race) => [comboId(job, race, 1), comboId(job, race, 2)]));
+    expect(new Set(ids).size).toBe(80);
+    for (const id of ids) {
+      const s = getSkill(id)!;
+      expect(s, id).toBeDefined();
+      expect(s.description.length).toBeGreaterThan(5);
+      const [, job, race] = id.split(":");
+      expect(validSkillsFor([id], job, race)).toBe(true);
+      expect(validSkillsFor([id], job, race === "elf" ? "dwarf" : "elf")).toBe(false);
+    }
+    expect(getSkill("combo:mage:dragon:1")).toBeUndefined();
+    expect(getSkill("combo:mage:elf:3")).toBeUndefined();
+  });
+
+  it("시작 스킬 마지막 칸은 약 30% 확률로 그 조합의 초반 스킬", () => {
+    let n = 7;
+    const rand = () => ((n = (n * 16807) % 2147483647) / 2147483647);
+    let combos = 0;
+    for (let i = 0; i < 1000; i++) {
+      const ids = rollSkills("dagger", "elf", rand);
+      if (ids.includes(earlyCombo("dagger", "elf")!)) combos++;
+      expect(validSkillsFor(ids, "dagger", "elf")).toBe(true);
+    }
+    expect(combos / 1000).toBeGreaterThan(0.24);
+    expect(combos / 1000).toBeLessThan(0.36);
   });
 });

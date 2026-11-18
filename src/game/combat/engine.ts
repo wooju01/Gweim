@@ -110,6 +110,8 @@ export type BattleEvent =
   /** 종족 패시브 발동. target은 패시브마다 뜻이 다르다 (전사의 긍지: 지켜 준 아군) */
   | { type: "passive"; unit: string; passive: string; target?: string }
   | { type: "evade"; actor: string; target: string }
+  /** 처치해서 스킬 대기 시간이 초기화됐다 (조합 스킬 사냥) */
+  | { type: "refresh"; actor: string; skill: SkillId }
   /** 적대 단계 용병이 명령을 무시했다 */
   | { type: "disobey"; unit: string }
   /** 스킬이 실패했다 (정령이 답하지 않음 등) */
@@ -161,6 +163,16 @@ export function currentActor(b: Battle): Unit | null {
   return u && u.side === "merc" && u.hp > 0 ? u : null;
 }
 
+/** u의 상대편 중 살아 있는 유닛 (용병이면 적, 적이면 용병) */
+export function foes(b: Battle, u: Unit): Unit[] {
+  return living(b, u.side === "merc" ? "enemy" : "merc");
+}
+
+/** u의 같은 편 중 살아 있는 유닛 */
+export function friends(b: Battle, u: Unit): Unit[] {
+  return living(b, u.side);
+}
+
 export function hasStatus(u: Unit, kind: StatusKind): boolean {
   return u.statuses.some((s) => s.kind === kind);
 }
@@ -173,7 +185,7 @@ export function validate(b: Battle, action: BattleAction): string | null {
   switch (action.type) {
     case "attack": {
       const target = unitById(b, action.target);
-      if (!target || target.side !== "enemy" || target.hp <= 0) return "공격할 수 없는 대상";
+      if (!target || target.side === actor.side || target.hp <= 0) return "공격할 수 없는 대상";
       return null;
     }
     case "bandage":
@@ -189,8 +201,8 @@ export function validate(b: Battle, action: BattleAction): string | null {
       const target = action.target ? unitById(b, action.target) : undefined;
       if (kind === "none") return action.target ? "대상을 고르지 않는 스킬" : null;
       if (!target || target.hp <= 0) return "대상을 골라야 한다";
-      if (kind === "enemy" && target.side !== "enemy") return "적에게만 쓸 수 있다";
-      if (kind === "ally" && target.side !== "merc") return "아군에게만 쓸 수 있다";
+      if (kind === "enemy" && target.side === actor.side) return "적에게만 쓸 수 있다";
+      if (kind === "ally" && target.side !== actor.side) return "아군에게만 쓸 수 있다";
       return null;
     }
     case "guide": {
@@ -345,9 +357,9 @@ function begin(units: Unit[], rng: Rng, depth: number, supplies: Record<SupplyKi
   // 싸울 용병이 없으면 바로 끝난다
   checkOutcome(b);
   // 포효: 전투 시작 시 적 전체 위축
-  for (const merc of living(b, "merc").filter((u) => has(u, "war_cry"))) {
-    b.log.push({ type: "passive", unit: merc.id, passive: "war_cry" });
-    for (const enemy of living(b, "enemy")) applyStatus(b, enemy, "weaken");
+  for (const u of b.units.filter((x) => x.hp > 0 && has(x, "war_cry"))) {
+    b.log.push({ type: "passive", unit: u.id, passive: "war_cry" });
+    for (const foe of foes(b, u)) applyStatus(b, foe, "weaken");
   }
   advance(b, rng);
   b.rng = rng.state();
@@ -367,13 +379,13 @@ export function act(battle: Battle, action: BattleAction): Battle {
   const b = structuredClone(battle);
   const rng = createRng(b.rng);
   const actor = currentActor(b)!;
-  const enemiesBefore = living(b, "enemy").length;
+  const enemiesBefore = foes(b, actor).length;
 
   // 적대 단계: 가끔 명령을 무시하고 아무 적이나 공격한다
   if (action.type !== "guide" && actor.bond === "hostile" && rng.next() < BOND.disobeyChance) {
-    const foes = living(b, "enemy");
+    const others = foes(b, actor);
     b.log.push({ type: "disobey", unit: actor.id });
-    action = { type: "attack", target: foes[Math.floor(rng.next() * foes.length)].id };
+    action = { type: "attack", target: others[Math.floor(rng.next() * others.length)].id };
   }
 
   switch (action.type) {
@@ -406,7 +418,7 @@ export function act(battle: Battle, action: BattleAction): Battle {
   if (action.type !== "guide") {
     endTurn(actor);
     // 숨통 끊기: 적을 쓰러뜨리면 라운드당 한 번 즉시 다시 행동
-    const killed = living(b, "enemy").length < enemiesBefore;
+    const killed = foes(b, actor).length < enemiesBefore;
     if (killed && !b.outcome && actor.hp > 0 && has(actor, "finishing_bite") && actor.fx!.biteRound !== b.round) {
       actor.fx!.biteRound = b.round;
       b.log.push({ type: "passive", unit: actor.id, passive: "finishing_bite" });
@@ -467,6 +479,8 @@ type StrikeOptions = {
   counter?: boolean;
   /** 행동을 시작할 때 살아 있던 적 수 (무쌍의 투혼). 없으면 지금 수 */
   enemiesAtStart?: number;
+  /** 이 공격의 치명타 확률 추가 (조합 스킬 정밀) */
+  critBonus?: number;
 };
 
 /** 잃은 체력 비율 (0~1) */
@@ -504,10 +518,10 @@ export function strikeFactors(b: Battle, actor: Unit, target: Unit, opts: Strike
   const fx = actor.fx ?? {};
   let bonus = 0;
   if (has(actor, "blood_thirst")) bonus += Math.round(PASSIVE.bloodThirstMax * lostRatio(actor));
-  if (has(actor, "peerless_spirit")) bonus += opts.enemiesAtStart ?? living(b, "enemy").length;
+  if (has(actor, "peerless_spirit")) bonus += opts.enemiesAtStart ?? foes(b, actor).length;
   // 깊은 곳의 피: 층 구조가 생기기 전까지는 지나온 칸 2칸마다 +1 (최대 +3)
   if (has(actor, "deep_blood")) bonus += Math.min(PASSIVE.deepBloodMax, Math.floor(b.walked / PASSIVE.deepBloodStep));
-  if (has(actor, "solidarity") && living(b, "merc").length >= 4) bonus += PASSIVE.solidarityBonus;
+  if (has(actor, "solidarity") && friends(b, actor).length >= 4) bonus += PASSIVE.solidarityBonus;
   if (hasStatus(actor, "awaken")) bonus += PASSIVE.awakenBonus;
   if (hasStatus(actor, "weaken")) bonus -= PASSIVE.weakenAmount;
   if (actor.bond === "trusted") bonus += BOND.trustAttack;
@@ -531,11 +545,12 @@ export function strikeFactors(b: Battle, actor: Unit, target: Unit, opts: Strike
   if (has(target, "rock_root")) reduce += PASSIVE.rockRootReduce;
   if (has(target, "pain_oblivion")) reduce += Math.round(PASSIVE.painOblivionMax * lostRatio(target));
   if (has(target, "adapt")) reduce += Math.min(PASSIVE.adaptMax, target.fx?.adapt?.[actor.id] ?? 0);
+  if (hasStatus(target, "brace")) reduce += PASSIVE.braceDefense;
 
   return {
     bonus,
     multiplier,
-    critChance: CRIT_CHANCE + (has(actor, "keen_eye") ? PASSIVE.keenEyeCrit : 0),
+    critChance: CRIT_CHANCE + (has(actor, "keen_eye") ? PASSIVE.keenEyeCrit : 0) + (opts.critBonus ?? 0),
     evadeChance: evadeChance(target),
     crack: hasStatus(target, "crack"),
     guard: target.guarding,
@@ -667,7 +682,7 @@ function rollBase(rng: Rng, actor: Unit, e: DamageEffect): number {
 }
 
 function attack(b: Battle, rng: Rng, actor: Unit, target: Unit) {
-  strike(b, rng, actor, target, rollBase(rng, actor, BASIC_ATTACK), { enemiesAtStart: living(b, "enemy").length });
+  strike(b, rng, actor, target, rollBase(rng, actor, BASIC_ATTACK), { enemiesAtStart: foes(b, actor).length });
 }
 
 function heal(b: Battle, target: Unit, amount: number, by: Actor) {
@@ -676,12 +691,19 @@ function heal(b: Battle, target: Unit, amount: number, by: Actor) {
   b.log.push({ type: "heal", target: target.id, amount: healed, by });
 }
 
+/** 보호막. 겹쳐 쌓지 않고 큰 쪽으로 채운다 */
+function giveShield(b: Battle, t: Unit, amount: number, by: string) {
+  if (amount <= 0 || t.hp <= 0) return;
+  t.shield = Math.max(t.shield ?? 0, amount);
+  b.log.push({ type: "shield", target: t.id, amount, by });
+}
+
 /** 스킬의 효과 조각을 차례로 처리한다. 스킬마다 코드를 따로 짜지 않는다 */
 function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: Unit | undefined) {
   const skill = getSkill(skillId)!;
   actor.cooldowns[skillId] = skill.cooldown;
   b.log.push({ type: "skill", actor: actor.id, skill: skill.id, ...(target ? { target: target.id } : {}) });
-  const enemiesAtStart = living(b, "enemy").length;
+  const enemiesAtStart = foes(b, actor).length;
 
   for (const e of skill.effects) {
     switch (e.kind) {
@@ -693,17 +715,20 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
         break;
       case "damage":
         if (e.area === "all") {
-          for (const enemy of living(b, "enemy")) {
+          for (const enemy of foes(b, actor)) {
             if (b.outcome) break;
             strike(b, rng, actor, enemy, rollBase(rng, actor, e), { onHit: e.onHit ?? true, aoe: true, enemiesAtStart });
           }
-        } else if (target && target.hp > 0) {
-          strike(b, rng, actor, target, rollBase(rng, actor, e), { onHit: e.onHit ?? true, enemiesAtStart });
+        } else {
+          for (let h = 0; h < (e.hits ?? 1); h++) {
+            if (!target || target.hp <= 0 || b.outcome) break;
+            strike(b, rng, actor, target, rollBase(rng, actor, e), { onHit: e.onHit ?? true, enemiesAtStart, critBonus: e.critBonus });
+          }
         }
         break;
       case "applyStatus": {
         const one = e.who === "self" ? actor : target;
-        for (const t of e.area === "all" ? living(b, "enemy") : one && one.hp > 0 ? [one] : []) applyStatus(b, t, e.status);
+        for (const t of e.area === "all" ? foes(b, actor) : one && one.hp > 0 ? [one] : []) applyStatus(b, t, e.status);
         break;
       }
       case "heal": {
@@ -718,10 +743,7 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
       }
       case "shield": {
         const t = e.who === "self" ? actor : target;
-        if (t) {
-          t.shield = Math.max(t.shield ?? 0, e.amount);
-          b.log.push({ type: "shield", target: t.id, amount: e.amount, by: actor.id });
-        }
+        if (t) giveShield(b, t, e.amount, actor.id);
         break;
       }
       case "taunt":
@@ -729,6 +751,25 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
         break;
       case "selfCost":
         recoil(b, actor, e.hp, skill.id);
+        break;
+      case "resetOnKill":
+        if (target && target.side !== actor.side && target.hp <= 0) {
+          actor.cooldowns[skill.id] = 0;
+          b.log.push({ type: "refresh", actor: actor.id, skill: skill.id });
+        }
+        break;
+      case "support":
+        if (skill.target === "ally" && target) {
+          // 대상의 옆 아군이 이 스킬의 회복·보호막을 절반 받는다
+          for (const n of neighbors(b, target)) {
+            for (const x of skill.effects) {
+              if (x.kind === "heal" && x.who !== "self") heal(b, n, Math.floor(x.amount / 2), actor.id);
+              if (x.kind === "shield" && x.who !== "self") giveShield(b, n, Math.floor(x.amount / 2), actor.id);
+            }
+          }
+        } else {
+          for (const n of neighbors(b, actor)) giveShield(b, n, e.shield, actor.id);
+        }
         break;
     }
   }
@@ -779,7 +820,7 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
   const actor = currentActor(b)!;
   const target = action.target ? unitById(b, action.target) : undefined;
   const effects = action.type === "attack" ? [BASIC_ATTACK] : getSkill(skillOf(actor, action)!)!.effects;
-  const enemiesAtStart = living(b, "enemy").length;
+  const enemiesAtStart = foes(b, actor).length;
   const out: ActionPreview = { damage: [], applies: [], heal: null, shield: null, cures: null, taunt: false, selfCost: 0, failChance: 0 };
 
   for (const e of effects) {
@@ -788,9 +829,10 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
         out.failChance = e.chance;
         break;
       case "damage": {
-        const targets = e.area === "all" ? living(b, "enemy") : target ? [target] : [];
+        // 연타는 같은 대상을 여러 번 친다 (타격마다 따로 계산)
+        const targets = e.area === "all" ? foes(b, actor) : target ? Array.from({ length: e.hits ?? 1 }, () => target) : [];
         for (const t of targets) {
-          const f = strikeFactors(b, actor, t, { aoe: e.area === "all", enemiesAtStart });
+          const f = strikeFactors(b, actor, t, { aoe: e.area === "all", enemiesAtStart, critBonus: e.critBonus });
           const [lo, hi] = baseRange(actor, e);
           const p: TargetPreview = {
             target: t.id,
@@ -814,7 +856,7 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
       }
       case "applyStatus": {
         const one = e.who === "self" ? actor : target;
-        for (const t of e.area === "all" ? living(b, "enemy") : one ? [one] : []) out.applies.push({ target: t.id, kind: e.status });
+        for (const t of e.area === "all" ? foes(b, actor) : one ? [one] : []) out.applies.push({ target: t.id, kind: e.status });
         break;
       }
       case "heal": {
@@ -856,13 +898,13 @@ export function passiveNote(b: Battle, u: Unit, passive: string): string | null 
       return n > 0 ? `피해 -${n}` : null;
     }
     case "peerless_spirit":
-      return `공격 +${living(b, "enemy").length}`;
+      return `공격 +${foes(b, u).length}`;
     case "deep_blood": {
       const n = Math.min(PASSIVE.deepBloodMax, Math.floor(b.walked / PASSIVE.deepBloodStep));
       return n > 0 ? `공격 +${n}` : null;
     }
     case "solidarity":
-      return living(b, "merc").length >= 4 ? "공격 +1" : null;
+      return friends(b, u).length >= 4 ? "공격 +1" : null;
     case "first_strike":
       return fx.firstDone ? null : "준비됨";
     case "rising_cheer":
@@ -922,7 +964,7 @@ function endTurn(unit: Unit) {
 
 /** 속도 (바람 정령의 가호 포함) */
 export function speedOf(u: Unit): number {
-  return u.speed + (has(u, "wind_blessing") ? PASSIVE.windBlessingSpeed : 0);
+  return u.speed + (has(u, "wind_blessing") ? PASSIVE.windBlessingSpeed : 0) + (hasStatus(u, "haste") ? PASSIVE.hasteSpeed : 0);
 }
 
 function newRound(b: Battle, rng: Rng) {
@@ -942,15 +984,15 @@ function newRound(b: Battle, rng: Rng) {
   b.guideUsed = false;
   b.log.push({ type: "round", round: b.round });
   // 야생의 회복력: 라운드 시작마다 체력 회복
-  for (const u of mercs) {
-    if (has(u, "wild_recovery") && u.hp < u.maxHp) heal(b, u, PASSIVE.wildRecovery, u.id);
+  for (const u of b.units) {
+    if (u.hp > 0 && has(u, "wild_recovery") && u.hp < u.maxHp) heal(b, u, PASSIVE.wildRecovery, u.id);
   }
 }
 
 /** 전사의 긍지: 위태로운 아군 대신 맞아 줄 바바리안이 있으면 그쪽으로 */
 function protector(b: Battle, target: Unit): Unit {
   if (target.hp > target.maxHp * PASSIVE.prideAllyRatio) return target;
-  const guard = living(b, "merc").find(
+  const guard = friends(b, target).find(
     (u) =>
       u !== target &&
       has(u, "warrior_pride") &&
@@ -961,6 +1003,49 @@ function protector(b: Battle, target: Unit): Unit {
   guard.fx!.prideRound = b.round;
   b.log.push({ type: "passive", unit: guard.id, passive: "warrior_pride", target: target.id });
   return guard;
+}
+
+/** 적이 노릴 용병: 막아선 용병이 있으면 그쪽, 없으면 무작위 (전사의 긍지가 가로챌 수 있다) */
+function pickVictim(b: Battle, rng: Rng, unit: Unit): Unit | null {
+  const guards = foes(b, unit).filter((u) => u.guarding);
+  const targets = guards.length > 0 ? guards : foes(b, unit);
+  if (targets.length === 0) return null;
+  return protector(b, targets[Math.floor(rng.next() * targets.length)]);
+}
+
+/**
+ * 적의 차례. 스킬이 있는 적(용병형 적 등)은 이 확률로 준비된 스킬을 쓰고, 아니면 공격한다.
+ * 스킬이 없는 몬스터는 늘 공격한다 (난수를 더 쓰지 않는다).
+ */
+function enemyTurn(b: Battle, rng: Rng, unit: Unit) {
+  const ready = unit.skills.filter((id) => !(unit.cooldowns[id] > 0) && getSkill(id));
+  if (ready.length > 0 && rng.next() < ENEMY_SKILL_CHANCE) {
+    const skill = getSkill(ready[Math.floor(rng.next() * ready.length)])!;
+    const target =
+      skill.target === "enemy"
+        ? pickVictim(b, rng, unit)
+        : skill.target === "ally"
+          ? [...friends(b, unit)].sort((x, y) => x.hp / x.maxHp - y.hp / y.maxHp)[0]
+          : undefined;
+    if (skill.target !== "enemy" || target) {
+      castSkill(b, rng, unit, skill.id, target ?? undefined);
+      return;
+    }
+  }
+  const victim = pickVictim(b, rng, unit);
+  if (!victim) return checkOutcome(b);
+  attack(b, rng, unit, victim);
+}
+
+/** 스킬이 있는 적이 차례마다 스킬을 쓸 확률 */
+export const ENEMY_SKILL_CHANCE = 0.5;
+
+/**
+ * 용병형 적: 용병과 같은 능력치·스킬·패시브 구조를 가진 적 (탐험가 무리 등, 나중에 쓴다).
+ * 용병 데이터를 그대로 쓰되 적 편에 세운다.
+ */
+export function mercenaryEnemy(merc: Merc, id: string): Unit {
+  return { ...mercUnit(merc), id, side: "enemy" };
 }
 
 /** 다음 용병 차례가 오거나 전투가 끝날 때까지 진행한다 */
@@ -983,14 +1068,7 @@ function advance(b: Battle, rng: Rng) {
     if (b.outcome || unit.hp <= 0) continue;
     if (unit.side === "merc") return; // 플레이어 입력을 기다린다
 
-    // 적: 막아선 용병이 있으면 그쪽을, 없으면 살아 있는 용병 중 무작위로 공격
-    const guards = living(b, "merc").filter((u) => u.guarding);
-    const targets = guards.length > 0 ? guards : living(b, "merc");
-    if (targets.length === 0) {
-      checkOutcome(b);
-      continue;
-    }
-    attack(b, rng, unit, protector(b, targets[Math.floor(rng.next() * targets.length)]));
+    enemyTurn(b, rng, unit);
     endTurn(unit);
   }
   throw new Error("전투가 끝나지 않는다 (무한 루프 방지)");

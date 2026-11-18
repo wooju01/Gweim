@@ -8,6 +8,7 @@ import {
   act,
   currentActor,
   giftsReceived,
+  mercenaryEnemy,
   mercUnit,
   neighbors,
   previewAction,
@@ -24,6 +25,8 @@ import {
   type Unit,
 } from "./engine";
 import { SKILLS, getSkill } from "../../data/combat";
+import { comboId } from "../../data/combo";
+import { JOB_SKILL, skillsFrom } from "../../data/skills";
 import { describe as describeEvent, josa } from "./text";
 
 /** 밸런스 측정용 단순 정책: 출혈이면 붕대, 스킬이 준비되면 스킬, 아니면 가장 약한 적 공격 */
@@ -731,22 +734,25 @@ describe("미리보기", () => {
     let checked = 0;
     for (let seed = 0; seed < 300; seed++) {
       const r = createRng(seed);
-      const party: Merc[] = [0, 1, 2, 3].map((i) => ({
-        ...varn,
-        id: `m${i}`,
-        job: JOBS_[Math.floor(r.next() * JOBS_.length)],
-        passives: [ALL_PASSIVES[Math.floor(r.next() * ALL_PASSIVES.length)]],
-      }));
+      const RACES_ = ["human", "dwarf", "elf", "beastfolk", "barbarian"];
+      const party: Merc[] = [0, 1, 2, 3].map((i) => {
+        const job = JOBS_[Math.floor(r.next() * JOBS_.length)];
+        const race = RACES_[Math.floor(r.next() * RACES_.length)];
+        // 대표 스킬, 조합 스킬 두 개, 종족 스킬 하나
+        const skills = [JOB_SKILL[job], comboId(job, race, 1), comboId(job, race, 2), skillsFrom({ race })[Math.floor(r.next() * 4)]];
+        return { ...varn, id: `m${i}`, job, race, skills, passives: [ALL_PASSIVES[Math.floor(r.next() * ALL_PASSIVES.length)]] };
+      });
       let b = startBattle(party, seed);
       for (let step = 0; step < 200 && !b.outcome; step++) {
         const actor = currentActor(b)!;
         const enemies = living(b, "enemy");
         const pick = enemies[Math.floor(r.next() * enemies.length)];
-        const skill = actor.skills[0] ? getSkill(actor.skills[0])! : null;
+        const ready = actor.skills.filter((id) => !(actor.cooldowns[id] > 0));
+        const skill = ready.length ? getSkill(ready[Math.floor(r.next() * ready.length)])! : null;
         let action: BattleAction = { type: "attack", target: pick.id };
-        if (skill && !(actor.cooldowns[skill.id] > 0) && r.next() < 0.5) {
+        if (skill && r.next() < 0.6) {
           const ally = living(b, "merc")[0];
-          action = skill.target === "none" ? { type: "skill" } : { type: "skill", target: skill.target === "enemy" ? pick.id : ally.id };
+          action = skill.target === "none" ? { type: "skill", skill: skill.id } : { type: "skill", skill: skill.id, target: skill.target === "enemy" ? pick.id : ally.id };
         }
         const preview = previewAction(b, action);
         expect(preview, JSON.stringify(action)).not.toBeNull();
@@ -757,14 +763,16 @@ describe("미리보기", () => {
           .slice(before)
           .filter((e): e is AttackEvent => e.type === "attack" && e.actor === actor.id)
           .slice(0, preview!.damage.length);
-        for (const hit of hits) {
-          const p = preview!.damage.find((d) => d.target === hit.target)!;
+        hits.forEach((hit, i) => {
+          // 미리보기는 타격 순서대로 (연타·전체 공격도)
+          const p = preview!.damage[i];
+          expect(p.target).toBe(hit.target);
           const total = hit.damage + (hit.absorbed ?? 0);
           const [lo, hi] = hit.crit ? [p.critMin, p.critMax] : [p.min, p.max];
           expect(total, `${actor.id} ${JSON.stringify(action)} seed ${seed}`).toBeGreaterThanOrEqual(lo);
           expect(total).toBeLessThanOrEqual(hi);
           checked++;
-        }
+        });
       }
     }
     expect(checked).toBeGreaterThan(3000);
@@ -888,5 +896,90 @@ describe("자신에게 쓰는 스킬", () => {
     expect(hasStatus(unitById(b, varn.id)!, "awaken")).toBe(true);
     b = act(b, { type: "skill", skill: "dagger_smoke" });
     expect(b.log).toContainEqual({ type: "shield", target: varn.id, amount: 5, by: varn.id });
+  });
+});
+
+describe("조합 스킬 변형", () => {
+  const go = (merc: Merc, enemies: Unit[], seed = 1) => start([merc], seed, enemies);
+
+  it("수인 연타: 같은 대상을 두 번, 각 60%", () => {
+    const id = comboId("spearman", "beastfolk", 1); // 막아서기는 피해가 없으니 회복·보호막 변형이 된다
+    expect(getSkill(id)!.name).toContain("막아서기");
+    const pierce2 = comboId("dagger", "beastfolk", 1);
+    const b = act(go({ ...varn, job: "dagger", race: "beastfolk", skills: [pierce2] }, [dummy("e0", 999)]), { type: "skill", skill: pierce2, target: "e0" });
+    expect(b.log.filter((e) => e.type === "attack" && e.actor === varn.id)).toHaveLength(2);
+    expect(previewAction(go({ ...varn, job: "dagger", race: "beastfolk", skills: [pierce2] }, [dummy("e0", 999)]), { type: "skill", skill: pierce2, target: "e0" })!.damage).toHaveLength(2);
+  });
+
+  it("수인 사냥: 처치하면 그 스킬을 바로 다시 쓸 수 있다", () => {
+    const id = comboId("greatsword", "beastfolk", 2);
+    let b = go({ ...varn, job: "greatsword", race: "beastfolk", skills: [id] }, [dummy("e0", 1), dummy("e1", 999)]);
+    b = act(b, { type: "skill", skill: id, target: "e0" });
+    expect(b.log.some((e) => e.type === "refresh")).toBe(true);
+    expect(validate(b, { type: "skill", skill: id, target: "e1" })).toBeNull();
+  });
+
+  it("인간 지원: 아군 스킬은 대상의 옆 아군도 절반 받는다", () => {
+    const id = comboId("nun", "human", 1);
+    let b = start([{ ...elke, job: "nun", race: "human", skills: [id] }, varn, kass], 1, [dummy("e0", 999)]);
+    b = edit(b, (c) => c.units.forEach((u) => u.side === "merc" && (u.hp = 5)));
+    b = act(b, { type: "skill", skill: id, target: varn.id }); // 바른의 옆: 엘케, 카스
+    const heals = b.log.filter((e) => e.type === "heal" && e.by === elke.id);
+    expect(heals.map((e) => (e.type === "heal" ? [e.target, e.amount] : null))).toEqual([
+      [varn.id, 8],
+      [elke.id, 4],
+      [kass.id, 4],
+    ]);
+  });
+
+  it("드워프 버팀: 방어 +2 / 엘프 선제: 다음 라운드에 맨 먼저", () => {
+    const brace = comboId("archer", "dwarf", 2);
+    let b = start([{ ...varn, job: "archer", race: "dwarf", skills: [brace] }], 1, [dummy("e0", 999, { attack: [6, 6] })]);
+    b = act(b, { type: "skill", skill: brace });
+    const hit = b.log.find((e) => e.type === "attack" && e.actor === "e0");
+    if (hit?.type === "attack" && !hit.crit) expect(hit.damage).toBe(4);
+
+    const haste = comboId("archer", "elf", 1);
+    let h = start([varn, { ...kass, job: "archer", race: "elf", skills: [haste] }], 1, [dummy("e0", 999)]);
+    h = act(h, { type: "attack", target: "e0" });
+    h = act(h, { type: "skill", skill: haste });
+    expect(h.order[0]).toBe(kass.id);
+  });
+
+  it("바바리안 광기는 위력 +80%와 자기 체력 -3, 드워프 강화는 대기 +1", () => {
+    const frenzy = getSkill(comboId("mage", "barbarian", 1))!;
+    expect(frenzy.effects).toContainEqual({ kind: "selfCost", hp: 3 });
+    expect(frenzy.effects.find((e) => e.kind === "damage")).toMatchObject({ multiplier: 4.5 });
+    expect(getSkill(comboId("mage", "dwarf", 1))!.cooldown).toBe(SKILLS.firelance.cooldown + 1);
+  });
+});
+
+describe("용병형 적", () => {
+  it("용병 데이터로 적을 만들 수 있고, 적도 스킬과 패시브를 쓴다", () => {
+    const raider = mercenaryEnemy({ ...kass, job: "greatsword", race: "barbarian", skills: ["cleave", "barb_frenzy"], passives: ["blood_thirst"] }, "e0");
+    expect(raider).toMatchObject({ side: "enemy", skills: ["cleave", "barb_frenzy"] });
+    let used = 0;
+    for (let seed = 0; seed < 100; seed++) {
+      let b = start([varn, elke], seed, [{ ...raider, hp: 999, maxHp: 999 }]);
+      for (let i = 0; i < 6 && !b.outcome; i++) b = act(b, { type: "attack", target: "e0" });
+      if (b.log.some((e) => e.type === "skill" && e.actor === "e0")) used++;
+      // 적의 내려찍기도 용병을 노린다
+      for (const e of b.log) if (e.type === "attack" && e.actor === "e0") expect([varn.id, elke.id]).toContain(e.target);
+    }
+    expect(used).toBeGreaterThan(50);
+  });
+
+  it("스킬이 없는 몬스터는 예전처럼 공격만 한다", () => {
+    let b = start([varn], 3, [dummy("e0", 999)]);
+    for (let i = 0; i < 5; i++) b = act(b, { type: "attack", target: "e0" });
+    expect(b.log.some((e) => e.type === "skill" && e.actor === "e0")).toBe(false);
+  });
+
+  it("한 전투의 적은 3~4마리", () => {
+    for (let seed = 0; seed < 200; seed++) {
+      const n = startBattle([varn], seed).units.filter((u) => u.side === "enemy").length;
+      expect(n).toBeGreaterThanOrEqual(3);
+      expect(n).toBeLessThanOrEqual(4);
+    }
   });
 });

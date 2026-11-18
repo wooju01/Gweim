@@ -22,6 +22,8 @@ export type Member = {
   /** 출혈·중독만 다음 칸으로 이어진다 */
   statuses: Status[];
   down: boolean;
+  /** 이번 탐험에서 한 번이라도 쓰러졌나 (데리고 귀환하면 호감이 오른다) */
+  fell?: boolean;
 };
 
 /** 지금 들어와 있는 칸에서 벌어진 일. null이면 맵에서 다음 칸을 고르는 중 */
@@ -69,6 +71,9 @@ export function startExpedition(mercs: Merc[], seed: number): Expedition {
 }
 
 export const alive = (exp: Expedition) => exp.members.filter((m) => !m.down);
+
+/** 전투에서 이기면 쓰러졌던 용병이 이 체력으로 일어난다 */
+export const REVIVE_HP = 1;
 
 // ── 이동 ────────────────────────────────────────────────
 
@@ -130,10 +135,11 @@ export function markRestTalk(exp: Expedition): Expedition {
  */
 export function rescueBonds(exp: Expedition): Record<string, number> {
   if (exp.room?.kind === "defeat") return {};
-  const downed = exp.members.filter((m) => m.down);
-  if (downed.length === 0) return {};
+  // 쓰러졌다가 일어난 용병도 포함한다 (체력 1로 일어나도 데려온 건 동료들이다)
+  const fallen = exp.members.filter((m) => m.down || m.fell);
+  if (fallen.length === 0) return {};
   return Object.fromEntries(
-    exp.members.map((m) => [m.id, m.down ? BOND.rescuedAffinity : BOND.rescuerAffinity * downed.length]),
+    exp.members.map((m) => [m.id, m.down || m.fell ? BOND.rescuedAffinity : BOND.rescuerAffinity * fallen.length]),
   );
 }
 
@@ -156,16 +162,22 @@ export function battleFor(exp: Expedition, mercs: Merc[], seed: number, bonds: R
   return startBattleFrom(units, seed, { depth: exp.depth, supplies: exp.supplies, walked: exp.visited.length - 1 });
 }
 
-/** 전투 결과를 탐험에 반영한다. 쓰러진 용병은 빠지고, 강화·약화는 사라진다 */
+/**
+ * 전투 결과를 탐험에 반영한다. 강화·약화는 사라진다.
+ * 이기면 쓰러졌던 용병은 체력 1로 일어난다 (전멸하면 모두 쓰러진 채로).
+ */
 export function finishBattle(exp: Expedition, battle: Battle): Expedition {
+  const won = battle.outcome === "victory";
   const members = exp.members.map((m) => {
     const unit = battle.units.find((u) => u.id === m.id && u.side === "merc");
     if (!unit) return m;
+    const fellNow = unit.hp <= 0;
     return {
       ...m,
-      hp: unit.hp,
+      hp: fellNow && won ? REVIVE_HP : unit.hp,
       statuses: unit.statuses.filter((s) => HARMFUL.includes(s.kind)),
-      down: unit.hp <= 0,
+      down: fellNow && !won,
+      fell: m.fell || fellNow,
     };
   });
   const next: Expedition = { ...exp, members, supplies: { ...battle.supplies } };

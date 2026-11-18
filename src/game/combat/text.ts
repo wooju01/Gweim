@@ -34,6 +34,8 @@ export function describe(event: BattleEvent, b: Battle): string {
     case "status":
       if (event.kind === "awaken") return `${josa(name(event.target), "이", "가")} 각성했다. 2턴 동안 공격이 강해진다.`;
       if (event.kind === "weaken") return `${josa(name(event.target), "이", "가")} 움츠러들었다. (위축)`;
+      if (event.kind === "brace") return `${josa(name(event.target), "이", "가")} 자세를 단단히 굳혔다. (버팀)`;
+      if (event.kind === "haste") return `${josa(name(event.target), "이", "가")} 다음 수를 노린다. (선제)`;
       if (event.kind === "crack") return `${name(event.target)}의 몸에 균열이 갔다. 받는 피해가 늘어난다.`;
       return `${josa(name(event.target), "이", "가")} ${STATUS_NAME(event.kind)}에 걸렸다.`;
     case "tick":
@@ -67,6 +69,8 @@ export function describe(event: BattleEvent, b: Battle): string {
       return `${name(event.target)}의 몸을 정령의 보호막(${event.amount})이 감쌌다.`;
     case "fizzle":
       return `${name(event.actor)}의 부름에 정령이 답하지 않았다.`;
+    case "refresh":
+      return `${name(event.actor)}의 ${josa(getSkill(event.skill)?.name ?? "스킬", "을", "를")} 바로 다시 쓸 수 있다.`;
     case "disobey":
       return `${josa(name(event.unit), "은", "는")} 명령을 듣지 않고 제멋대로 움직인다.`;
     case "evade":

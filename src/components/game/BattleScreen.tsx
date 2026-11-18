@@ -56,6 +56,8 @@ const STATUS_STYLE: Record<StatusKind, string> = {
   crack: "bg-ember/20 text-ember",
   weaken: "bg-edge/70 text-ash",
   awaken: "bg-ember/30 text-ember",
+  brace: "bg-frost/20 text-frost",
+  haste: "bg-frost/20 text-frost",
 };
 
 /**
@@ -496,7 +498,16 @@ function Figure({
         />
         <span key={`${motionKey}-${motion}`} className={`absolute inset-0 block ${down ? "anim-fall" : motion}`}>
           <span className={`block h-full w-full ${down ? "" : "anim-breathe"} ${color} ${clickable ? "brightness-150" : ""} transition-[filter]`}>
-            {unit.side === "merc" ? <MercSilhouette job={unit.job} race={unit.race} /> : <EnemySilhouette name={unit.name} />}
+            {unit.side === "merc" ? (
+              <MercSilhouette job={unit.job} race={unit.race} />
+            ) : unit.job ? (
+              // 용병형 적: 사람 실루엣을 왼쪽으로 돌려 세운다
+              <span className="block h-full w-full -scale-x-100">
+                <MercSilhouette job={unit.job} race={unit.race} />
+              </span>
+            ) : (
+              <EnemySilhouette name={unit.name} />
+            )}
           </span>
         </span>
         {floats.map((f, i) => (
