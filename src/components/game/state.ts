@@ -1,4 +1,5 @@
 import { MERCS, getMerc } from "@/data/mercs";
+import { act, startBattle, type Battle, type BattleAction } from "@/game/combat/engine";
 import { buildMerc } from "@/game/generate";
 import type { Merc } from "@/game/types";
 import type { HistoryLine, MercRef, MercSeed, TalkResponse, TalkState } from "@/lib/schemas";
@@ -26,7 +27,7 @@ export type GameState = {
   progress: Record<string, MercProgress>;
   party: string[];
   recruit: { pending: boolean; error: string | null };
-  screen: { kind: "guild" } | TalkScreen;
+  screen: { kind: "guild" } | TalkScreen | { kind: "battle"; battle: Battle };
 };
 
 export type GameAction =
@@ -38,7 +39,10 @@ export type GameAction =
   | { type: "dismiss"; mercId: string }
   | { type: "recruitStart" }
   | { type: "recruited"; seeds: MercSeed[] }
-  | { type: "recruitFailed"; error: string };
+  | { type: "recruitFailed"; error: string }
+  /** seed: 전투 난수 시드. 리듀서를 순수하게 유지하려고 밖에서 굴려 넘긴다 */
+  | { type: "enterDungeon"; seed: number }
+  | { type: "battleAct"; action: BattleAction };
 
 export function entryId(entry: RosterEntry): string {
   return entry.kind === "unique" ? entry.id : entry.seed.id;
@@ -118,6 +122,20 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case "leave":
       return { ...state, screen: { kind: "guild" } };
+
+    case "enterDungeon": {
+      // 동행 중인 용병만 데려간다. 지금은 전투가 끝나면 체력이 회복된다 (영구 사망은 5단계)
+      const mercs = state.party.flatMap((id) => {
+        const entry = state.roster.find((e) => entryId(e) === id);
+        return entry ? [mercOf(entry)] : [];
+      });
+      if (mercs.length === 0) return state;
+      return { ...state, screen: { kind: "battle", battle: startBattle(mercs, action.seed) } };
+    }
+
+    case "battleAct":
+      if (state.screen.kind !== "battle") return state;
+      return { ...state, screen: { kind: "battle", battle: act(state.screen.battle, action.action) } };
 
     case "dismiss":
       return {

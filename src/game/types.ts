@@ -45,6 +45,8 @@ export type Merc = {
   id: string;
   /** 카드에 보이는 특성 이름들. 랜덤 용병에만 있다 */
   tags?: string[];
+  /** 직업 id (traits.ts). 전투 능력을 정한다 */
+  job?: string;
   name: string;
   /** 카드에 붙는 짧은 호칭 */
   title: string;

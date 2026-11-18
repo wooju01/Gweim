@@ -11,9 +11,19 @@ type Props = {
   onRecruit: () => void;
   onTalk: (mercId: string) => void;
   onDismiss: (mercId: string) => void;
+  onEnterDungeon: () => void;
 };
 
-export function GuildScreen({ mercs, progress, party, recruit, onRecruit, onTalk, onDismiss }: Props) {
+export function GuildScreen({
+  mercs,
+  progress,
+  party,
+  recruit,
+  onRecruit,
+  onTalk,
+  onDismiss,
+  onEnterDungeon,
+}: Props) {
   const byId = new Map(mercs.map((m) => [m.id, m]));
 
   return (
@@ -113,6 +123,10 @@ export function GuildScreen({ mercs, progress, party, recruit, onRecruit, onTalk
               </div>
             );
           })}
+          <Button variant="ember" className="mt-2" disabled={party.length === 0} onClick={onEnterDungeon}>
+            던전으로 내려간다
+          </Button>
+          {party.length === 0 && <p className="text-[11px] text-ash">용병을 한 명 이상 고용해야 한다.</p>}
         </aside>
       </div>
     </main>

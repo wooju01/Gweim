@@ -156,6 +156,7 @@ export function buildMerc(seed: MercSeed): Merc | null {
   return {
     id: seed.id,
     tags: traitTags(traits),
+    job: seed.traits.job,
     name: profile.name,
     title: profile.title,
     persona: profile.persona,
