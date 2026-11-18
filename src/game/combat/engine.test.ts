@@ -699,3 +699,10 @@ describe("방어력과 속도", () => {
     expect(orders.size).toBe(2);
   });
 });
+
+describe("빈 전투", () => {
+  it("살아 있는 용병 없이 시작하면 바로 패배로 끝난다", () => {
+    const b = startBattleWithUnits([dummy("e0", 10)], 1);
+    expect(b.outcome).toBe("defeat");
+  });
+});

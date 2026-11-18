@@ -9,6 +9,8 @@ type Props = {
   battle: Battle;
   onAct: (action: BattleAction) => void;
   onLeave: () => void;
+  /** 전투가 끝났을 때 버튼 문구 */
+  leaveLabel?: { victory: string; defeat: string };
 };
 
 const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
@@ -21,7 +23,7 @@ const STATUS_STYLE: Record<StatusKind, string> = {
   awaken: "bg-ember/25 text-ember",
 };
 
-export function BattleScreen({ battle, onAct, onLeave }: Props) {
+export function BattleScreen({ battle, onAct, onLeave, leaveLabel }: Props) {
   const actor = currentActor(battle);
   const [item, setItem] = useState<SupplyKind | null>(null);
   /** 대상을 골라야 하는 스킬을 겨누는 중 */
@@ -144,10 +146,10 @@ export function BattleScreen({ battle, onAct, onLeave }: Props) {
           }`}
         >
           <p className={battle.outcome === "victory" ? "text-moss" : "text-blood"}>
-            {battle.outcome === "victory" ? "살아남았다. 적은 모두 쓰러졌다." : "파티가 전멸했다. 당신만 간신히 도망쳤다."}
+            {battle.outcome === "victory" ? "살아남았다. 적은 모두 쓰러졌다. 상처는 그대로 남는다." : "파티가 전멸했다."}
           </p>
           <Button variant="ember" onClick={onLeave}>
-            길드로 돌아간다
+            {battle.outcome === "victory" ? (leaveLabel?.victory ?? "길드로 돌아간다") : (leaveLabel?.defeat ?? "길드로 돌아간다")}
           </Button>
         </div>
       ) : (

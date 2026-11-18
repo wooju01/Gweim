@@ -158,3 +158,26 @@ export type TalkResponse = {
   /** 이번 턴 이후 주고받은 말 횟수 */
   talks: number;
 };
+
+// ── 던전 사건 ──────────────────────────────────────────────
+
+/** AI가 파티에 맞게 다시 쓴 사건 묘사와 선택지 문장. 선택지 id와 결과는 코드가 정한 그대로다 */
+export const EventNarration = z.object({
+  intro: z.string().min(1).max(300),
+  choices: z
+    .array(z.object({ id: z.string().max(40), text: z.string().min(1).max(80) }))
+    .min(2)
+    .max(4),
+});
+export type EventNarration = z.infer<typeof EventNarration>;
+
+export const EventRequest = z.object({
+  eventId: z.string().max(40),
+  /** 지금 살아 있는 용병 (이름과 특성 id) */
+  party: z
+    .array(z.object({ name: z.string().max(20), race: z.string().max(40).optional(), job: z.string().max(40).optional() }))
+    .max(4),
+});
+export type EventRequest = z.infer<typeof EventRequest>;
+
+export type EventResponse = EventNarration & { mode: AIMode };

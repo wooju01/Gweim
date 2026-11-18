@@ -259,27 +259,42 @@ export function rollEncounter(rng: Rng): Unit[] {
 /** 전투를 시작한다. 첫 용병의 차례까지 진행된 상태로 돌려준다 */
 export function startBattle(mercs: Merc[], seed: number, enemies?: Unit[], depth = 1): Battle {
   const rng = createRng(seed);
-  return begin([...mercs.map(mercUnit), ...(enemies ?? rollEncounter(rng))], rng, depth);
+  return begin([...mercs.map(mercUnit), ...(enemies ?? rollEncounter(rng))], rng, depth, START_SUPPLIES);
 }
 
 /** 이미 만든 유닛으로 전투를 시작한다 (테스트에서 능력치를 고정할 때 쓴다) */
 export function startBattleWithUnits(units: Unit[], seed: number, depth = 1): Battle {
-  return begin(units, createRng(seed), depth);
+  return begin(units, createRng(seed), depth, START_SUPPLIES);
 }
 
-function begin(units: Unit[], rng: Rng, depth: number): Battle {
+/**
+ * 던전 안의 전투. 용병 유닛(이전 전투의 체력·상태이상이 남아 있다)과 들고 있는 물자로 시작하고,
+ * 적 무리는 시드로 뽑는다.
+ */
+export function startBattleFrom(
+  mercs: Unit[],
+  seed: number,
+  opts: { depth: number; supplies: Record<SupplyKind, number>; enemies?: Unit[] },
+): Battle {
+  const rng = createRng(seed);
+  return begin([...mercs, ...(opts.enemies ?? rollEncounter(rng))], rng, opts.depth, opts.supplies);
+}
+
+function begin(units: Unit[], rng: Rng, depth: number, supplies: Record<SupplyKind, number>): Battle {
   const b: Battle = {
     round: 0,
     units,
     order: [],
     turn: -1,
-    supplies: { ...START_SUPPLIES },
+    supplies: { ...supplies },
     depth,
     guideUsed: false,
     rng: 0,
     outcome: null,
     log: [],
   };
+  // 싸울 용병이 없으면 바로 끝난다
+  checkOutcome(b);
   // 포효: 전투 시작 시 적 전체 위축
   for (const merc of living(b, "merc").filter((u) => has(u, "war_cry"))) {
     b.log.push({ type: "passive", unit: merc.id, passive: "war_cry" });
@@ -674,6 +689,10 @@ function advance(b: Battle, rng: Rng) {
     // 적: 막아선 용병이 있으면 그쪽을, 없으면 살아 있는 용병 중 무작위로 공격
     const guards = living(b, "merc").filter((u) => u.guarding);
     const targets = guards.length > 0 ? guards : living(b, "merc");
+    if (targets.length === 0) {
+      checkOutcome(b);
+      continue;
+    }
     attack(b, rng, unit, protector(b, targets[Math.floor(rng.next() * targets.length)]));
     endTurn(unit);
   }

@@ -4,10 +4,12 @@ import type {
   MercReply,
   Stage,
   Tone,
+  EventNarration,
 } from "../../lib/schemas";
 import type { Resolve } from "../../game/affinity";
 import type { Merc, Trait } from "../../game/types";
 import type { Passive } from "../../data/passives";
+import type { EventTemplate } from "../../data/events";
 
 export type Direction = "up" | "down" | "none";
 
@@ -58,6 +60,12 @@ export type ProfileInput = {
   avoidNames: string[];
 };
 
+/** 사건 묘사 입력. 파티는 이름과 종족·직업 이름 */
+export type EventInput = {
+  event: EventTemplate;
+  party: { name: string; race?: string; job?: string }[];
+};
+
 /** 실제 AI와 mock이 똑같이 구현하는 인터페이스 */
 export interface MercAI {
   readonly mode: "mock" | "live";
@@ -67,4 +75,6 @@ export interface MercAI {
   createProfile(input: ProfileInput): Promise<MercProfile>;
   /** 오래된 대화를 기억으로 요약한다 */
   summarize(input: SummaryInput): Promise<string>;
+  /** 던전 사건의 상황 묘사와 선택지 문장을 파티에 맞게 쓴다 (결과는 코드가 정한다) */
+  narrateEvent(input: EventInput): Promise<EventNarration>;
 }

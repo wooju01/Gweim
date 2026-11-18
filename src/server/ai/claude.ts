@@ -2,9 +2,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import { MercProfile, MercReply, Tone } from "../../lib/schemas";
+import { EventNarration, MercProfile, MercReply, Tone } from "../../lib/schemas";
 import {
   classifyPrompt,
+  eventPrompt,
   profilePrompt,
   summaryPrompt,
   systemPrompt,
@@ -119,6 +120,22 @@ export function createClaudeAI(options: { model?: string } = {}): MercAI {
         throw new AIOutputError(`기억 요약 실패 (stop_reason: ${response.stop_reason})`);
       }
       return response.parsed_output.memory;
+    },
+
+    async narrateEvent(input) {
+      const response = await client.messages.parse({
+        model,
+        ...thinkingOption(),
+        max_tokens: 2000,
+        output_config: { effort: "low", format: zodOutputFormat(EventNarration) },
+        messages: [{ role: "user", content: eventPrompt(input) }],
+      });
+      logUsage("event", response.usage);
+
+      if (response.stop_reason === "refusal" || !response.parsed_output) {
+        throw new AIOutputError(`사건 묘사 실패 (stop_reason: ${response.stop_reason})`);
+      }
+      return response.parsed_output;
     },
 
     async classify(text) {

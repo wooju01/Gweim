@@ -11,7 +11,7 @@ import {
 import { dislikedTones, likedTones } from "../../game/affinity";
 import type { Merc } from "../../game/types";
 import { MEMORY_MAX_CHARS } from "../../game/memory";
-import type { MercAI, ProfileInput, ReplyContext, SummaryInput } from "./types";
+import type { EventInput, MercAI, ProfileInput, ReplyContext, SummaryInput } from "./types";
 
 type MercLines = {
   open: Record<Stage, string>;
@@ -183,6 +183,11 @@ export function mockClassify(text: string): Tone {
   return "neutral";
 }
 
+/** 사건 틀의 기본 문장을 그대로 쓴다 */
+export function mockNarration({ event }: EventInput) {
+  return { intro: event.intro, choices: event.choices.map((c) => ({ id: c.id, text: c.text })) };
+}
+
 export function createMockAI(rand: () => number = Math.random): MercAI {
   return {
     mode: "mock",
@@ -194,6 +199,9 @@ export function createMockAI(rand: () => number = Math.random): MercAI {
     },
     async summarize(input) {
       return mockSummary(input);
+    },
+    async narrateEvent(input) {
+      return mockNarration(input);
     },
     async reply({ merc, stage, event }: ReplyContext) {
       const lines = GENERIC_LINES;

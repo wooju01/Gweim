@@ -1,9 +1,20 @@
 import { MERCS, getMerc } from "@/data/mercs";
 import { USE_SAMPLE_ROSTER, sampleSeeds } from "@/data/sampleRoster";
-import { act, startBattle, type Battle, type BattleAction } from "@/game/combat/engine";
+import type { SupplyKind } from "@/data/combat";
+import { applyTone } from "@/game/affinity";
+import { act, type Battle, type BattleAction } from "@/game/combat/engine";
+import {
+  chooseEvent,
+  finishBattle,
+  giveSupply,
+  leaveRoom,
+  moveTo,
+  startExpedition,
+  type Expedition,
+} from "@/game/dungeon/expedition";
 import { buildMerc } from "@/game/generate";
 import type { Merc } from "@/game/types";
-import type { HistoryLine, MercRef, MercSeed, TalkResponse, TalkState } from "@/lib/schemas";
+import type { EventResponse, HistoryLine, MercRef, MercSeed, TalkResponse, TalkState } from "@/lib/schemas";
 
 const HISTORY_LIMIT = 20;
 
@@ -28,7 +39,13 @@ export type GameState = {
   progress: Record<string, MercProgress>;
   party: string[];
   recruit: { pending: boolean; error: string | null };
-  screen: { kind: "guild" } | TalkScreen | { kind: "battle"; battle: Battle };
+  screen: { kind: "guild" } | TalkScreen | { kind: "dungeon" } | { kind: "battle"; battle: Battle };
+  /** 던전 탐험 중이면 그 상태 */
+  expedition: Expedition | null;
+  /** 지금 사건 칸의 AI 묘사. 기다리는 중이면 data가 null */
+  narration: { eventId: string; pending: boolean; data: EventResponse | null } | null;
+  /** 마지막 사건 선택에 대한 용병들의 반응 (예: "케쉬: 호감 ↓") */
+  reactions: string[];
 };
 
 export type GameAction =
@@ -41,9 +58,18 @@ export type GameAction =
   | { type: "recruitStart" }
   | { type: "recruited"; seeds: MercSeed[] }
   | { type: "recruitFailed"; error: string }
-  /** seed: 전투 난수 시드. 리듀서를 순수하게 유지하려고 밖에서 굴려 넘긴다 */
+  /** seed: 맵·전투·사건 난수 시드. 리듀서를 순수하게 유지하려고 밖에서 굴려 넘긴다 */
   | { type: "enterDungeon"; seed: number }
-  | { type: "battleAct"; action: BattleAction };
+  | { type: "move"; nodeId: string; seed: number }
+  | { type: "narrated"; eventId: string; data: EventResponse | null }
+  | { type: "chooseEvent"; choiceId: string; seed: number }
+  | { type: "leaveRoom" }
+  | { type: "giveSupply"; item: SupplyKind; target: string }
+  | { type: "battleAct"; action: BattleAction }
+  /** 전투가 끝나고 맵으로 돌아간다 */
+  | { type: "battleFinish" }
+  /** 탐험을 끝내고 길드로 (귀환, 후퇴, 전멸). 다음 탐험은 모두 회복한 채 시작한다 */
+  | { type: "endExpedition" };
 
 export function entryId(entry: RosterEntry): string {
   return entry.kind === "unique" ? entry.id : entry.seed.id;
@@ -54,6 +80,43 @@ export function mercOf(entry: RosterEntry): Merc {
   const merc = entry.kind === "unique" ? getMerc(entry.id) : buildMerc(entry.seed);
   if (!merc) throw new Error(`잘못된 명단 항목: ${entryId(entry)}`);
   return merc;
+}
+
+/** 동행 중인 용병 */
+function partyMercs(state: GameState): Merc[] {
+  return state.party.flatMap((id) => {
+    const entry = state.roster.find((e) => entryId(e) === id);
+    return entry ? [mercOf(entry)] : [];
+  });
+}
+
+const ARROW = { 1: "↑", 2: "↑↑", [-1]: "↓", [-2]: "↓↓" } as Record<number, string>;
+
+/**
+ * 사건 선택의 태도에 살아 있는 용병들이 반응표대로 반응한다 (대화와 같은 규칙).
+ * 던전 안의 반응은 대화의 반복 감쇠를 쓰지 않는다.
+ */
+function reactToTone(
+  state: GameState,
+  exp: Expedition,
+  tone: Parameters<typeof applyTone>[2] | null,
+): { progress: GameState["progress"]; reactions: string[] } {
+  if (!tone) return { progress: state.progress, reactions: [] };
+  const progress = { ...state.progress };
+  const reactions: string[] = [];
+  for (const member of exp.members.filter((m) => !m.down)) {
+    const entry = state.roster.find((e) => entryId(e) === member.id);
+    const p = progress[member.id];
+    if (!entry || !p) continue;
+    const r = applyTone(mercOf(entry), { affinity: p.affinity, willingness: p.willingness, recentTones: [] }, tone);
+    progress[member.id] = { ...p, affinity: r.affinity, willingness: r.willingness };
+    const parts = [
+      r.delta.affinity ? `호감 ${ARROW[Math.sign(r.delta.affinity) * (Math.abs(r.delta.affinity) > 5 ? 2 : 1)]}` : "",
+      r.delta.willingness ? `의향 ${ARROW[Math.sign(r.delta.willingness) * (Math.abs(r.delta.willingness) > 15 ? 2 : 1)]}` : "",
+    ].filter(Boolean);
+    if (parts.length) reactions.push(`${member.name}: ${parts.join(" · ")}`);
+  }
+  return { progress, reactions };
 }
 
 function freshProgress(merc: Merc): MercProgress {
@@ -80,6 +143,9 @@ export function initialState(): GameState {
     party: [],
     recruit: { pending: false, error: null },
     screen: { kind: "guild" },
+    expedition: null,
+    narration: null,
+    reactions: [],
   };
 }
 
@@ -134,18 +200,64 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, screen: { kind: "guild" } };
 
     case "enterDungeon": {
-      // 동행 중인 용병만 데려간다. 지금은 전투가 끝나면 체력이 회복된다 (영구 사망은 5단계)
-      const mercs = state.party.flatMap((id) => {
-        const entry = state.roster.find((e) => entryId(e) === id);
-        return entry ? [mercOf(entry)] : [];
-      });
+      // 동행 중인 용병만 데려간다. 체력·물자는 탐험이 끝날 때까지 이어진다
+      const mercs = partyMercs(state);
       if (mercs.length === 0) return state;
-      return { ...state, screen: { kind: "battle", battle: startBattle(mercs, action.seed) } };
+      return {
+        ...state,
+        expedition: startExpedition(mercs, action.seed),
+        narration: null,
+        reactions: [],
+        screen: { kind: "dungeon" },
+      };
     }
+
+    case "move": {
+      if (!state.expedition) return state;
+      const moved = moveTo(state.expedition, partyMercs(state), action.nodeId, action.seed);
+      if (!moved) return state;
+      const room = moved.exp.room;
+      return {
+        ...state,
+        expedition: moved.exp,
+        reactions: [],
+        narration: room?.kind === "event" ? { eventId: room.eventId, pending: true, data: null } : null,
+        screen: moved.battle ? { kind: "battle", battle: moved.battle } : { kind: "dungeon" },
+      };
+    }
+
+    case "narrated":
+      if (state.narration?.eventId !== action.eventId) return state;
+      return { ...state, narration: { eventId: action.eventId, pending: false, data: action.data } };
+
+    case "chooseEvent": {
+      if (!state.expedition) return state;
+      const exp = chooseEvent(state.expedition, action.choiceId, action.seed);
+      if (exp === state.expedition || exp.room?.kind !== "event" || !exp.room.result) return state;
+      const { progress, reactions } = reactToTone(state, exp, exp.room.result.tone);
+      return { ...state, expedition: exp, progress, reactions };
+    }
+
+    case "leaveRoom":
+      if (!state.expedition) return state;
+      return { ...state, expedition: leaveRoom(state.expedition), narration: null, reactions: [] };
+
+    case "giveSupply":
+      if (!state.expedition) return state;
+      return { ...state, expedition: giveSupply(state.expedition, action.item, action.target) };
 
     case "battleAct":
       if (state.screen.kind !== "battle") return state;
       return { ...state, screen: { kind: "battle", battle: act(state.screen.battle, action.action) } };
+
+    case "battleFinish": {
+      if (state.screen.kind !== "battle" || !state.screen.battle.outcome) return state;
+      if (!state.expedition) return { ...state, screen: { kind: "guild" } };
+      return { ...state, expedition: finishBattle(state.expedition, state.screen.battle), screen: { kind: "dungeon" } };
+    }
+
+    case "endExpedition":
+      return { ...state, expedition: null, narration: null, reactions: [], screen: { kind: "guild" } };
 
     case "dismiss":
       return {

@@ -2,8 +2,11 @@
 
 import { useReducer } from "react";
 import type { TalkAction } from "@/lib/schemas";
-import { postRecruit, postTalk } from "./api";
+import { postEvent, postRecruit, postTalk } from "./api";
 import { BattleScreen } from "./BattleScreen";
+import { DungeonScreen } from "./DungeonScreen";
+import { alive, pickEvent } from "@/game/dungeon/expedition";
+import { nodeById } from "@/game/dungeon/map";
 import { DialogueScreen } from "./DialogueScreen";
 import { GuildScreen } from "./GuildScreen";
 import { MERC_SLOTS } from "@/game/party";
@@ -66,12 +69,47 @@ export function Game() {
     }
   }
 
+  /** 리듀서를 순수하게 두려고 난수 시드는 여기서 굴린다 */
+  const roll = () => Math.floor(Math.random() * 2 ** 32);
+
+  async function move(nodeId: string) {
+    const exp = state.expedition;
+    if (!exp) return;
+    const seed = roll();
+    dispatch({ type: "move", nodeId, seed });
+    // 사건 칸이면 AI에게 묘사를 부탁한다 (결과는 코드가 정한다). 실패하면 기본 문장을 쓴다
+    if (nodeById(exp.map, nodeId)?.kind !== "event") return;
+    const eventId = pickEvent(seed);
+    try {
+      const party = alive(exp).map((m) => ({ name: m.name, race: m.race, job: m.job }));
+      dispatch({ type: "narrated", eventId, data: await postEvent({ eventId, party }) });
+    } catch {
+      dispatch({ type: "narrated", eventId, data: null });
+    }
+  }
+
   if (state.screen.kind === "battle") {
     return (
       <BattleScreen
         battle={state.screen.battle}
         onAct={(action) => dispatch({ type: "battleAct", action })}
-        onLeave={() => dispatch({ type: "leave" })}
+        onLeave={() => dispatch({ type: "battleFinish" })}
+        leaveLabel={state.expedition ? { victory: "계속 나아간다", defeat: "결과를 본다" } : undefined}
+      />
+    );
+  }
+
+  if (state.screen.kind === "dungeon" && state.expedition) {
+    return (
+      <DungeonScreen
+        exp={state.expedition}
+        narration={state.narration}
+        reactions={state.reactions}
+        onMove={(id) => void move(id)}
+        onChoose={(choiceId) => dispatch({ type: "chooseEvent", choiceId, seed: roll() })}
+        onLeaveRoom={() => dispatch({ type: "leaveRoom" })}
+        onGive={(item, target) => dispatch({ type: "giveSupply", item, target })}
+        onEnd={() => dispatch({ type: "endExpedition" })}
       />
     );
   }
@@ -101,8 +139,7 @@ export function Game() {
       onRecruit={recruit}
       onTalk={startTalk}
       onDismiss={(mercId) => dispatch({ type: "dismiss", mercId })}
-      // 전투 난수 시드는 여기서 굴린다 (리듀서는 순수하게 유지)
-      onEnterDungeon={() => dispatch({ type: "enterDungeon", seed: Math.floor(Math.random() * 2 ** 32) })}
+      onEnterDungeon={() => dispatch({ type: "enterDungeon", seed: roll() })}
     />
   );
 }
