@@ -62,6 +62,8 @@ export type SkillDef = {
   effects: SkillEffect[];
   /** 따르는 스탯 (힘·마법·신성). 없으면 쓰는 용병의 직업 스탯 */
   stat?: PowerStat;
+  /** 궁극기: 숙련부터, 한 번에 1개만 장착, 전투당 1번 (대기 시간 대신) */
+  ultimate?: boolean;
 };
 
 export type Skill = SkillDef & { description: string };
@@ -185,6 +187,16 @@ const DEFS: SkillDef[] = [
   { id: "barb_warcry", name: "전쟁 함성", source: { race: "barbarian" }, cooldown: 4, target: "none", effects: [{ kind: "taunt" }, { kind: "applyStatus", status: "awaken", who: "self" }] },
   { id: "barb_tattoo", name: "문신의 맹세", source: { race: "barbarian" }, cooldown: 3, target: "none", effects: [{ kind: "shield", amount: 5, who: "self" }, { kind: "cure", who: "self" }] },
 
+  // ── 궁극기 (직업마다 하나, 숙련부터, 전투당 1번) ──
+  { id: "ult_knight", name: "불굴의 맹세", source: { job: "knight" }, cooldown: 0, target: "none", ultimate: true, effects: [{ kind: "taunt" }, { kind: "shield", amount: 10, who: "self" }, { kind: "support", shield: 4 }] },
+  { id: "ult_greatsword", name: "대지 가르기", source: { job: "greatsword" }, cooldown: 0, target: "none", ultimate: true, effects: [{ kind: "damage", multiplier: 1.3, area: "all" }] },
+  { id: "ult_assassin", name: "그림자 처형", source: { job: "assassin" }, cooldown: 0, target: "enemy", ultimate: true, effects: [{ kind: "damage", multiplier: 2.8, onHit: false }, { kind: "applyStatus", status: "bleed" }] },
+  { id: "ult_archer", name: "천 개의 화살", source: { job: "archer" }, cooldown: 0, target: "none", ultimate: true, effects: [{ kind: "damage", multiplier: 1, area: "all", onHit: false }, { kind: "applyStatus", status: "weaken", area: "all" }] },
+  { id: "ult_nun", name: "기적", source: { job: "nun" }, cooldown: 0, target: "ally", ultimate: true, effects: [{ kind: "heal", amount: 20 }, { kind: "cure" }, { kind: "support", shield: 0 }] },
+  { id: "ult_herbalist", name: "역병 구름", source: { job: "herbalist" }, cooldown: 0, target: "none", ultimate: true, effects: [{ kind: "damage", fixed: [3, 5], area: "all", onHit: false }, { kind: "applyStatus", status: "poison", area: "all" }, { kind: "applyStatus", status: "crack", area: "all" }] },
+  { id: "ult_mage", name: "업화", source: { job: "mage" }, cooldown: 0, target: "none", ultimate: true, effects: [{ kind: "damage", multiplier: 1.6, area: "all", onHit: false }, { kind: "selfCost", hp: 6 }] },
+  { id: "ult_spiritcaller", name: "정령 강림", source: { job: "spiritcaller" }, cooldown: 0, target: "ally", ultimate: true, effects: [{ kind: "shield", amount: 12 }, { kind: "heal", amount: 6 }, { kind: "support", shield: 0 }] },
+
   /** 직업 정보가 없는 용병의 기본 스킬 */
   { id: "power", name: "전력 공격", source: {}, cooldown: 3, target: "enemy", effects: [{ kind: "damage", multiplier: 1.5 }] },
 ];
@@ -244,6 +256,11 @@ export type SkillId = string;
 /** 장착 슬롯 수. 공격과 붕대는 슬롯을 차지하지 않는다 */
 export const SKILL_SLOTS = 4;
 
+/** 직업의 궁극기 (숙련으로 승급하면 열린다) */
+export const JOB_ULTIMATE: Record<string, SkillId> = Object.fromEntries(
+  DEFS.filter((d) => d.ultimate && d.source.job).map((d) => [d.source.job!, d.id]),
+);
+
 /** 직업의 대표 스킬. 시작 스킬에 언제나 들어간다 */
 export const JOB_SKILL: Record<string, SkillId> = {
   knight: "guard",
@@ -258,7 +275,7 @@ export const JOB_SKILL: Record<string, SkillId> = {
 
 /** 이 직업·종족에게서 나오는 스킬 (조합 스킬은 아직 없다) */
 export function skillsFrom(source: SkillSource): SkillId[] {
-  return DEFS.filter((d) =>
+  return DEFS.filter((d) => !d.ultimate).filter((d) =>
     source.job && source.race
       ? d.source.job === source.job && d.source.race === source.race
       : source.job

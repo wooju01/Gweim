@@ -66,6 +66,8 @@ export type Merc = {
   passives?: string[];
   /** 장착 스킬 id (data/skills.ts). 없으면 직업 스킬 하나 */
   skills?: string[];
+  /** 장착한 궁극기 (숙련부터, 전투당 1번) */
+  ultimate?: string;
   /** 성장으로 얻은 스탯 포인트 (레벨업·단련장). 전투 능력치에 더해진다 */
   stats?: StatBlock;
   /** 성격·배경 특성 id (보수·돈 얘기 반응에 쓴다). 랜덤 용병에만 있다 */

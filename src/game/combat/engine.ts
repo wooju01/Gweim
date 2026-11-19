@@ -54,6 +54,8 @@ export type Unit = {
   statuses: Status[];
   /** 용병만: 장착한 스킬 (최대 SKILL_SLOTS개). 공격과 붕대는 슬롯을 차지하지 않는 기본 행동 */
   skills: SkillId[];
+  /** 용병만: 궁극기 (전투당 1번. 쓰면 fx.ultimateUsed) */
+  ultimate?: SkillId;
   /** 스킬별로 다시 쓸 수 있을 때까지 남은 자기 턴 수 (없거나 0이면 사용 가능) */
   cooldowns: Record<SkillId, number>;
   /** 막아서기 중 (자기 다음 차례가 오면 풀린다) */
@@ -101,6 +103,8 @@ export type PassiveState = {
   dance?: boolean;
   /** 적응: 적 id별로 맞은 횟수 */
   adapt?: Record<string, number>;
+  /** 이번 전투에서 궁극기를 썼나 */
+  ultimateUsed?: boolean;
   /** 숨통 끊기·전사의 긍지를 마지막으로 쓴 라운드 */
   biteRound?: number;
   prideRound?: number;
@@ -216,7 +220,9 @@ export function validate(b: Battle, action: BattleAction): string | null {
       return null;
     case "skill": {
       const id = skillOf(actor, action);
-      if (!id || !actor.skills.includes(id) || !getSkill(id)) return "장착하지 않은 스킬";
+      const isUltimate = !!id && id === actor.ultimate;
+      if (!id || (!actor.skills.includes(id) && !isUltimate) || !getSkill(id)) return "장착하지 않은 스킬";
+      if (isUltimate && actor.fx?.ultimateUsed) return "궁극기는 전투당 한 번";
       const wait = actor.cooldowns[id] ?? 0;
       if (wait > 0) return `${wait}턴 뒤에 쓸 수 있다`;
       const kind = getSkill(id)!.target;
@@ -300,6 +306,7 @@ export function mercUnit(merc: Merc): Unit {
     onHit: stats.onHit,
     statuses: [],
     skills: loadout(merc),
+    ultimate: merc.ultimate && getSkill(merc.ultimate)?.ultimate ? merc.ultimate : undefined,
     cooldowns: {},
     guarding: false,
     passives: merc.passives ?? [],
@@ -780,7 +787,12 @@ function giveShield(b: Battle, t: Unit, amount: number, by: string) {
 /** 스킬의 효과 조각을 차례로 처리한다. 스킬마다 코드를 따로 짜지 않는다 */
 function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: Unit | undefined) {
   const skill = getSkill(skillId)!;
-  actor.cooldowns[skillId] = skill.cooldown;
+  if (skill.ultimate) {
+    actor.fx ??= {};
+    actor.fx.ultimateUsed = true;
+  } else {
+    actor.cooldowns[skillId] = skill.cooldown;
+  }
   b.log.push({ type: "skill", actor: actor.id, skill: skill.id, ...(target ? { target: target.id } : {}) });
   const enemiesAtStart = foes(b, actor).length;
 

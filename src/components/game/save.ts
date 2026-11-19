@@ -37,6 +37,8 @@ const MercProgressSave = TalkState.extend({
   lv: z.number().int().min(0).default(0),
   stats: z.record(z.string(), z.number().int().min(0)).default({}),
   trainable: z.number().int().min(0).default(0),
+  learned: z.array(z.string().max(40)).default([]),
+  pieces: z.array(z.string().max(20)).default([]),
 });
 const Supplies = z.object({ bandage: z.number().int().min(0), antidote: z.number().int().min(0), potion: z.number().int().min(0) });
 

@@ -1622,3 +1622,20 @@ describe("성장 스탯", () => {
     expect(b.log).toContainEqual({ type: "heal", target: varn.id, amount: 11, by: varn.id });
   });
 });
+
+describe("궁극기", () => {
+  it("전투당 한 번만 쓰고, 대기 시간 없이 다른 스킬과 따로 간다", () => {
+    let b = start([{ ...varn, job: "greatsword", ultimate: "ult_greatsword" }], 1, [dummy("e0", 999), dummy("e1", 999)]);
+    expect(validate(b, { type: "skill", skill: "ult_greatsword" })).toBeNull();
+    expect(previewAction(b, { type: "skill", skill: "ult_greatsword" })!.damage).toHaveLength(2);
+    b = act(b, { type: "skill", skill: "ult_greatsword" });
+    expect(b.log.some((e) => e.type === "skill" && e.skill === "ult_greatsword")).toBe(true);
+    expect(validate(b, { type: "skill", skill: "ult_greatsword" })).toBe("궁극기는 전투당 한 번");
+    expect(validate(b, { type: "skill", skill: "cleave", target: "e0" })).toBeNull();
+  });
+
+  it("장착하지 않은 궁극기는 쓸 수 없다", () => {
+    const b = start([{ ...varn, job: "greatsword" }], 1, [dummy("e0", 999)]);
+    expect(validate(b, { type: "skill", skill: "ult_greatsword" })).toBe("장착하지 않은 스킬");
+  });
+});

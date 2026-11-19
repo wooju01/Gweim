@@ -103,6 +103,8 @@ export const MercSeed = z.object({
   passives: z.array(z.string().max(40)).max(4).default([]),
   /** 장착 스킬 id (최대 4). 비어 있으면 직업 스킬 하나 */
   skills: z.array(z.string().max(40)).max(4).default([]),
+  /** 장착 궁극기 (숙련부터) */
+  ultimate: z.string().max(40).optional(),
   profile: MercProfile,
 });
 export type MercSeed = z.infer<typeof MercSeed>;

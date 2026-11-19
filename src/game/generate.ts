@@ -2,7 +2,7 @@
 // React/Next/AI에 의존하지 않는 순수 함수만 둔다. 난수는 주입받는다.
 import { BACKGROUNDS, JOBS, PERSONALITIES, RACES, getTrait } from "../data/traits";
 import { APPRENTICE_PASSIVE_CHANCE, LEVELS, getPassive, passivesOf } from "../data/passives";
-import { validSkillsFor } from "../data/skillgen";
+import { getSkill, validSkillsFor } from "../data/skillgen";
 import { ChoiceTone, type MercLevel, type MercSeed, type MercTraits } from "../lib/schemas";
 import { clampStat } from "./affinity";
 import type { Level, Merc, Reaction, Trait } from "./types";
@@ -190,6 +190,11 @@ export function buildMerc(seed: MercSeed): Merc | null {
   if (!traits) return null;
   if (!validPassives(seed.traits.race, seed.level, seed.passives)) return null;
   if (!validSkillsFor(seed.skills, seed.traits.job, seed.traits.race)) return null;
+  // 궁극기: 숙련부터, 그 직업의 궁극기만
+  if (seed.ultimate) {
+    const ult = getSkill(seed.ultimate);
+    if (!ult?.ultimate || ult.source.job !== seed.traits.job || seed.level === "apprentice") return null;
+  }
   const { profile } = seed;
   return {
     id: seed.id,
@@ -200,6 +205,7 @@ export function buildMerc(seed: MercSeed): Merc | null {
     level: seed.level,
     passives: seed.passives,
     skills: seed.skills,
+    ultimate: seed.ultimate,
     name: profile.name,
     title: profile.title,
     impression: pickImpression(seed.id, traits),

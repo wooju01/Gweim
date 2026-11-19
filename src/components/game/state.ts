@@ -13,6 +13,9 @@ import { addSalvage, getSalvage, salvageCount } from "@/data/loot";
 import { WAGE } from "@/data/wages";
 import { STAT_NAME, TRAINING_COST, XP_GOAL_BONUS, XP_PER_SQUARE, type StatBlock } from "@/data/growth";
 import { NO_GROWTH, addStats, canPromote, gainXp, statLine, validTraining, type Growth } from "@/game/growth";
+import { promote, promoteCost } from "@/game/promotion";
+import { craft, knownPieces, paySalvage, swapSkills, unlockBlock } from "@/game/skillhall";
+import { CRAFT_COST, getPiece } from "@/data/craft";
 import { advanceCost, wageOf } from "@/game/wages";
 import { act, giftsReceived, type Battle, type BattleAction } from "@/game/combat/engine";
 import {
@@ -34,7 +37,9 @@ import type { EventResponse, HistoryLine, MercRef, MercSeed, Stage, TalkResponse
 const HISTORY_LIMIT = 20;
 
 /** wage: 고용할 때 정해진 원정 1회 보수 (몫 약속을 했으면 더 많다). 고용 전에는 없다 */
-export type MercProgress = TalkState & { hired: boolean; wage?: number } & Growth;
+/** learned: 배웠지만 장착하지 않은 스킬 (장착 칸이 꽉 찼을 때, 전수관에서 바꿔 낀다) */
+/** pieces: 전수관에서 이 용병에게 뚫어 준 조각 (가진 스킬 안에 든 조각은 따로 저장하지 않는다) */
+export type MercProgress = TalkState & { hired: boolean; wage?: number; learned: string[]; pieces: string[] } & Growth;
 
 /** 길드 명단의 한 칸. 고유 용병은 id만, 랜덤 용병은 다시 만들 수 있는 시드를 들고 있다. */
 export type RosterEntry = MercRef;
@@ -118,7 +123,7 @@ export type Report = {
 };
 
 /** 마을 안의 화면: 마을(홈), 용병 길드, 상점, 숙소(파티 편성), 던전 입구 */
-export type TownPlace = "town" | "guild" | "shop" | "inn" | "gate" | "yard";
+export type TownPlace = "town" | "guild" | "shop" | "inn" | "gate" | "yard" | "hall";
 
 export type RestTalk = {
   mercId: string;
@@ -156,6 +161,14 @@ export type GameAction =
   | { type: "sell"; index: number }
   /** 단련장: 금화를 내고 스탯 3을 직접 배분 (레벨업으로 생긴 기회를 하나 쓴다) */
   | { type: "train"; mercId: string; alloc: StatBlock }
+  /** 단련장: 등급 승급 (레벨 3에서). 패시브·스킬 후보에서 하나씩 고른다 */
+  | { type: "promote"; mercId: string; passive?: string; skill?: string }
+  /** 전수관: 금화·유실물을 내고 이 용병에게 조각 하나를 뚫어 준다 */
+  | { type: "unlockPiece"; mercId: string; piece: string }
+  /** 전수관: 아는 조각으로 스킬을 조립한다 (몸체 하나 + 덧붙임) */
+  | { type: "craftSkill"; mercId: string; core: string; mods: string[] }
+  /** 전수관: 장착 바꾸기 (배운 스킬 equip ↔ 장착 스킬 unequip) */
+  | { type: "swapSkill"; mercId: string; equip?: string; unequip?: string }
   /** 유실물 팔기 (all이면 그 종류 전부) */
   | { type: "sellSalvage"; id: string; all?: boolean }
   /** 탐험을 끝내고 길드로 (귀환, 후퇴, 전멸). 다음 탐험은 모두 회복한 채 시작한다. seed: 계약 파기 판정 */
@@ -257,7 +270,7 @@ function restock(seed: number): Record<SupplyKind, number> {
 }
 
 export function isTown(kind: string): kind is TownPlace {
-  return kind === "town" || kind === "guild" || kind === "shop" || kind === "inn" || kind === "gate" || kind === "yard";
+  return kind === "town" || kind === "guild" || kind === "shop" || kind === "inn" || kind === "gate" || kind === "yard" || kind === "hall";
 }
 
 /** 고용한 용병 수 (파티에 들지 않은 사람 포함). 지금은 이 수가 MERC_SLOTS를 넘지 못한다 */
@@ -338,6 +351,8 @@ function freshProgress(merc: Merc): MercProgress {
     talks: 0,
     offers: { advance: false, share: false },
     hired: false,
+    learned: [],
+    pieces: [],
     ...NO_GROWTH,
   };
 }
@@ -536,6 +551,61 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         ...state,
         gold: state.gold - TRAINING_COST,
         progress: { ...state.progress, [action.mercId]: { ...p, stats: addStats(p.stats, action.alloc), trainable: p.trainable - 1 } },
+      };
+    }
+
+    case "promote": {
+      const p = state.progress[action.mercId];
+      const entry = state.roster.find((e) => entryId(e) === action.mercId);
+      if (state.expedition || !p?.hired || !canPromote(p) || entry?.kind !== "random") return state;
+      const cost = promoteCost(entry.seed.level);
+      if (cost === null || state.gold < cost) return state;
+      const done = promote(entry.seed, p.learned ?? [], { passive: action.passive, skill: action.skill });
+      if (!done) return state;
+      const roster = state.roster.map((e) => (e === entry ? { kind: "random" as const, seed: done.seed } : e));
+      const merc = mercOf({ kind: "random", seed: done.seed });
+      return {
+        ...state,
+        gold: state.gold - cost,
+        roster,
+        progress: {
+          ...state.progress,
+          // 새 등급의 레벨 0부터. 보수도 등급에 맞춰 오른다 (몫 약속은 그대로)
+          [action.mercId]: { ...p, lv: 0, xp: 0, learned: done.learned, wage: wageOf(merc, p.offers.share) },
+        },
+      };
+    }
+
+    case "unlockPiece": {
+      const p = state.progress[action.mercId];
+      const entry = state.roster.find((e) => entryId(e) === action.mercId);
+      if (state.expedition || !p?.hired || entry?.kind !== "random") return state;
+      const known = knownPieces(entry.seed, p.learned, p.pieces);
+      if (unlockBlock(action.piece, known, state.gold, state.salvage)) return state;
+      const { cost } = getPiece(action.piece)!;
+      return {
+        ...state,
+        gold: state.gold - cost.gold,
+        salvage: paySalvage(state.salvage, cost.salvage),
+        progress: { ...state.progress, [action.mercId]: { ...p, pieces: [...p.pieces, action.piece] } },
+      };
+    }
+
+    case "craftSkill":
+    case "swapSkill": {
+      const p = state.progress[action.mercId];
+      const entry = state.roster.find((e) => entryId(e) === action.mercId);
+      if (state.expedition || !p?.hired || entry?.kind !== "random") return state;
+      const done =
+        action.type === "craftSkill"
+          ? craft(entry.seed, p.learned, p.pieces, state.gold, action.core, action.mods)
+          : swapSkills(entry.seed, p.learned, { equip: action.equip, unequip: action.unequip });
+      if (!done) return state;
+      return {
+        ...state,
+        gold: action.type === "craftSkill" ? state.gold - CRAFT_COST : state.gold,
+        roster: state.roster.map((e) => (e === entry ? { kind: "random" as const, seed: done.seed } : e)),
+        progress: { ...state.progress, [action.mercId]: { ...p, learned: done.learned } },
       };
     }
 

@@ -73,7 +73,13 @@ export function TownScreen(props: Props) {
       status: trainable ? `단련 기회 ${trainable}번` : "레벨업하면 단련할 수 있다",
     },
     { key: "forge", name: "대장간", description: "유실물로 직업 전용 장신구를 만들고 강화한다.", later: "준비 중" },
-    { key: "hall", name: "전수관", description: "유실물로 스킬 조각을 해금하고 조합한다.", later: "준비 중" },
+    {
+      key: "hall",
+      place: "hall",
+      name: "전수관",
+      description: "용병마다 스킬 조각을 가르치고, 아는 조각으로 새 스킬을 조립한다.",
+      status: hired ? "조각 가르치기 · 스킬 조립" : "고용한 용병이 없다",
+    },
     { key: "tavern", name: "게시판 · 주점", description: "의뢰와 소문, 용병들과의 이야기.", later: "준비 중" },
   ];
 

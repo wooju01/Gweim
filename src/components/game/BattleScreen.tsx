@@ -417,6 +417,31 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
                     );
                   })}
                 </div>
+                {actor.ultimate && getSkill(actor.ultimate) && (
+                  <div
+                    className="group relative"
+                    onMouseEnter={() => setSkillHover(actor.ultimate!)}
+                    onMouseLeave={() => setSkillHover((h) => (h === actor.ultimate ? null : h))}
+                  >
+                    <Button
+                      variant={aiming === actor.ultimate ? "ember" : "ghost"}
+                      disabled={!!actor.fx?.ultimateUsed}
+                      onClick={() => onSkillButton(actor.ultimate!)}
+                      className="w-full !border-ember/60 text-left !px-3"
+                    >
+                      <span className="block font-bold text-ember">★ {getSkill(actor.ultimate)!.name}</span>
+                      <span className="block text-[11px] text-ash">{actor.fx?.ultimateUsed ? "이번 전투에서 이미 썼다" : "궁극기 · 전투당 1번"}</span>
+                    </Button>
+                    <div
+                      role="tooltip"
+                      className="pointer-events-none absolute bottom-full left-0 z-30 mb-1.5 hidden w-64 rounded-sm border border-ember/50 bg-ink/95 p-2.5 text-xs leading-relaxed text-bone shadow-lg group-hover:block"
+                    >
+                      <p className="font-bold text-ember">★ {getSkill(actor.ultimate)!.name}</p>
+                      <p>{getSkill(actor.ultimate)!.description}</p>
+                      <p className="mt-1 text-ash">대상: {TARGET_LABEL[getSkill(actor.ultimate)!.target]} · 전투당 1번</p>
+                    </div>
+                  </div>
+                )}
                 <Button disabled={!can({ type: "bandage" })} onClick={() => onAct({ type: "bandage" })}>
                   붕대 감기 · 남은 {battle.supplies.bandage}
                 </Button>

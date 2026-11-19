@@ -14,8 +14,13 @@ import { MERC_SLOTS } from "@/game/party";
 import { entryId, gameReducer, hiredCount, initialState, mercOf, type TownPlace } from "./state";
 import { GateScreen } from "./town/GateScreen";
 import { ReportScreen } from "./town/ReportScreen";
-import { YardScreen } from "./town/YardScreen";
+import { YardScreen, type PromotionOffer } from "./town/YardScreen";
+import { canPromote } from "@/game/growth";
+import { nextRank, promoteCost, promotionChoices } from "@/game/promotion";
+import { LEVELS, getPassive } from "@/data/passives";
+import { JOB_ULTIMATE, getSkill } from "@/data/combat";
 import { InnScreen } from "./town/InnScreen";
+import { SkillHallScreen } from "./town/SkillHallScreen";
 import { ShopScreen } from "./town/ShopScreen";
 import { TownScreen } from "./town/TownScreen";
 import { clearSave, loadGame, saveGame } from "./save";
@@ -229,6 +234,22 @@ export function Game() {
   const mercs = state.roster.map(mercOf);
   const hired = mercs.filter((m) => state.progress[m.id]?.hired);
   const partyMercs = state.party.flatMap((id) => mercs.filter((m) => m.id === id));
+  // 단련장의 승급 후보 (레벨 3을 채운, 더 오를 등급이 있는 용병)
+  const promotionOffers: Record<string, PromotionOffer> = {};
+  for (const e of state.roster) {
+    if (e.kind !== "random") continue;
+    const p = state.progress[e.seed.id];
+    const next = nextRank(e.seed.level);
+    if (!p?.hired || !canPromote(p) || !next) continue;
+    const choices = promotionChoices(e.seed, p.learned);
+    promotionOffers[e.seed.id] = {
+      next: LEVELS[next].name,
+      cost: promoteCost(e.seed.level)!,
+      passives: choices.passives.flatMap((id) => getPassive(id) ?? []),
+      skills: choices.skills.flatMap((id) => getSkill(id) ?? []),
+      ultimate: e.seed.ultimate ? undefined : getSkill(JOB_ULTIMATE[e.seed.traits.job] ?? ""),
+    };
+  }
 
   switch (state.screen.kind) {
     case "report":
@@ -291,6 +312,24 @@ export function Game() {
           hired={hired}
           progress={state.progress}
           onTrain={(mercId, alloc) => dispatch({ type: "train", mercId, alloc })}
+          promotions={promotionOffers}
+          onPromote={(mercId, passive, skill) => dispatch({ type: "promote", mercId, passive, skill })}
+          onBack={toTown}
+        />
+      );
+    case "hall":
+      return (
+        <SkillHallScreen
+          day={state.day}
+          gold={state.gold}
+          hired={state.roster.flatMap((e) =>
+            e.kind === "random" && state.progress[e.seed.id]?.hired ? [{ merc: mercOf(e), seed: e.seed }] : [],
+          )}
+          progress={state.progress}
+          salvage={state.salvage}
+          onUnlock={(mercId, piece) => dispatch({ type: "unlockPiece", mercId, piece })}
+          onCraft={(mercId, core, mods) => dispatch({ type: "craftSkill", mercId, core, mods })}
+          onSwap={(mercId, change) => dispatch({ type: "swapSkill", mercId, ...change })}
           onBack={toTown}
         />
       );

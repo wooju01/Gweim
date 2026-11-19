@@ -93,7 +93,7 @@ export const JOB_STATS: Record<string, UnitStats> = {
 };
 
 // 스킬은 data/skills.ts에서 효과 조각으로 정의한다
-export { DEFAULT_SKILL, JOB_SKILL, SKILLS, SKILL_SLOTS, type Skill, type SkillId, type SkillTarget } from "./skills";
+export { DEFAULT_SKILL, JOB_SKILL, JOB_ULTIMATE, SKILLS, SKILL_SLOTS, type Skill, type SkillId, type SkillTarget } from "./skills";
 export { getSkill } from "./skillgen";
 
 /** 막아서기 중에 받는 피해 배율 */

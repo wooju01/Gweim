@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { getStage } from "@/game/affinity";
 import { wageOf } from "@/game/wages";
+import { promotionChoices } from "@/game/promotion";
+import { knownPieces } from "@/game/skillhall";
+import { craftId } from "@/data/craft";
 import { entryId, gameReducer, initialState, mercOf, type GameState } from "./state";
 
 /** 샘플 용병 중 넷을 동행시키고 던전에 들어간 상태 */
@@ -310,3 +313,60 @@ describe("성장 (상태)", () => {
     expect(gameReducer(ok, { type: "train", mercId: id, alloc: { hp: 3 } })).toBe(ok);
   });
 });
+
+describe("승급 (상태)", () => {
+  it("레벨 3인 용병은 금화를 내고 승급한다. 레벨은 0으로, 보수는 올라간다", () => {
+    let s = initialState();
+    const id = "s-durgan";
+    s = { ...s, gold: 100, progress: { ...s.progress, [id]: { ...s.progress[id], hired: true, lv: 3 } } };
+    const entry = s.roster.find((e) => entryId(e) === id)!;
+    if (entry.kind !== "random") throw new Error();
+    const { passives, skills } = promotionChoices(entry.seed);
+    const done = gameReducer(s, { type: "promote", mercId: id, passive: passives[0], skill: skills[0] });
+    expect(done.gold).toBe(80);
+    const after = done.roster.find((e) => entryId(e) === id)!;
+    expect(after.kind === "random" && after.seed.level).toBe("skilled");
+    expect(done.progress[id]).toMatchObject({ lv: 0, xp: 0, learned: [skills[0]], wage: wageOf(mercOf(after)) });
+    expect(done.progress[id].wage).toBeGreaterThan(wageOf(mercOf(entry)));
+    // 레벨이 모자라면 승급할 수 없다
+    expect(gameReducer({ ...s, progress: { ...s.progress, [id]: { ...s.progress[id], lv: 2 } } }, { type: "promote", mercId: id, passive: passives[0], skill: skills[0] }).gold).toBe(100);
+  });
+});
+
+describe("전수관 (상태)", () => {
+  it("조각을 가르치면 금화·유실물이 빠지고 그 용병만 안다. 조립하면 금화 10", () => {
+    let s = initialState();
+    const id = "s-durgan";
+    const other = "s-bran";
+    s = {
+      ...s,
+      gold: 100,
+      salvage: { hound_fang: 3 },
+      progress: { ...s.progress, [id]: { ...s.progress[id], hired: true }, [other]: { ...s.progress[other], hired: true } },
+    };
+    const entry = s.roster.find((e) => entryId(e) === id)!;
+    if (entry.kind !== "random") throw new Error();
+    const known = knownPieces(entry.seed, [], []);
+    expect(known).not.toContain("bleed");
+    const taught = gameReducer(s, { type: "unlockPiece", mercId: id, piece: "bleed" });
+    expect(taught.gold).toBe(92);
+    expect(taught.salvage).toEqual({ hound_fang: 1 });
+    expect(taught.progress[id].pieces).toEqual(["bleed"]);
+    expect(taught.progress[other].pieces).toEqual([]);
+    // 유실물이 모자라면 다시 가르칠 수 없다
+    expect(gameReducer(taught, { type: "unlockPiece", mercId: other, piece: "bleed" })).toBe(taught);
+
+    const core = known.includes("heavy") ? "heavy" : "strike";
+    const made = gameReducer(taught, { type: "craftSkill", mercId: id, core, mods: ["bleed"] });
+    expect(made.gold).toBe(82);
+    expect(made.progress[id].learned).toContain(craftId(core, ["bleed"]));
+    // 보관한 스킬을 장착 스킬과 맞바꾼다
+    const before = made.roster.find((e) => entryId(e) === id)!;
+    if (before.kind !== "random") throw new Error();
+    const swapped = gameReducer(made, { type: "swapSkill", mercId: id, equip: craftId(core, ["bleed"]), unequip: before.seed.skills[0] });
+    const after = swapped.roster.find((e) => entryId(e) === id)!;
+    expect(after.kind === "random" && after.seed.skills[0]).toBe(craftId(core, ["bleed"]));
+    expect(swapped.progress[id].learned).toEqual([before.seed.skills[0]]);
+  });
+});
+

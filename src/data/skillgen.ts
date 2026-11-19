@@ -3,6 +3,7 @@
 // 그래서 용병 시드에는 id만 저장하고, 내용은 필요할 때 다시 만든다.
 import { createRng, rollInt } from "../game/random";
 import { COMBO_PREFIX, comboSkill, earlyCombo } from "./combo";
+import { CRAFT_PREFIX, craftSkill } from "./craft";
 import type { StatusKind } from "./combat";
 import { DEFAULT_SKILL, JOB_SKILL, SKILLS, SKILL_SLOTS, describeSkill, skillsFrom, type Skill, type SkillEffect, type SkillTarget } from "./skills";
 
@@ -132,12 +133,12 @@ export function genNumber(id: string): number | null {
 
 const cache = new Map<string, Skill>();
 
-/** 스킬 조회. 직접 만든 스킬(SKILLS)이나 무작위 조합 스킬("gen:번호"). 없으면 undefined */
+/** 스킬 조회. 직접 만든 스킬(SKILLS), 조합 스킬("combo:"), 전수관 스킬("craft:"), 무작위 조합 스킬("gen:번호"). 없으면 undefined */
 export function getSkill(id: string): Skill | undefined {
   if (SKILLS[id]) return SKILLS[id];
-  if (id.startsWith(COMBO_PREFIX)) {
+  if (id.startsWith(COMBO_PREFIX) || id.startsWith(CRAFT_PREFIX)) {
     if (!cache.has(id)) {
-      const def = comboSkill(id);
+      const def = id.startsWith(CRAFT_PREFIX) ? craftSkill(id) : comboSkill(id);
       if (!def) return undefined;
       cache.set(id, { ...def, description: describeSkill(def) });
     }

@@ -79,6 +79,9 @@ export const XP_TO_NEXT = [5, 7, 9] as const;
 export const XP_PER_SQUARE = 1;
 export const XP_GOAL_BONUS = 3;
 
+/** 승급 비용 (오를 등급별). 전설은 특별한 일로만 오른다 (여기서는 열지 않는다) */
+export const PROMOTE_COST = { skilled: 20, veteran: 40 } as const;
+
 /** 단련장: 레벨업 1번마다 기회 1번. 금화를 내고 스탯을 직접 배분한다 */
 export const TRAINING_POINTS = 3;
 export const TRAINING_COST = 10;
