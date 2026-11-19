@@ -98,6 +98,8 @@ export const SaveFile = z.object({
     salvage: z.record(z.string(), z.number().int().min(0)).default({}),
     stock: Supplies.default({ ...START_STOCK }),
     trinkets: z.array(z.object({ id: z.string().max(40), lv: z.number().int().min(1).max(3) })).default([]),
+    explored: z.array(z.string().max(40)).default([]),
+    conquered: z.array(z.string().max(40)).default([]),
   }),
 });
 export type SaveFile = z.infer<typeof SaveFile>;
@@ -132,6 +134,8 @@ export function toSave(state: GameState, now = new Date()): SaveFile {
       salvage: state.salvage,
       stock: state.stock,
       trinkets: state.trinkets,
+      explored: state.explored,
+      conquered: state.conquered,
     } as SaveFile["state"],
   };
 }
@@ -187,6 +191,8 @@ export function fromSave(raw: unknown): { state: GameState } | { error: string }
       salvage: s.salvage,
       stock: s.stock,
       trinkets: s.trinkets,
+      explored: s.explored,
+      conquered: s.conquered,
       // 사건 칸에서 멈췄으면 AI 묘사 없이 기본 문장으로 이어 간다
       narration: room?.kind === "event" && !room.result ? { eventId: room.eventId, pending: false, data: null } : null,
     },

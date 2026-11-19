@@ -1,4 +1,9 @@
-import { FIRST_DUNGEON, getDungeon } from "@/data/regions";
+import { useState } from "react";
+import { DUNGEONS, FIRST_DUNGEON, getDungeon, getRegion } from "@/data/regions";
+import { getMonster } from "@/data/monsters";
+import { layoutDungeon } from "@/game/dungeon/atlas";
+import { DungeonTree } from "../DungeonTree";
+import { WorldMap } from "./WorldMap";
 import { SUPPLY, type SupplyKind } from "@/data/combat";
 import { CURRENCY } from "@/data/economy";
 import { getStage } from "@/game/affinity";
@@ -15,26 +20,88 @@ type Props = {
   party: Merc[];
   progress: Record<string, MercProgress>;
   pack: Record<SupplyKind, number>;
-  onDepart: () => void;
+  explored: string[];
+  conquered: string[];
+  onDepart: (dungeonId: string) => void;
   onGo: (place: TownPlace) => void;
 };
 
 const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
 
 /** 던전 입구: 파티와 짐을 확인하고 출발한다 */
-export function GateScreen({ day, gold, party, progress, pack, onDepart, onGo }: Props) {
+export function GateScreen({ day, gold, party, progress, pack, explored, conquered, onDepart, onGo }: Props) {
+  const [dungeonId, setDungeonId] = useState(FIRST_DUNGEON);
+  const [regionId, setRegionId] = useState<string | null>(null);
+  const dungeon = getDungeon(dungeonId)!;
+  const mapProgress = Object.fromEntries(
+    DUNGEONS.filter((d) => d.open).map((d) => {
+      const ids = layoutDungeon(d.id).nodes.map((n) => n.region.id);
+      return [d.id, { explored: ids.filter((id) => explored.includes(id)).length, total: ids.length, conquered: ids.filter((id) => conquered.includes(id)).length }];
+    }),
+  );
+  const region = regionId ? getRegion(regionId) : undefined;
+  const regionKnown = !!region && explored.includes(region.id);
   const packed = Object.values(pack).reduce((a, b) => a + b, 0);
   const wages = party.reduce((s, m) => s + (progress[m.id]?.wage ?? wageOf(m)), 0);
   const hostile = party.filter((m) => getStage(progress[m.id]?.affinity ?? 50) === "hostile");
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-8 sm:px-8">
+    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-4 py-8 sm:px-8">
       <TownBar place="던전 입구" day={day} gold={gold} onBack={() => onGo("town")} />
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold">던전 입구 · {getDungeon(FIRST_DUNGEON)!.name}</h1>
-        <p className="text-sm text-ash">{getDungeon(FIRST_DUNGEON)!.description}</p>
+        <h1 className="text-2xl font-bold">던전 입구</h1>
         <p className="text-sm text-ash">한번 내려가면 목적지에 닿거나 후퇴할 때까지 마을로 돌아올 수 없다.</p>
       </header>
+
+      <section aria-label="지도" className="grid gap-4 lg:grid-cols-[3fr_2fr]">
+        <WorldMap
+          selected={dungeonId}
+          progress={mapProgress}
+          onSelect={(id) => {
+            setDungeonId(id);
+            setRegionId(null);
+          }}
+        />
+        <div className="flex flex-col gap-2 rounded-sm border border-edge bg-panel p-4">
+          <h2 className="font-bold">
+            {dungeon.name} <span className="text-xs font-normal text-ash">{dungeon.open ? dungeon.level : "미개척"}</span>
+          </h2>
+          <p className="text-sm text-bone/80">{dungeon.description}</p>
+          {dungeon.open ? (
+            <>
+              <DungeonTree dungeonId={dungeon.id} explored={explored} conquered={conquered} selected={regionId} onSelect={setRegionId} />
+              {region ? (
+                <div className="flex flex-col gap-1 text-xs">
+                  <b className="text-sm">
+                    {region.depth}층 {regionKnown ? region.name : "???"}{" "}
+                    <span className="font-normal text-ember">{regionKnown ? region.difficulty : ""}</span>
+                  </b>
+                  {regionKnown ? (
+                    <>
+                      <span className="text-bone/70">{region.description}</span>
+                      <span className="text-ash">
+                        나오는 적: {region.monsters.map((m) => getMonster(m.id)?.name ?? m.id).join(", ")}
+                      </span>
+                      {region.dungeonBoss && (
+                        <span className={conquered.includes(region.id) ? "text-ember" : "text-blood"}>
+                          우두머리: {getMonster(region.dungeonBoss)?.name}
+                          {conquered.includes(region.id) ? " (쓰러뜨린 적 있다. 갈 때마다 다시 나타난다)" : ""}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-ash">아직 아무도 가 보지 않았다. 앞 층 끝에서 이 갈래를 고르면 알 수 있다.</span>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-ash">지역을 누르면 자세히 볼 수 있다.</p>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-ash">아직 길이 열리지 않았다. 언젠가 길드에 이곳의 소문이 들어올 것이다.</p>
+          )}
+        </div>
+      </section>
 
       <section aria-label="원정 파티" className="flex flex-col gap-2 rounded-sm border border-edge bg-panel p-4">
         <div className="flex items-baseline justify-between">
@@ -83,8 +150,8 @@ export function GateScreen({ day, gold, party, progress, pack, onDepart, onGo }:
             {hostile.map((m) => m.name).join(", ")}은(는) 당신을 적대한다. 던전에서 명령을 듣지 않을 수 있다.
           </p>
         )}
-        <Button variant="ember" disabled={party.length === 0} onClick={onDepart}>
-          던전으로 내려간다
+        <Button variant="ember" disabled={party.length === 0 || !dungeon.open} onClick={() => onDepart(dungeon.id)}>
+          {dungeon.open ? `${dungeon.name}(으)로 떠난다` : `${dungeon.name}은(는) 아직 갈 수 없다`}
         </Button>
       </div>
     </main>

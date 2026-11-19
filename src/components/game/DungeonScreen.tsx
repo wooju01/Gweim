@@ -12,6 +12,8 @@ import { byStep, type MapNode } from "@/game/dungeon/map";
 import { GUIDE } from "@/game/party";
 import { FREE_TEXT_MAX, type EventResponse, type Stage, type TalkAction } from "@/lib/schemas";
 import { Button } from "./parts";
+import { DungeonTree } from "./DungeonTree";
+import { FIRST_DUNGEON } from "@/data/regions";
 
 type Props = {
   exp: Expedition;
@@ -24,6 +26,9 @@ type Props = {
   onEnd: () => void;
   /** 목적지에서 고른 갈래로 */
   onDescend: (region: string) => void;
+  /** 갈래 지도에 쓰는 탐험·우두머리 처치 기록 */
+  explored: string[];
+  conquered: string[];
   restTalk: RestTalk | null;
   progress: Record<string, MercProgress>;
   onRestTalk: (mercId: string) => void;
@@ -205,7 +210,7 @@ const APPROACH: Partial<Record<Approach, { name: string; style: string }>> = {
   risk: { name: "위험", style: "bg-blood/20 text-blood" },
 };
 
-function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, onDescend, restTalk, onRestTalk, onRestReply, progress }: Props) {
+function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, onDescend, explored, conquered, restTalk, onRestTalk, onRestReply, progress }: Props) {
   const bonds = Object.fromEntries(Object.entries(progress).map(([id, p]) => [id, getStage(p.affinity)]));
   const room = exp.room!;
   const box = "flex flex-col items-start gap-3 rounded-sm border p-4";
@@ -269,6 +274,14 @@ function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, on
           <p className="text-xs text-bone/80">
             동료: {exp.members.filter((m) => !m.dead).map((m) => `${m.name} ${m.down ? "쓰러짐" : `${m.hp}/${m.maxHp}`}`).join(" · ")}
           </p>
+          <DungeonTree
+            dungeonId={exp.dungeon ?? FIRST_DUNGEON}
+            explored={explored}
+            conquered={conquered}
+            current={regionOf(exp).id}
+            options={ok ? branches.map((r) => r.id) : []}
+            onPick={onDescend}
+          />
           {branches.length > 0 && (
             <>
               <p className="text-xs text-ash">

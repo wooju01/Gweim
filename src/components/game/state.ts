@@ -16,6 +16,7 @@ import { NO_GROWTH, addStats, canPromote, gainXp, statLine, validTraining, type 
 import { promote, promoteCost } from "@/game/promotion";
 import { craft, knownPieces, paySalvage, swapSkills, unlockBlock } from "@/game/skillhall";
 import { CRAFT_COST, getPiece } from "@/data/craft";
+import { FIRST_DUNGEON, getDungeon } from "@/data/regions";
 import { TRINKET_MAX_LV, forgeCost, getTrinket, trinketStats, type OwnedTrinket } from "@/data/trinkets";
 import { advanceCost, wageOf } from "@/game/wages";
 import { act, giftsReceived, type Battle, type BattleAction } from "@/game/combat/engine";
@@ -99,6 +100,10 @@ export type GameState = {
   stock: Record<SupplyKind, number>;
   /** 아무도 끼지 않은 장신구 (대장간 보관함) */
   trinkets: OwnedTrinket[];
+  /** 한 번이라도 들어가 본 지역 id (지도에 이름이 보인다) */
+  explored: string[];
+  /** 던전 보스를 한 번이라도 쓰러뜨린 지역 id (지도 기록일 뿐. 보스는 원정마다 다시 나오고, 원정은 언제나 1층부터) */
+  conquered: string[];
 };
 
 /** day: 죽은 날 (결산에서 이번 원정의 사망자를 찾는다) */
@@ -157,7 +162,7 @@ export type GameAction =
   | { type: "recruited"; seeds: MercSeed[] }
   | { type: "recruitFailed"; error: string }
   /** seed: 맵·전투·사건 난수 시드. 리듀서를 순수하게 유지하려고 밖에서 굴려 넘긴다 */
-  | { type: "enterDungeon"; seed: number }
+  | { type: "enterDungeon"; seed: number; dungeon?: string }
   | { type: "move"; nodeId: string; seed: number }
   | { type: "narrated"; eventId: string; data: EventResponse | null }
   | { type: "chooseEvent"; choiceId: string; seed: number }
@@ -293,6 +298,8 @@ function payWages(state: GameState, ids: string[]): { state: GameState; lines: s
 }
 
 /** 상점 재고를 새로 들인다 */
+const addOnce = (xs: string[], x: string) => (xs.includes(x) ? xs : [...xs, x]);
+
 /** 금화와 유실물로 낼 수 있나 */
 function canPay(state: GameState, cost: { gold: number; salvage: Record<string, number> }): boolean {
   return state.gold >= cost.gold && Object.entries(cost.salvage).every(([id, n]) => (state.salvage[id] ?? 0) >= n);
@@ -423,6 +430,8 @@ export function initialState(): GameState {
     relics: [],
     salvage: {},
     trinkets: [],
+    explored: [],
+    conquered: [],
     stock: { ...START_STOCK },
   };
 }
@@ -492,11 +501,14 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case "enterDungeon": {
       // 동행 중인 용병만 데려간다. 체력·물자는 탐험이 끝날 때까지 이어진다
       const mercs = partyMercs(state);
-      if (mercs.length === 0) return state;
+      const dungeon = getDungeon(action.dungeon ?? FIRST_DUNGEON);
+      if (mercs.length === 0 || !dungeon?.open) return state;
+      const expedition = startExpedition(mercs, action.seed, state.pack, dungeon.id);
       return {
         ...state,
         // 짐을 들고 떠난다 (남은 물자는 돌아올 때 짐으로 돌아온다)
-        expedition: startExpedition(mercs, action.seed, state.pack),
+        expedition,
+        explored: addOnce(state.explored, expedition.region!),
         pack: { ...START_PACK },
         narration: null,
         reactions: [],
@@ -533,7 +545,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case "descend": {
       const next = state.expedition && descend(state.expedition, action.seed, action.region);
-      return next ? { ...state, expedition: next, reactions: [], narration: null, restTalk: null } : state;
+      return next
+        ? { ...state, expedition: next, explored: addOnce(state.explored, next.region!), reactions: [], narration: null, restTalk: null }
+        : state;
     }
 
     case "leaveRoom":
@@ -742,11 +756,14 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       );
       // 이기면 전리품 (금화, 가끔 유물)
       const spoils = battleSpoils(finishBattle(state.expedition, state.screen.battle), state.screen.battle, action.seed ?? 0);
+      // 던전 보스를 쓰러뜨렸으면 지도 기록에 남긴다 (보스는 다음 원정에도 다시 나온다)
+      const conquered = spoils.exp.cleared && !state.expedition.cleared ? addOnce(state.conquered, spoils.exp.region!) : state.conquered;
       const next: GameState = {
         ...state,
         ...gained,
         reactions: [...spoils.lines, ...gained.lines],
         expedition: spoils.exp,
+        conquered,
         screen: { kind: "dungeon" },
       };
       return bury(

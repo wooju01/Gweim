@@ -193,7 +193,7 @@ const DEFS: SkillDef[] = [
   { id: "ult_assassin", name: "그림자 처형", source: { job: "assassin" }, cooldown: 0, target: "enemy", ultimate: true, effects: [{ kind: "damage", multiplier: 2.8, onHit: false }, { kind: "applyStatus", status: "bleed" }] },
   { id: "ult_archer", name: "천 개의 화살", source: { job: "archer" }, cooldown: 0, target: "none", ultimate: true, effects: [{ kind: "damage", multiplier: 1, area: "all", onHit: false }, { kind: "applyStatus", status: "weaken", area: "all" }] },
   { id: "ult_nun", name: "기적", source: { job: "nun" }, cooldown: 0, target: "ally", ultimate: true, effects: [{ kind: "heal", amount: 20 }, { kind: "cure" }, { kind: "support", shield: 0 }] },
-  { id: "ult_herbalist", name: "역병 구름", source: { job: "herbalist" }, cooldown: 0, target: "none", ultimate: true, effects: [{ kind: "damage", fixed: [3, 5], area: "all", onHit: false }, { kind: "applyStatus", status: "poison", area: "all" }, { kind: "applyStatus", status: "crack", area: "all" }] },
+  { id: "ult_herbalist", name: "독포자 구름", source: { job: "herbalist" }, cooldown: 0, target: "none", ultimate: true, effects: [{ kind: "damage", fixed: [3, 5], area: "all", onHit: false }, { kind: "applyStatus", status: "poison", area: "all" }, { kind: "applyStatus", status: "crack", area: "all" }] },
   { id: "ult_mage", name: "업화", source: { job: "mage" }, cooldown: 0, target: "none", ultimate: true, effects: [{ kind: "damage", multiplier: 1.6, area: "all", onHit: false }, { kind: "selfCost", hp: 6 }] },
   { id: "ult_spiritcaller", name: "정령 강림", source: { job: "spiritcaller" }, cooldown: 0, target: "ally", ultimate: true, effects: [{ kind: "shield", amount: 12 }, { kind: "heal", amount: 6 }, { kind: "support", shield: 0 }] },
 

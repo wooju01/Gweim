@@ -199,6 +199,8 @@ export function Game() {
         onGive={(item, target) => dispatch({ type: "giveSupply", item, target })}
         onEnd={() => dispatch({ type: "endExpedition", seed: roll() })}
         onDescend={(region) => dispatch({ type: "descend", seed: roll(), region })}
+        explored={state.explored}
+        conquered={state.conquered}
         restTalk={state.restTalk}
         progress={state.progress}
         onRestTalk={(mercId) => {
@@ -359,7 +361,9 @@ export function Game() {
           party={partyMercs}
           progress={state.progress}
           pack={state.pack}
-          onDepart={() => dispatch({ type: "enterDungeon", seed: roll() })}
+          explored={state.explored}
+          conquered={state.conquered}
+          onDepart={(dungeon) => dispatch({ type: "enterDungeon", seed: roll(), dungeon })}
           onGo={go}
         />
       );

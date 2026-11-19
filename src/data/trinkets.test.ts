@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getSalvage } from "./loot";
+import { DROPS, getSalvage } from "./loot";
+import { PIECES } from "./craft";
+import { REGIONS } from "./regions";
+import { getMonster } from "./monsters";
 import { GROWTH } from "./growth";
 import { TRINKETS, forgeCost, trinketStats } from "./trinkets";
 
@@ -21,3 +24,18 @@ describe("장신구 데이터", () => {
     expect(forgeCost(t, 3).salvage[t.material.id]).toBe(t.material.n * 2);
   });
 });
+
+describe("재료 구하기", () => {
+  it("전수관·대장간이 쓰는 재료는 모두 어느 지역 몬스터에게서 떨어진다", () => {
+    const kinds = new Set<string>();
+    for (const r of REGIONS)
+      for (const id of [...r.monsters.map((m) => m.id), ...r.floorBosses, ...(r.dungeonBoss ? [r.dungeonBoss] : [])]) {
+        kinds.add(id);
+        for (const e of getMonster(id)?.escort ?? []) kinds.add(e);
+      }
+    const obtainable = new Set([...kinds].flatMap((k) => (DROPS[k] ?? []).map((d) => d.id)));
+    const needed = [...PIECES.flatMap((p) => Object.keys(p.cost.salvage)), ...TRINKETS.map((t) => t.material.id)];
+    for (const id of needed) expect(obtainable.has(id), id).toBe(true);
+  });
+});
+

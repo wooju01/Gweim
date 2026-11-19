@@ -41,23 +41,23 @@ const statusMod = (status: "bleed" | "poison" | "crack" | "weaken") => (shape: S
 
 export const PIECES: Piece[] = [
   // ── 몸체 ──
-  { id: "strike", name: "일격", kind: "core", word: "일격", shape: "enemy", power: 1.2, hint: "적 하나에게 1.4배 피해", effects: [{ kind: "damage", multiplier: 1.4 }], cost: { gold: 5, salvage: { rat_fang: 2 } } },
-  { id: "heavy", name: "강타", kind: "core", word: "강타", shape: "enemy", power: 3, hint: "적 하나에게 2배 피해", effects: [{ kind: "damage", multiplier: 2 }], cost: { gold: 12, salvage: { rust_plate: 2 } } },
-  { id: "bolt", name: "정령탄", kind: "core", word: "정령탄", shape: "enemy", power: 2.2, hint: "적 하나에게 4~7 고정 피해", effects: [{ kind: "damage", fixed: [4, 7], onHit: false }], cost: { gold: 10, salvage: { rotten_bone: 3 } } },
-  { id: "sweep", name: "휩쓸기", kind: "core", word: "휩쓸기", shape: "area", power: 2.5, hint: "모든 적에게 0.6배 피해", effects: [{ kind: "damage", multiplier: 0.6, area: "all" }], cost: { gold: 12, salvage: { ash_hide: 2 } } },
-  { id: "fog", name: "안개", kind: "core", word: "안개", shape: "area", power: 2.5, hint: "모든 적에게 위축", effects: [{ kind: "applyStatus", status: "weaken", area: "all" }], cost: { gold: 10, salvage: { spore_sac: 3 } } },
-  { id: "mend", name: "치유", kind: "core", word: "손길", shape: "ally", power: 2.3, hint: "아군 하나 체력 7 회복", effects: [{ kind: "heal", amount: 7 }], cost: { gold: 12, salvage: { hollow_heart: 1 } } },
-  { id: "ward", name: "보호막", kind: "core", word: "가호", shape: "ally", power: 2, hint: "아군 하나에게 보호막 6", effects: [{ kind: "shield", amount: 6 }], cost: { gold: 10, salvage: { husk_shell: 2 } } },
-  { id: "taunt", name: "도발", kind: "core", word: "버티기", shape: "self", power: 1.5, hint: "적의 공격을 끌어오고 받는 피해 절반", effects: [{ kind: "taunt" }], cost: { gold: 8, salvage: { warden_crest: 1 } } },
+  { id: "strike", name: "일격", kind: "core", word: "일격", shape: "enemy", power: 1.2, hint: "적 하나에게 1.4배 피해", effects: [{ kind: "damage", multiplier: 1.4 }], cost: { gold: 5, salvage: { soft_pelt: 2 } } },
+  { id: "heavy", name: "강타", kind: "core", word: "강타", shape: "enemy", power: 3, hint: "적 하나에게 2배 피해", effects: [{ kind: "damage", multiplier: 2 }], cost: { gold: 12, salvage: { crude_iron: 3 } } },
+  { id: "bolt", name: "정령탄", kind: "core", word: "정령탄", shape: "enemy", power: 2.2, hint: "적 하나에게 4~7 고정 피해", effects: [{ kind: "damage", fixed: [4, 7], onHit: false }], cost: { gold: 10, salvage: { shaman_feather: 1 } } },
+  { id: "sweep", name: "휩쓸기", kind: "core", word: "휩쓸기", shape: "area", power: 2.5, hint: "모든 적에게 0.6배 피해", effects: [{ kind: "damage", multiplier: 0.6, area: "all" }], cost: { gold: 12, salvage: { wolf_fang: 2 } } },
+  { id: "fog", name: "안개", kind: "core", word: "안개", shape: "area", power: 2.5, hint: "모든 적에게 위축", effects: [{ kind: "applyStatus", status: "weaken", area: "all" }], cost: { gold: 10, salvage: { slime_jelly: 3 } } },
+  { id: "mend", name: "치유", kind: "core", word: "손길", shape: "ally", power: 2.3, hint: "아군 하나 체력 7 회복", effects: [{ kind: "heal", amount: 7 }], cost: { gold: 12, salvage: { slime_core: 1 } } },
+  { id: "ward", name: "보호막", kind: "core", word: "가호", shape: "ally", power: 2, hint: "아군 하나에게 보호막 6", effects: [{ kind: "shield", amount: 6 }], cost: { gold: 10, salvage: { spider_silk: 2 } } },
+  { id: "taunt", name: "도발", kind: "core", word: "버티기", shape: "self", power: 1.5, hint: "적의 공격을 끌어오고 받는 피해 절반", effects: [{ kind: "taunt" }], cost: { gold: 8, salvage: { crude_iron: 2, soft_pelt: 1 } } },
 
   // ── 덧붙임 ──
-  { id: "bleed", name: "출혈", kind: "mod", word: "피를 부르는", power: 1.5, hint: "출혈을 건다", fits: ["enemy", "area"], effectsFor: statusMod("bleed"), cost: { gold: 8, salvage: { hound_fang: 2 } } },
-  { id: "poison", name: "중독", kind: "mod", word: "독 묻은", power: 1.5, hint: "중독을 건다", fits: ["enemy", "area"], effectsFor: statusMod("poison"), cost: { gold: 8, salvage: { wretch_nail: 1 } } },
-  { id: "crack", name: "균열", kind: "mod", word: "갑옷을 깨는", power: 1.5, hint: "균열을 건다 (받는 피해 +2)", fits: ["enemy", "area"], effectsFor: statusMod("crack"), cost: { gold: 8, salvage: { rust_plate: 1 } } },
-  { id: "weaken", name: "위축", kind: "mod", word: "기를 꺾는", power: 1.5, hint: "위축을 건다 (공격 -2)", fits: ["enemy", "area"], effectsFor: statusMod("weaken"), excludes: ["fog"], cost: { gold: 6, salvage: { rat_fang: 3 } } },
-  { id: "cure", name: "정화", kind: "mod", word: "맑은", power: 1, hint: "출혈·중독을 씻는다", fits: ["ally"], effectsFor: () => [{ kind: "cure" }], cost: { gold: 6, salvage: { spore_sac: 1 } } },
-  { id: "awaken", name: "각성", kind: "mod", word: "깨어나는", power: 2, hint: "자신에게 각성 (공격 +4)", fits: ALL, effectsFor: () => [{ kind: "applyStatus", status: "awaken", who: "self" }], cost: { gold: 12, salvage: { hollow_heart: 1 } } },
-  { id: "brace", name: "버팀", kind: "mod", word: "굳건한", power: 1, hint: "자신에게 버팀 (방어 +2)", fits: ALL, effectsFor: () => [{ kind: "applyStatus", status: "brace", who: "self" }], cost: { gold: 6, salvage: { husk_shell: 1 } } },
+  { id: "bleed", name: "출혈", kind: "mod", word: "피를 부르는", power: 1.5, hint: "출혈을 건다", fits: ["enemy", "area"], effectsFor: statusMod("bleed"), cost: { gold: 8, salvage: { wolf_fang: 2 } } },
+  { id: "poison", name: "중독", kind: "mod", word: "독 묻은", power: 1.5, hint: "중독을 건다", fits: ["enemy", "area"], effectsFor: statusMod("poison"), cost: { gold: 8, salvage: { venom_gland: 1 } } },
+  { id: "crack", name: "균열", kind: "mod", word: "갑옷을 깨는", power: 1.5, hint: "균열을 건다 (받는 피해 +2)", fits: ["enemy", "area"], effectsFor: statusMod("crack"), cost: { gold: 8, salvage: { crude_iron: 1 } } },
+  { id: "weaken", name: "위축", kind: "mod", word: "기를 꺾는", power: 1.5, hint: "위축을 건다 (공격 -2)", fits: ["enemy", "area"], effectsFor: statusMod("weaken"), excludes: ["fog"], cost: { gold: 6, salvage: { bat_wing: 2 } } },
+  { id: "cure", name: "정화", kind: "mod", word: "맑은", power: 1, hint: "출혈·중독을 씻는다", fits: ["ally"], effectsFor: () => [{ kind: "cure" }], cost: { gold: 6, salvage: { slime_jelly: 1 } } },
+  { id: "awaken", name: "각성", kind: "mod", word: "깨어나는", power: 2, hint: "자신에게 각성 (공격 +4)", fits: ALL, effectsFor: () => [{ kind: "applyStatus", status: "awaken", who: "self" }], cost: { gold: 12, salvage: { shaman_feather: 1 } } },
+  { id: "brace", name: "버팀", kind: "mod", word: "굳건한", power: 1, hint: "자신에게 버팀 (방어 +2)", fits: ALL, effectsFor: () => [{ kind: "applyStatus", status: "brace", who: "self" }], cost: { gold: 6, salvage: { soft_pelt: 1 } } },
   {
     id: "support",
     name: "곁 지키기",
@@ -67,11 +67,11 @@ export const PIECES: Piece[] = [
     hint: "옆 아군에게도 (아군 스킬은 효과 절반, 아니면 보호막 3)",
     fits: ALL,
     effectsFor: (shape) => [{ kind: "support", shield: shape === "ally" ? 0 : 3 }],
-    cost: { gold: 10, salvage: { warden_crest: 1 } },
+    cost: { gold: 10, salvage: { shiny_trinket: 1 } },
   },
-  { id: "reset", name: "끝장", kind: "mod", word: "끝을 보는", power: 1, hint: "쓰러뜨리면 대기 시간 초기화", fits: ["enemy"], effectsFor: () => [{ kind: "resetOnKill" }], cost: { gold: 10, salvage: { hound_fang: 1, ash_hide: 1 } } },
-  { id: "blood", name: "피의 대가", kind: "mod", word: "무모한", power: -1, hint: "자기 체력 3 소모 (대기 시간이 짧아진다)", fits: ALL, effectsFor: () => [{ kind: "selfCost", hp: 3 }], cost: { gold: 4, salvage: { rotten_bone: 1 } } },
-  { id: "gamble", name: "불안정", kind: "mod", word: "불안한", power: -0.8, hint: "20% 확률로 실패 (대기 시간이 짧아진다)", fits: ALL, effectsFor: () => [{ kind: "fail", chance: 0.2 }], cost: { gold: 4, salvage: { spore_sac: 1 } } },
+  { id: "reset", name: "끝장", kind: "mod", word: "끝을 보는", power: 1, hint: "쓰러뜨리면 대기 시간 초기화", fits: ["enemy"], effectsFor: () => [{ kind: "resetOnKill" }], cost: { gold: 10, salvage: { wolf_fang: 1, orc_tusk: 1 } } },
+  { id: "blood", name: "피의 대가", kind: "mod", word: "무모한", power: -1, hint: "자기 체력 3 소모 (대기 시간이 짧아진다)", fits: ALL, effectsFor: () => [{ kind: "selfCost", hp: 3 }], cost: { gold: 4, salvage: { bat_wing: 1 } } },
+  { id: "gamble", name: "불안정", kind: "mod", word: "불안한", power: -0.8, hint: "20% 확률로 실패 (대기 시간이 짧아진다)", fits: ALL, effectsFor: () => [{ kind: "fail", chance: 0.2 }], cost: { gold: 4, salvage: { slime_jelly: 1 } } },
 ];
 
 export function getPiece(id: string): Piece | undefined {

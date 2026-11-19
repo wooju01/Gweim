@@ -12,12 +12,12 @@ export type Relic = {
 };
 
 export const RELICS: Relic[] = [
-  { id: "cracked_chalice", name: "금 간 성배", description: "바닥에 말라붙은 무언가가 남아 있다. 누가 마지막으로 마셨을까.", value: 30, rarity: 10 },
-  { id: "feather_charm", name: "검은 깃털 부적", description: "끈이 닳아 끊어지기 직전이다. 주인을 지켜 주지는 못한 모양이다.", value: 25, rarity: 10 },
-  { id: "nameless_idol", name: "이름 없는 신상", description: "얼굴이 깎여 나간 작은 석상. 무엇을 섬기던 것인지 아무도 모른다.", value: 35, rarity: 8 },
-  { id: "spirit_shard", name: "정령석 파편", description: "손에 쥐면 희미하게 따뜻하다. 안에서 무언가 숨 쉬는 듯하다.", value: 40, rarity: 6 },
-  { id: "crown_fragment", name: "녹슨 왕관 조각", description: "무너진 지하 왕국의 문장이 반쯤 남아 있다.", value: 45, rarity: 5 },
-  { id: "crystal_eye", name: "수정 눈알", description: "들여다보면 이쪽을 마주 보는 것 같다.", value: 50, rarity: 4 },
+  { id: "cracked_chalice", name: "금 간 은잔", description: "금이 갔어도 세공이 곱다. 옛 연회에서 쓰던 잔이다.", value: 30, rarity: 10 },
+  { id: "feather_charm", name: "무지개 깃털 부적", description: "알록달록한 깃털을 엮었다. 행운을 부른다는 말이 있다.", value: 25, rarity: 10 },
+  { id: "nameless_idol", name: "이름 없는 신상", description: "손바닥만 한 석상. 무엇을 섬기던 것인지 학자들도 의견이 갈린다.", value: 35, rarity: 8 },
+  { id: "spirit_shard", name: "정령석 파편", description: "손에 쥐면 따뜻하다. 엘프들은 정령이 잠깐 쉬어 가는 돌이라고 한다.", value: 40, rarity: 6 },
+  { id: "crown_fragment", name: "옛 왕관 조각", description: "옛 왕국의 문장이 반쯤 남아 있다. 어느 왕의 것이었을까.", value: 45, rarity: 5 },
+  { id: "crystal_eye", name: "수정 구슬", description: "들여다보면 반짝이는 무늬가 천천히 소용돌이친다.", value: 50, rarity: 4 },
   { id: "dwarf_signet", name: "씨족 인장 반지", description: "무거운 금반지. 안쪽에 낯선 씨족의 이름이 새겨져 있다.", value: 55, rarity: 3 },
   { id: "sealed_scroll", name: "봉인된 두루마리", description: "밀랍 봉인이 그대로다. 학자들이 비싸게 사 간다.", value: 70, rarity: 2 },
 ];

@@ -31,4 +31,7 @@ export const FLEE_TEMPER: Record<string, number> = {
   timid: 4,
   paranoid: 3,
   kind: 2,
+  boastful: -2,
+  optimistic: 1,
+  easygoing: 2,
 };

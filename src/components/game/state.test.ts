@@ -342,7 +342,7 @@ describe("전수관 (상태)", () => {
     s = {
       ...s,
       gold: 100,
-      salvage: { hound_fang: 3 },
+      salvage: { wolf_fang: 3 },
       progress: { ...s.progress, [id]: { ...s.progress[id], hired: true }, [other]: { ...s.progress[other], hired: true } },
     };
     const entry = s.roster.find((e) => entryId(e) === id)!;
@@ -351,7 +351,7 @@ describe("전수관 (상태)", () => {
     expect(known).not.toContain("bleed");
     const taught = gameReducer(s, { type: "unlockPiece", mercId: id, piece: "bleed" });
     expect(taught.gold).toBe(92);
-    expect(taught.salvage).toEqual({ hound_fang: 1 });
+    expect(taught.salvage).toEqual({ wolf_fang: 1 });
     expect(taught.progress[id].pieces).toEqual(["bleed"]);
     expect(taught.progress[other].pieces).toEqual([]);
     // 유실물이 모자라면 다시 가르칠 수 없다
@@ -378,7 +378,7 @@ describe("대장간 (상태)", () => {
     return {
       ...s,
       gold: 200,
-      salvage: { warden_crest: 5, hound_fang: 5 },
+      salvage: { chief_token: 5, wolf_fang: 5 },
       progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], hired: true }, "s-durgan": { ...s.progress["s-durgan"], hired: true } },
     };
   };
@@ -386,7 +386,7 @@ describe("대장간 (상태)", () => {
   it("만들기 → 강화(무조건 성공, 3단계까지) → 같은 직업에게만 끼기 → 빼기", () => {
     let s = gameReducer(hiredState(), { type: "forgeTrinket", trinket: "t_warden_badge" }); // 기사 전용
     expect(s.gold).toBe(185);
-    expect(s.salvage.warden_crest).toBe(4);
+    expect(s.salvage.chief_token).toBe(4);
     expect(s.trinkets).toEqual([{ id: "t_warden_badge", lv: 1 }]);
     s = gameReducer(s, { type: "upgradeTrinket", index: 0 });
     expect(s.trinkets[0].lv).toBe(2);
@@ -439,7 +439,7 @@ describe("대장간 (상태)", () => {
     const s = deathBattle("victory");
     const fled = gameReducer({ ...s, screen: { ...s.screen, battle: { ...s.screen.battle, outcome: null } } } as GameState, { type: "fleeBattle", seed: 1 });
     expect(fled.trinkets).toEqual([]);
-    expect(fled.report!.lostTrinkets).toEqual(["파수병 문장 방패걸이"]);
+    expect(fled.report!.lostTrinkets).toEqual(["우두머리 증표 방패걸이"]);
   });
 });
 
@@ -464,6 +464,19 @@ describe("던전 층 (상태)", () => {
     // 결산에 도달한 층이 남는다
     const back = gameReducer(step.screen.kind === "battle" ? { ...step, screen: { kind: "dungeon" } } : step, { type: "endExpedition", seed: 1 });
     expect(back.report!.depth).toBe(2);
+  });
+});
+
+describe("지도 기록 (상태)", () => {
+  it("들어간 지역은 탐험 기록에, 열리지 않은 던전으로는 떠날 수 없다", () => {
+    let s = initialState();
+    s = { ...s, party: ["s-bran"], progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], hired: true } } };
+    expect(gameReducer(s, { type: "enterDungeon", seed: 1, dungeon: "volcano" })).toBe(s);
+    let d = gameReducer(s, { type: "enterDungeon", seed: 1 });
+    expect(d.explored).toEqual(["uf_forest"]);
+    d = { ...d, expedition: { ...d.expedition!, room: { kind: "goal" } } };
+    d = gameReducer(d, { type: "descend", seed: 2, region: "uf_cave" });
+    expect(d.explored).toEqual(["uf_forest", "uf_cave"]);
   });
 });
 

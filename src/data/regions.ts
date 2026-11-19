@@ -29,10 +29,38 @@ export type Region = {
   next: string[];
 };
 
-export type Dungeon = { id: string; name: string; description: string; entry: string };
+export type Terrain = "forest" | "cave" | "mine" | "volcano" | "snow" | "ruins";
+
+/**
+ * 던전 하나. 새 던전을 더하려면:
+ * 1) 여기에 던전을 넣고 (open: true, entry: 첫 지역 id),
+ * 2) REGIONS에 그 던전의 지역들을 dungeon id로 넣고 (next로 갈래를 잇는다),
+ * 3) data/monsters.ts에 몬스터, data/loot.ts에 드롭표를 넣으면 지도·갈래·전투가 그대로 따라온다.
+ * 지도(대륙·갈래)는 데이터에서 자동으로 그린다 (game/dungeon/atlas.ts).
+ */
+export type Dungeon = {
+  id: string;
+  name: string;
+  description: string;
+  /** 첫 지역 (열리지 않은 던전은 빈 문자열) */
+  entry: string;
+  /** 아직 갈 수 없는 던전은 대륙 지도에 "미개척"으로만 보인다 */
+  open: boolean;
+  terrain: Terrain;
+  /** 대륙 지도 위 위치 (%, 왼쪽 위가 0) */
+  at: { x: number; y: number };
+  /** 권장 수준 (지도에 보이는 한 줄) */
+  level: string;
+};
+
+/** 대륙 지도의 마을 위치 */
+export const TOWN_AT = { x: 46, y: 58 };
 
 export const DUNGEONS: Dungeon[] = [
-  { id: "unknown_forest", name: "미지의 숲", description: "마을 바로 너머의 숲. 새내기 용병들이 처음 이름을 얻는 곳이다.", entry: "uf_forest" },
+  { id: "unknown_forest", name: "미지의 숲", description: "마을 바로 너머의 숲. 새내기 용병들이 처음 이름을 얻는 곳이다.", entry: "uf_forest", open: true, terrain: "forest", at: { x: 30, y: 52 }, level: "입문 ~ 중간" },
+  { id: "abandoned_mine", name: "버려진 광산", description: "드워프들이 떠난 옛 광산. 녹슨 파수병과 망령이 갱도를 떠돈다는 소문이 있다.", entry: "", open: false, terrain: "mine", at: { x: 62, y: 38 }, level: "중간" },
+  { id: "volcano", name: "화산지대", description: "불길이 솟는 붉은 땅. 불을 먹고 사는 것들이 산다고 한다.", entry: "", open: false, terrain: "volcano", at: { x: 80, y: 66 }, level: "어려움" },
+  { id: "snow_peak", name: "설산", description: "만년설에 덮인 봉우리. 얼음 거인의 발자국을 봤다는 사냥꾼이 있다.", entry: "", open: false, terrain: "snow", at: { x: 52, y: 14 }, level: "어려움" },
 ];
 
 export const REGIONS: Region[] = [

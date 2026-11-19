@@ -89,43 +89,43 @@ const leave = (text: string, said = "그냥 지나친다."): EventChoice => ({
 export const EVENTS: EventTemplate[] = [
   {
     id: "fallen_adventurer",
-    title: "쓰러진 모험가",
-    intro: "통로 구석에 모험가 하나가 벽에 기댄 채 죽어 있다. 허리춤의 가방이 아직 불룩하다.",
-    facts: "죽은 지 얼마 안 된 모험가의 시체. 가방이 있다. 시체가 다시 움직일 수도 있다. 해독제로 정화하거나 성직자가 잠재우면 안전하다.",
+    title: "포자에 취한 모험가",
+    intro: "버섯 더미 옆에 모험가 하나가 쿨쿨 잠들어 있다. 주위에 보랏빛 포자가 둥둥 떠다니고, 허리춤의 가방이 불룩하다.",
+    facts: "잠 포자를 들이마시고 깨어나지 못하는 모험가. 가방이 있다. 가까이서 포자를 건드리면 중독될 수 있다. 해독제로 포자를 가라앉히거나 성직자가 정신을 맑게 하면 안전하게 깨울 수 있고, 깨어나면 답례한다.",
     choices: [
       {
         id: "purify",
-        text: "해독제를 뿌려 시체를 정화한 뒤 가방을 연다.",
+        text: "해독제를 뿌려 포자를 가라앉히고 모험가를 깨운다.",
         approach: "item",
         tone: null,
         requires: { items: { antidote: 1 } },
         consumes: { antidote: 1 },
-        outcomes: once("정화된 시체는 끝내 움직이지 않았다. 가방에서 물약과 붕대, 금화 주머니를 찾았다.", { supply: { potion: 1, bandage: 1 }, gold: 15 }),
+        outcomes: once("포자가 가라앉자 모험가가 콜록거리며 깨어났다. 고맙다며 물약과 붕대, 금화 주머니를 내밀었다.", { supply: { potion: 1, bandage: 1 }, gold: 15 }),
       },
       {
         id: "rite",
-        text: "성직자에게 짧은 장례 기도를 부탁한다.",
+        text: "성직자에게 정신을 맑게 하는 기도를 부탁한다.",
         approach: "person",
         tone: "mercy",
         requires: { job: "nun" },
-        outcomes: once("{helper}의 기도가 끝나자 시체가 편히 눈을 감았다. 남은 물약을 챙기고 모두 숨을 골랐다.", { healAll: 3, supply: { potion: 1 } }),
+        outcomes: once("{helper}의 기도가 끝나자 모험가가 눈을 번쩍 떴다. 물약을 나눠 주고는 꾸벅 인사하고 떠났다. 모두 한숨 돌렸다.", { healAll: 3, supply: { potion: 1 } }),
       },
       {
         id: "loot",
-        text: "그냥 가방을 뒤진다.",
+        text: "깨우지 말고 가방만 뒤진다.",
         approach: "risk",
         tone: "greed",
         outcomes: [
           { weight: 7, text: "가방 안에서 물약과 붕대, 금화 주머니를 찾았다.", effect: { supply: { potion: 1, bandage: 1 }, gold: 15 } },
-          { weight: 3, text: "손을 뻗는 순간 시체가 눈을 떴다! {who}이(가) 할퀴어 피를 흘린다.", effect: { damageOne: 5, status: "bleed" } },
+          { weight: 3, text: "가방을 들추다 버섯 더미를 건드렸다! {who}이(가) 포자를 잔뜩 들이마셨다.", effect: { damageOne: 5, status: "poison" } },
         ],
       },
       {
         id: "bury",
-        text: "돌을 덮어 묻어 준다.",
+        text: "모험가를 포자가 없는 곳으로 옮겨 눕혀 준다.",
         approach: "other",
         tone: "mercy",
-        outcomes: once("돌무덤을 쌓는 동안 모두 숨을 골랐다.", { healAll: 3 }),
+        outcomes: once("모험가를 그늘에 눕혀 주는 동안 모두 숨을 골랐다.", { healAll: 3 }),
       },
     ],
   },
@@ -178,7 +178,7 @@ export const EVENTS: EventTemplate[] = [
         tone: "mercy",
         requires: { items: { bandage: 1 } },
         consumes: { bandage: 1 },
-        outcomes: once("덫이 힘없이 벌어졌다. 아이는 꾸러미를 던져 주고 어둠 속으로 사라졌다.", { supply: { antidote: 1 } }),
+        outcomes: once("덫이 힘없이 벌어졌다. 아이는 꾸러미를 던져 주고 수풀 속으로 사라졌다.", { supply: { antidote: 1 } }),
       },
       {
         id: "disarm",
@@ -243,9 +243,9 @@ export const EVENTS: EventTemplate[] = [
   },
   {
     id: "wounded_digger",
-    title: "다친 도굴꾼",
-    intro: "다리를 다친 도굴꾼이 자루를 끌어안고 앉아 있다. 당신을 보자 살려 달라고 손을 뻗는다.",
-    facts: "다리를 다친 인간 도굴꾼. 붕대나 약초가 있으면 살릴 수 있다. 자루에 물자가 있다. 도와주면 답례하고, 빼앗으려 하면 칼을 뽑을 수도 있다.",
+    title: "다친 보물 사냥꾼",
+    intro: "다리를 다친 보물 사냥꾼이 자루를 끌어안고 앉아 있다. 당신을 보자 살려 달라고 손을 뻗는다.",
+    facts: "다리를 다친 인간 보물 사냥꾼. 붕대나 약초가 있으면 살릴 수 있다. 자루에 물자가 있다. 도와주면 답례하고, 빼앗으려 하면 칼을 뽑을 수도 있다.",
     choices: [
       {
         id: "help",
@@ -254,7 +254,7 @@ export const EVENTS: EventTemplate[] = [
         tone: "mercy",
         requires: { items: { bandage: 1 } },
         consumes: { bandage: 1 },
-        outcomes: once("도굴꾼은 고맙다며 자루에서 물약 두 병을 꺼내 주었다.", { supply: { potion: 2 } }),
+        outcomes: once("보물 사냥꾼은 고맙다며 자루에서 물약 두 병을 꺼내 주었다.", { supply: { potion: 2 } }),
       },
       {
         id: "treat",
@@ -262,7 +262,7 @@ export const EVENTS: EventTemplate[] = [
         approach: "person",
         tone: "mercy",
         requires: { job: "herbalist" },
-        outcomes: once("{helper}이(가) 들풀로 상처를 싸매 주었다. 도굴꾼은 물약 두 병을 내밀었다.", { supply: { potion: 2 } }),
+        outcomes: once("{helper}이(가) 들풀로 상처를 싸매 주었다. 보물 사냥꾼은 물약 두 병을 내밀었다.", { supply: { potion: 2 } }),
       },
       {
         id: "rob",
@@ -270,23 +270,23 @@ export const EVENTS: EventTemplate[] = [
         approach: "risk",
         tone: "greed",
         outcomes: [
-          { weight: 7, text: "도굴꾼의 자루를 빼앗았다. 금화와 유물이 들어 있었다. 그는 욕설을 퍼부으며 기어서 멀어졌다.", effect: { supply: { bandage: 1, antidote: 1 }, gold: 20, relics: 1 } },
-          { weight: 3, text: "도굴꾼이 숨겨 둔 칼을 휘둘렀다. {who}이(가) 베였다. 자루는 챙겼다.", effect: { damageOne: 4, status: "bleed", supply: { bandage: 1 } } },
+          { weight: 7, text: "보물 사냥꾼의 자루를 빼앗았다. 금화와 유물이 들어 있었다. 그는 욕설을 퍼부으며 기어서 멀어졌다.", effect: { supply: { bandage: 1, antidote: 1 }, gold: 20, relics: 1 } },
+          { weight: 3, text: "보물 사냥꾼이 숨겨 둔 칼을 휘둘렀다. {who}이(가) 베였다. 자루는 챙겼다.", effect: { damageOne: 4, status: "bleed", supply: { bandage: 1 } } },
         ],
       },
       {
         id: "mock",
-        text: "도굴꾼 주제에 운이 다했다고 비웃는다.",
+        text: "보물 사냥꾼 주제에 운이 다했다고 비웃는다.",
         approach: "other",
         tone: "mockery",
-        outcomes: once("도굴꾼의 저주를 뒤로하고 떠났다."),
+        outcomes: once("보물 사냥꾼의 투덜거림을 뒤로하고 떠났다."),
       },
     ],
   },
   {
     id: "old_shrine",
     title: "오래된 제단",
-    intro: "무너진 벽 사이에 작은 제단이 남아 있다. 누군가 최근에 초를 밝힌 흔적이 있다.",
+    intro: "이끼 낀 바위 사이에 작은 제단이 있다. 누군가 최근에 꽃을 놓고 간 흔적이 있다.",
     facts: "이름 모를 신의 작은 제단. 공물을 바치거나 성직자가 기도하면 확실히 응답한다. 그냥 기도하면 응답할 수도, 안 할 수도 있다. 공물을 훔치면 벌을 받을 수 있다.",
     choices: [
       {
@@ -326,7 +326,7 @@ export const EVENTS: EventTemplate[] = [
           { weight: 1, text: "공물을 집자 촛불이 꺼졌다. {who}의 몸에 한기가 스며든다.", effect: { supply: { potion: 1 }, status: "poison" } },
         ],
       },
-      leave("제단의 촛불이 일행의 뒷모습을 비췄다."),
+      leave("제단의 꽃잎이 바람에 살랑거렸다."),
     ],
   },
   {

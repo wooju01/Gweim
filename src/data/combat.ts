@@ -128,7 +128,7 @@ export type EnemyKind = UnitStats & { id: string; name: string; rarity: number; 
  */
 export const ENEMIES: EnemyKind[] = [
   { id: "ash_rat", name: "잿빛 쥐떼", hp: 21, attack: [5, 8], defense: 0, speed: 4, onHit: { status: "bleed", chance: 0.3 }, rarity: 10, note: "떼로 물어뜯어 출혈을 일으킨다." },
-  { id: "pit_wretch", name: "구덩이 망자", hp: 29, attack: [6, 10], defense: 1, speed: 1, onHit: { status: "poison", chance: 0.35 }, rarity: 8, note: "썩은 손톱에 독이 묻어 있다." },
+  { id: "pit_wretch", name: "구덩이 망령", hp: 29, attack: [6, 10], defense: 1, speed: 1, onHit: { status: "poison", chance: 0.35 }, rarity: 8, note: "검은 손톱에 독이 묻어 있다." },
   { id: "rust_warden", name: "녹슨 파수병", hp: 37, attack: [8, 12], defense: 3, speed: 0, rarity: 5, note: "녹슬었어도 갑옷이 두껍다. 느리지만 한 방이 무겁다." },
   { id: "hollow_hound", name: "속 빈 사냥개", hp: 25, attack: [7, 11], defense: 0, speed: 5, onHit: { status: "bleed", chance: 0.35 }, rarity: 7, note: "사납게 달려든다. 물리면 피가 잘 멎지 않는다." },
   { id: "spore_husk", name: "포자 껍데기", hp: 27, attack: [4, 7], defense: 1, speed: 0, onHit: { status: "poison", chance: 0.7 }, rarity: 6, note: "굼뜨지만 터지는 포자가 거의 언제나 독을 옮긴다." },
