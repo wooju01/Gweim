@@ -63,7 +63,9 @@ export const SaveFile = z.object({
     reputation: z.number().default(0),
     day: z.number().int().min(1).default(1),
     memorial: z
-      .array(z.object({ id: z.string(), name: z.string(), title: z.string(), words: z.string().nullable(), depth: z.number() }))
+      .array(
+        z.object({ id: z.string(), name: z.string(), title: z.string(), words: z.string().nullable(), depth: z.number(), day: z.number().optional() }),
+      )
       .default([]),
     gold: z.number().int().min(0).default(START_GOLD),
     pack: Supplies.default({ ...START_PACK }),

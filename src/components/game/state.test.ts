@@ -29,7 +29,7 @@ describe("호감도와 탐험 (상태)", () => {
       if (!end.party.includes("s-kesh")) {
         left++;
         expect(end.roster.some((e) => e.kind === "random" && e.seed.id === "s-kesh")).toBe(false);
-        expect(end.notices.some((n) => n.includes("떠났다"))).toBe(true);
+        expect(end.report!.left.some((n) => n.includes("떠났다"))).toBe(true);
       }
       // 적대가 아닌 용병은 떠나지 않는다
       expect(end.party).toEqual(expect.arrayContaining(["s-bran", "s-mirel", "s-tob"]));
@@ -129,7 +129,7 @@ describe("금화와 상점 (상태)", () => {
     expect(back.gold).toBe(120 - wages(s, PARTY4));
     expect(back.relics).toEqual([]);
     expect(Object.values(back.pack).every((n) => n === 0)).toBe(true);
-    expect(back.notices.some((n) => n.includes("두고 왔다"))).toBe(true);
+    expect(back.report).toMatchObject({ outcome: "defeat", gold: 0, lost: { gold: 55, relics: 1 } });
   });
 });
 
@@ -140,7 +140,7 @@ describe("보수와 조건 제시 (상태)", () => {
     const before = PARTY4.map((id) => s.progress[id].affinity);
     const back = gameReducer(s, { type: "endExpedition", seed: 1 });
     PARTY4.forEach((id, i) => expect(back.progress[id].affinity).toBe(Math.max(0, before[i] - 10)));
-    expect(back.notices.some((n) => n.includes("보수를 받지 못했다"))).toBe(true);
+    expect(back.report!.wages.some((n) => n.includes("보수를 받지 못했다"))).toBe(true);
   });
 
   it("선금이 받아들여지면 금화를 내고 기록한다. 고용될 때 몫 약속이 보수에 반영된다", () => {
@@ -176,8 +176,13 @@ describe("마을 (상태)", () => {
     const s = inDungeon(["s-bran", "s-mirel"]);
     expect(gameReducer(s, { type: "goto", place: "shop" })).toBe(s);
     const back = gameReducer(s, { type: "endExpedition", seed: 2 });
-    expect(back.screen.kind).toBe("town");
+    // 결산 화면을 거쳐 마을로
+    expect(back.screen.kind).toBe("report");
+    expect(back.report).toMatchObject({ outcome: "retreat", day: 1 });
     expect(back.day).toBe(2);
+    const home = gameReducer(back, { type: "goto", place: "town" });
+    expect(home.screen.kind).toBe("town");
+    expect(home.report).toBeNull();
   });
 
   it("숙소: 고용한 용병만 원정 파티에 넣고 빼며, 4명을 넘지 않는다", () => {
@@ -193,5 +198,71 @@ describe("마을 (상태)", () => {
     // 고용하지 않은 용병은 넣을 수 없다
     const notHired = gameReducer({ ...initialState() }, { type: "toggleParty", mercId: "s-ragna" });
     expect(notHired.party).toEqual([]);
+  });
+});
+
+describe("결산 (상태)", () => {
+  it("목적지 귀환: 가져온 금화·유물·물자, 쓰러졌다 살아난 동료가 결산에 남는다", () => {
+    let s = inDungeon(["s-bran", "s-mirel", "s-tob", "s-durgan"]);
+    const exp = s.expedition!;
+    s = {
+      ...s,
+      expedition: {
+        ...exp,
+        gold: 70,
+        loot: ["feather_charm"],
+        room: { kind: "goal" },
+        members: exp.members.map((m) => (m.id === "s-mirel" ? { ...m, fell: true } : m)),
+      },
+    };
+    const back = gameReducer(s, { type: "endExpedition", seed: 4 });
+    expect(back.report).toMatchObject({ outcome: "goal", gold: 70, relics: ["feather_charm"], fallen: ["미렐"], lost: null });
+    expect(back.report!.bonds.length).toBeGreaterThan(0); // 쓰러진 동료를 데려와 호감 상승
+  });
+});
+
+describe("전투 중 후퇴 (상태)", () => {
+  /** 입구 바로 다음 전투 칸으로 들어간 상태 */
+  function inBattle(ids: string[]): GameState {
+    for (let seed = 0; seed < 200; seed++) {
+      const s = inDungeon(ids, seed);
+      const exp = s.expedition!;
+      const start = exp.map.nodes.find((n) => n.id === exp.at)!;
+      const target = exp.map.nodes.find((n) => n.kind === "battle" && start.next.includes(n.id));
+      if (target) return gameReducer(s, { type: "move", nodeId: target.id, seed: 5 });
+    }
+    throw new Error("전투 칸이 없다");
+  }
+
+  it("후퇴하면 원정이 끝나 결산으로 가고, 성격에 따라 호감이 오르내린다", () => {
+    // 브란(명예): -5 -3, 미렐(다정): -5 +2, 토브(탐욕): -5, 두르강(유쾌): -5
+    const s = inBattle(["s-bran", "s-mirel", "s-tob", "s-durgan"]);
+    expect(s.screen.kind).toBe("battle");
+    const before = Object.fromEntries(["s-bran", "s-mirel", "s-tob"].map((id) => [id, s.progress[id].affinity]));
+    const fled = gameReducer(s, { type: "fleeBattle", seed: 1 });
+    expect(fled.screen.kind).toBe("report");
+    expect(fled.expedition).toBeNull();
+    expect(fled.report).toMatchObject({ outcome: "retreat", fled: true });
+    expect(fled.progress["s-bran"].affinity).toBe(Math.max(0, before["s-bran"] - 8));
+    expect(fled.progress["s-mirel"].affinity).toBe(Math.max(0, before["s-mirel"] - 3));
+    expect(fled.progress["s-tob"].affinity).toBe(Math.max(0, before["s-tob"] - 5));
+    expect(fled.report!.bonds.some((l) => l.includes("등을 보였다"))).toBe(true);
+  });
+
+  it("소심한 용병은 오히려 안도한다", () => {
+    const s = inBattle(["s-bran"]);
+    const id = "s-bran";
+    // 브란을 소심한 성격으로 바꿔 본다 (명단 시드 수정)
+    const roster = s.roster.map((e) =>
+      e.kind === "random" && e.seed.id === id ? { ...e, seed: { ...e.seed, traits: { ...e.seed.traits, personalities: ["timid"] } } } : e,
+    );
+    const before = s.progress[id].affinity;
+    const fled = gameReducer({ ...s, roster }, { type: "fleeBattle", seed: 1 });
+    expect(fled.progress[id].affinity).toBe(before - 1); // 기본 -5, 소심 +4
+  });
+
+  it("전투가 이미 끝났거나 던전 밖이면 후퇴하지 않는다", () => {
+    const s = initialState();
+    expect(gameReducer(s, { type: "fleeBattle", seed: 1 })).toBe(s);
   });
 });

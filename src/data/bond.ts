@@ -17,4 +17,18 @@ export const BOND = {
 
   /** 탐험이 끝난 뒤 적대 단계인 용병이 계약을 깨고 떠날 확률 */
   leaveChance: 0.3,
+
+  /** 전투 중 후퇴: 살아 있는 동행 용병의 호감 변화 (싸움에서 등을 보였다) */
+  fleeAffinity: -5,
 } as const;
+
+/** 전투 중 후퇴에 대한 성격별 추가 반응 (기본 fleeAffinity에 더한다) */
+export const FLEE_TEMPER: Record<string, number> = {
+  proud: -3,
+  reckless: -3,
+  honorable: -3,
+  cruel: -2,
+  timid: 4,
+  paranoid: 3,
+  kind: 2,
+};

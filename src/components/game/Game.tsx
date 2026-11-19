@@ -13,6 +13,7 @@ import { GuildScreen } from "./GuildScreen";
 import { MERC_SLOTS } from "@/game/party";
 import { entryId, gameReducer, hiredCount, initialState, mercOf, type TownPlace } from "./state";
 import { GateScreen } from "./town/GateScreen";
+import { ReportScreen } from "./town/ReportScreen";
 import { InnScreen } from "./town/InnScreen";
 import { ShopScreen } from "./town/ShopScreen";
 import { TownScreen } from "./town/TownScreen";
@@ -137,8 +138,11 @@ export function Game() {
     }
   }
 
-  /** 전투를 마치고 지도로. 죽은 용병이 있으면 마지막 말을 부탁한다 (명단에서 지워지기 전에 정보를 챙긴다) */
-  async function leaveBattle() {
+  /**
+   * 전투를 마치고 지도로 (flee면 전투 중 후퇴로 원정을 끝낸다).
+   * 죽은 용병이 있으면 마지막 말을 부탁한다 (명단에서 지워지기 전에 정보를 챙긴다)
+   */
+  async function leaveBattle(flee = false) {
     if (state.screen.kind !== "battle") return;
     const requests = state.screen.battle.units
       .filter((u) => u.side === "merc" && u.dead)
@@ -147,7 +151,7 @@ export function Game() {
         const p = state.progress[u.id];
         return entry && p ? [{ id: u.id, entry, memory: p.memory, stage: getStage(p.affinity) }] : [];
       });
-    dispatch({ type: "battleFinish", seed: roll() });
+    dispatch(flee ? { type: "fleeBattle", seed: roll() } : { type: "battleFinish", seed: roll() });
     for (const r of requests) {
       try {
         const res = await postFarewell({ merc: r.entry, memory: r.memory, stage: r.stage });
@@ -170,6 +174,7 @@ export function Game() {
         onLeave={() => void leaveBattle()}
         leaveLabel={state.expedition ? { victory: "계속 나아간다", defeat: "결과를 본다" } : undefined}
         bonds={Object.fromEntries(state.party.map((id) => [id, getStage(state.progress[id]?.affinity ?? 0)]))}
+        onFlee={state.expedition ? () => void leaveBattle(true) : undefined}
       />
     );
   }
@@ -224,6 +229,16 @@ export function Game() {
   const partyMercs = state.party.flatMap((id) => mercs.filter((m) => m.id === id));
 
   switch (state.screen.kind) {
+    case "report":
+      return state.report ? (
+        <ReportScreen
+          report={state.report}
+          deaths={state.memorial.filter((f) => f.day === state.report!.day)}
+          day={state.day}
+          gold={state.gold}
+          onDone={toTown}
+        />
+      ) : null;
     case "guild":
       return (
         <GuildScreen

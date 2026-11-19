@@ -5,10 +5,12 @@
 import type { MercLevel } from "../lib/schemas";
 
 export const WAGE = {
-  /** 등급별 원정 1회 보수 */
-  base: { apprentice: 12, skilled: 20, veteran: 32, legend: 50 } as Record<MercLevel, number>,
+  /**
+   * 등급별 원정 1회 보수. 낮게 둔다: 나중에 스킬·단련장·대장간에서 금화가 많이 나가기 때문 (2026-11-19)
+   */
+  base: { apprentice: 3, skilled: 5, veteran: 8, legend: 13 } as Record<MercLevel, number>,
   /** 특성별 보수 추가 (탐욕스러우면 더 달라고 한다) */
-  extra: { greedy: 4, debtor: 3 } as Record<string, number>,
+  extra: { greedy: 1, debtor: 1 } as Record<string, number>,
   /** 선금 = 보수 × 이 배수 */
   advanceMultiple: 2,
   /** 몫 약속: 앞으로 보수 배율 */

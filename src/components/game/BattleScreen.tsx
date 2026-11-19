@@ -29,6 +29,8 @@ type Props = {
   leaveLabel?: { victory: string; defeat: string };
   /** 용병별 호감 단계 (체력 옆에 표시) */
   bonds?: Record<string, Stage>;
+  /** 전투 중 후퇴 (던전 안에서만). 원정을 끝내고 동료들의 호감이 떨어진다 */
+  onFlee?: () => void;
 };
 
 const BOND: Record<Stage, { name: string; style: string }> = {
@@ -150,7 +152,7 @@ function motionFor(unitId: string, e: BattleEvent | null): string {
   }
 }
 
-export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds }: Props) {
+export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee }: Props) {
   const [speed, setSpeed] = useState(1);
   const play = usePlayback(battle, speed);
   const hp = displayedHp(battle, play.shown);
@@ -263,6 +265,17 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds }: Prop
           {play.playing && (
             <Button className="!px-2 !py-1 text-xs" onClick={play.skip}>
               건너뛰기
+            </Button>
+          )}
+          {onFlee && actor && (
+            <Button
+              variant="danger"
+              className="!px-2 !py-1 text-xs"
+              onClick={() => {
+                if (window.confirm("싸움을 버리고 던전을 빠져나간다. 원정은 여기서 끝나고, 동료들은 등을 보인 당신에게 실망할 수 있다. 후퇴할까?")) onFlee();
+              }}
+            >
+              후퇴한다
             </Button>
           )}
         </div>

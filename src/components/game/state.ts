@@ -1,7 +1,7 @@
 import { MERCS, getMerc } from "@/data/mercs";
 import { USE_SAMPLE_ROSTER, sampleSeeds } from "@/data/sampleRoster";
 import type { SupplyKind } from "@/data/combat";
-import { BOND } from "@/data/bond";
+import { BOND, FLEE_TEMPER } from "@/data/bond";
 import { MERC_SLOTS } from "@/game/party";
 import { DEATH } from "@/data/death";
 import { MEMORY_MAX_CHARS } from "@/game/memory";
@@ -52,7 +52,9 @@ export type GameState = {
   progress: Record<string, MercProgress>;
   party: string[];
   recruit: { pending: boolean; error: string | null };
-  screen: { kind: TownPlace } | TalkScreen | { kind: "dungeon" } | { kind: "battle"; battle: Battle };
+  screen: { kind: TownPlace } | { kind: "report" } | TalkScreen | { kind: "dungeon" } | { kind: "battle"; battle: Battle };
+  /** 방금 마친 원정의 결산 (결산 화면에서 보여 주고, 저장하지 않는다) */
+  report: Report | null;
   /** 날짜. 원정 1번 = 하루 (상점 재고·급여가 하루에 묶인다) */
   day: number;
   /** 던전 탐험 중이면 그 상태 */
@@ -83,7 +85,29 @@ export type GameState = {
   stock: Record<SupplyKind, number>;
 };
 
-export type Fallen = { id: string; name: string; title: string; words: string | null; depth: number };
+/** day: 죽은 날 (결산에서 이번 원정의 사망자를 찾는다) */
+export type Fallen = { id: string; name: string; title: string; words: string | null; depth: number; day?: number };
+
+/** 원정 결산 */
+export type Report = {
+  outcome: "goal" | "retreat" | "defeat";
+  /** 전투 중에 도망쳤다 (후퇴의 한 갈래) */
+  fled?: boolean;
+  /** 원정한 날 */
+  day: number;
+  /** 가지고 돌아온 금화·유물·남은 물자 (전멸이면 0과 빈 목록) */
+  gold: number;
+  relics: string[];
+  supplies: Record<SupplyKind, number>;
+  /** 전멸해서 두고 온 것 */
+  lost: { gold: number; relics: number; supplies: number } | null;
+  /** 쓰러졌다가 살아 돌아온 용병 이름 */
+  fallen: string[];
+  /** 보수 지급·체불, 호감 변화, 떠난 용병 (한 줄씩) */
+  wages: string[];
+  bonds: string[];
+  left: string[];
+};
 
 /** 마을 안의 화면: 마을(홈), 용병 길드, 상점, 숙소(파티 편성), 던전 입구 */
 export type TownPlace = "town" | "guild" | "shop" | "inn" | "gate";
@@ -115,6 +139,8 @@ export type GameAction =
   | { type: "leaveRoom" }
   | { type: "giveSupply"; item: SupplyKind; target: string }
   | { type: "battleAct"; action: BattleAction }
+  /** 전투 중 후퇴: 전투를 버리고 원정을 끝낸다 (동료들의 호감이 떨어진다) */
+  | { type: "fleeBattle"; seed: number }
   /** 전투가 끝나고 맵으로 돌아간다. seed: 전리품 */
   | { type: "battleFinish"; seed?: number }
   /** 상점: 물자 하나 사기, 유물 하나 팔기 */
@@ -168,7 +194,7 @@ function bury(state: GameState, deadIds: string[]): GameState {
       roster: next.roster.filter((e) => entryId(e) !== id),
       party: next.party.filter((x) => x !== id),
       progress,
-      memorial: [...next.memorial, { id, name: merc.name, title: merc.title, words: null, depth: next.expedition?.depth ?? 1 }],
+      memorial: [...next.memorial, { id, name: merc.name, title: merc.title, words: null, depth: next.expedition?.depth ?? 1, day: next.day }],
     };
     lines.push(`${merc.name}이(가) 숨을 거두었다.`);
     // 함께 있던 동료들: 호감 하락, 기억에 남는다
@@ -315,6 +341,7 @@ export function initialState(): GameState {
     party: [],
     recruit: { pending: false, error: null },
     screen: { kind: "town" },
+    report: null,
     day: 1,
     expedition: null,
     narration: null,
@@ -496,9 +523,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...initialState(), booted: true };
 
     case "goto":
-      // 탐험 중이거나 대화 중에는 마을 이동을 하지 않는다
-      if (state.expedition || !isTown(state.screen.kind)) return state;
-      return { ...state, screen: { kind: action.place } };
+      // 탐험 중이거나 대화 중에는 마을 이동을 하지 않는다 (결산 화면에서는 마을로 나간다)
+      if (state.expedition || (!isTown(state.screen.kind) && state.screen.kind !== "report")) return state;
+      return { ...state, screen: { kind: action.place }, report: state.screen.kind === "report" ? null : state.report };
 
     case "toggleParty": {
       if (state.expedition || !state.progress[action.mercId]?.hired) return state;
@@ -533,6 +560,31 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return bury(next, state.screen.battle.units.filter((u) => u.side === "merc" && u.dead).map((u) => u.id));
     }
 
+    case "fleeBattle": {
+      if (state.screen.kind !== "battle" || state.screen.battle.outcome || !state.expedition) return state;
+      const battle = state.screen.battle;
+      // 체력·쓰러짐·죽음을 반영하고 (빈사인 용병은 쓰러진 채로 데리고 나온다), 죽은 용병을 묻는다
+      let next: GameState = bury(
+        { ...state, expedition: { ...finishBattle(state.expedition, battle), room: null }, screen: { kind: "dungeon" } },
+        battle.units.filter((u) => u.side === "merc" && u.dead).map((u) => u.id),
+      );
+      // 살아 있는 동행 용병: 싸움에서 등을 보인 것에 대한 반응 (성격마다 다르다)
+      const changes: Record<string, number> = {};
+      for (const m of next.expedition!.members.filter((x) => !x.dead)) {
+        const entry = next.roster.find((e) => entryId(e) === m.id);
+        if (!entry) continue;
+        const temper = mercOf(entry).traitIds?.personalities.reduce((s, id) => s + (FLEE_TEMPER[id] ?? 0), 0) ?? 0;
+        changes[m.id] = BOND.fleeAffinity + temper;
+      }
+      const pick = (keep: (n: number) => boolean) => Object.fromEntries(Object.entries(changes).filter(([, n]) => keep(n)));
+      const shamed = bumpAffinity(next, pick((n) => n < 0), "싸움에서 등을 보였다");
+      const relieved = bumpAffinity({ ...next, progress: shamed.progress }, pick((n) => n > 0), "무사히 물러나 안도했다");
+      const fled = { lines: [...shamed.lines, ...relieved.lines] };
+      next = { ...next, progress: relieved.progress };
+      next = gameReducer(next, { type: "endExpedition", seed: action.seed });
+      return next.report ? { ...next, report: { ...next.report, fled: true, bonds: [...fled.lines, ...next.report.bonds] } } : next;
+    }
+
     case "farewell": {
       const memorial = state.memorial.map((f) => (f.id === action.mercId ? { ...f, words: action.words } : f));
       const fallen = memorial.find((f) => f.id === action.mercId);
@@ -545,41 +597,52 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case "endExpedition": {
       const exp = state.expedition;
-      // 하루가 지난다 (원정 1번 = 하루)
+      // 하루가 지난다 (원정 1번 = 하루). 결산 화면을 거쳐 마을로
       let next: GameState = {
         ...state,
         expedition: null,
         narration: null,
         reactions: [],
         restTalk: null,
-        screen: { kind: "town" },
+        screen: exp ? { kind: "report" } : { kind: "town" },
         day: state.day + 1,
       };
       if (!exp) return next;
-      const notices: string[] = [];
+      const defeat = exp.room?.kind === "defeat";
+      const report: Report = {
+        outcome: defeat ? "defeat" : exp.room?.kind === "goal" ? "goal" : "retreat",
+        day: state.day,
+        gold: defeat ? 0 : exp.gold,
+        relics: defeat ? [] : exp.loot,
+        supplies: defeat ? { ...START_PACK } : { ...exp.supplies },
+        lost: defeat
+          ? { gold: exp.gold, relics: exp.loot.length, supplies: Object.values(exp.supplies).reduce((a, b) => a + b, 0) }
+          : null,
+        fallen: exp.members.filter((m) => m.fell && !m.dead).map((m) => m.name),
+        wages: [],
+        bonds: [],
+        left: [],
+      };
       // 살아 돌아왔으면 얻은 금화·유물과 남은 물자를 챙긴다. 전멸하면 모두 잃는다
-      if (exp.room?.kind === "defeat") {
-        if (exp.gold > 0 || exp.loot.length > 0) notices.push(`쓰러진 동료들을 끌고 나오느라 금화 ${exp.gold}와 유물 ${exp.loot.length}개를 두고 왔다.`);
-      } else {
+      if (!defeat) {
         next = {
           ...next,
           gold: next.gold + exp.gold,
           relics: [...next.relics, ...exp.loot],
           pack: { ...exp.supplies },
         };
-        if (exp.gold > 0 || exp.loot.length > 0) notices.push(`금화 ${exp.gold}와 유물 ${exp.loot.length}개를 들고 돌아왔다.`);
       }
       next = { ...next, stock: restock(action.seed) };
       // 보수: 살아 있는 동행 용병에게 원정마다 준다. 모자라면 체불 (호감이 떨어진다)
       const payroll = payWages(next, exp.members.filter((m) => !m.dead).map((m) => m.id));
       next = payroll.state;
-      notices.push(...payroll.lines);
+      report.wages.push(...payroll.lines);
       // 쓰러진 동료를 데리고 돌아왔으면 그 용병과 동료들이 고마워한다
       const rescue = rescueBonds(exp);
       if (Object.keys(rescue).length) {
         const gained = bumpAffinity(next, rescue, "쓰러진 동료를 데려왔다");
         next = { ...next, progress: gained.progress };
-        notices.push(...gained.lines);
+        report.bonds.push(...gained.lines);
       }
       // 적대 단계인 용병은 확률로 계약을 깨고 떠난다
       const rng = createRng(action.seed);
@@ -587,7 +650,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         const p = next.progress[id];
         if (!p || getStage(p.affinity) !== "hostile" || rng.next() >= BOND.leaveChance) continue;
         const entry = next.roster.find((e) => entryId(e) === id);
-        notices.push(`${entry ? mercOf(entry).name : "누군가"}은(는) 계약을 깨고 길드를 떠났다.`);
+        report.left.push(`${entry ? mercOf(entry).name : "누군가"}은(는) 계약을 깨고 길드를 떠났다.`);
         const progress = { ...next.progress };
         delete progress[id];
         next = {
@@ -597,7 +660,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           progress,
         };
       }
-      return { ...next, notices };
+      return { ...next, report };
     }
 
     case "dismiss":
