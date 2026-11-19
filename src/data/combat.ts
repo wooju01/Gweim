@@ -82,8 +82,8 @@ export const CRIT_MULTIPLIER = 1.5;
 
 /** 직업별 전투 능력 (traits.ts의 직업 id) */
 export const JOB_STATS: Record<string, UnitStats> = {
-  spearman: { hp: 32, attack: [6, 9], defense: 2, speed: 4 },
-  dagger: { hp: 24, attack: [5, 8], defense: 0, speed: 8, onHit: { status: "bleed", chance: 0.4 } },
+  knight: { hp: 32, attack: [6, 9], defense: 2, speed: 4 },
+  assassin: { hp: 24, attack: [5, 8], defense: 0, speed: 8, onHit: { status: "bleed", chance: 0.4 } },
   nun: { hp: 26, attack: [4, 7], defense: 1, speed: 5 },
   archer: { hp: 24, attack: [6, 10], defense: 0, speed: 7 },
   greatsword: { hp: 36, attack: [8, 12], defense: 1, speed: 3 },

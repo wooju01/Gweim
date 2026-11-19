@@ -166,7 +166,7 @@ describe("buildMerc", () => {
   });
 
   it("규칙을 어긴 조합이나 없는 특성은 거부한다", () => {
-    expect(buildMerc({ ...seed, traits: { ...seed.traits, job: "spearman" } })).toBeNull(); // 파문은 수녀만
+    expect(buildMerc({ ...seed, traits: { ...seed.traits, job: "knight" } })).toBeNull(); // 파문은 수녀만
     expect(buildMerc({ ...seed, traits: { ...seed.traits, personalities: ["kind", "rude"] } })).toBeNull();
     expect(buildMerc({ ...seed, traits: { ...seed.traits, job: "dragon" } })).toBeNull();
     expect(buildMerc({ ...seed, traits: { ...seed.traits, job: "kind" } })).toBeNull(); // 성격을 직업 자리에

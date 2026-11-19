@@ -35,7 +35,7 @@ export const RACES: Trait[] = [
       honesty: { affinity: 1, willingness: 0, note: "드워프는 돌려 말하지 않는 자를 믿는다." },
       greed: { affinity: -1, willingness: 0, note: "무너진 고향을 돈으로 보는 소리 같다." },
     },
-    jobWeights: { greatsword: 1.5, spearman: 1.5, mage: 0.3, spiritcaller: 0.3 },
+    jobWeights: { greatsword: 1.5, knight: 1.5, mage: 0.3, spiritcaller: 0.3 },
   },
   {
     id: "elf",
@@ -67,7 +67,7 @@ export const RACES: Trait[] = [
       mercy: { affinity: 1, willingness: 0, note: "인간에게서 이런 말을 들을 줄은 몰랐다." },
       threat: { affinity: -1, willingness: 0, note: "사냥꾼들이 늘 이렇게 말했다." },
     },
-    jobWeights: { dagger: 1.5, archer: 1.5, mage: 0.5 },
+    jobWeights: { assassin: 1.5, archer: 1.5, mage: 0.5 },
   },
   {
     id: "barbarian",
@@ -83,13 +83,13 @@ export const RACES: Trait[] = [
     reactions: {
       honesty: { affinity: 1, willingness: 0, note: "말한 대로 하는 자인지 지켜본다." },
     },
-    jobWeights: { greatsword: 2, spearman: 1.5, nun: 0.5, mage: 0.1, spiritcaller: 0.2 },
+    jobWeights: { greatsword: 2, knight: 1.5, nun: 0.5, mage: 0.1, spiritcaller: 0.2 },
   },
 ];
 
 export const JOBS: Trait[] = [
-  { id: "spearman", kind: "job", name: "창병", description: "긴 창으로 적의 돌격을 막아서는 보병", rarity: 10 },
-  { id: "dagger", kind: "job", name: "단검수", description: "그림자에 숨어 급소를 노리는 날붙이 전문가", rarity: 10 },
+  { id: "knight", kind: "job", name: "기사", description: "검과 방패를 들고 맨 앞에 서서 동료를 지키는 전사", rarity: 10 },
+  { id: "assassin", kind: "job", name: "암살자", description: "그림자에 숨어 급소를 노리는 암살 전문가", rarity: 10 },
   { id: "nun", kind: "job", name: "수녀", description: "기도와 약초로 상처를 돌보는 떠돌이 성직자", rarity: 8 },
   { id: "archer", kind: "job", name: "궁수", description: "사냥꾼 출신으로 먼 거리에서 활을 쏘는 사수", rarity: 10 },
   { id: "greatsword", kind: "job", name: "대검사", description: "몸만 한 대검을 휘두르며 앞장서는 돌격병", rarity: 7 },

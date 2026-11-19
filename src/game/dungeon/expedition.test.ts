@@ -24,8 +24,8 @@ import { nodeById } from "./map";
 
 const [varn, kass, elke] = TEST_MERCS;
 const mercs: Merc[] = [
-  { ...varn, job: "spearman" },
-  { ...kass, job: "dagger" },
+  { ...varn, job: "knight" },
+  { ...kass, job: "assassin" },
   { ...elke, job: "nun" },
   { ...varn, id: "v2", job: "herbalist" },
 ];

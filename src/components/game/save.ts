@@ -10,10 +10,24 @@ import { entryId, initialState, mercOf, type GameState } from "./state";
 export const SAVE_KEY = "ashen-save";
 /** 읽지 못한 저장을 지우기 전에 옮겨 두는 곳 (직접 살펴볼 수 있게) */
 export const BROKEN_KEY = "ashen-save-broken";
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
+
+/** 1 → 2: 직업 이름 변경 (창병 → 기사, 단검수 → 암살자). 직업·스킬·조합 스킬 id를 새 id로 */
+const RENAMED_IDS: [RegExp, string][] = [
+  [/"spearman"/g, '"knight"'],
+  [/"dagger"/g, '"assassin"'],
+  [/"spear_whirl"/g, '"knight_sweep"'],
+  [/"spear_(pin|shove)"/g, '"knight_$1"'],
+  [/"dagger_(throat|smoke|ambush)"/g, '"assassin_$1"'],
+  [/combo:spearman:/g, "combo:knight:"],
+  [/combo:dagger:/g, "combo:assassin:"],
+];
 
 /** 버전 n의 데이터를 n+1로 바꾸는 함수들. 형식을 바꿀 때 여기에 더한다 */
-const MIGRATIONS: Record<number, (data: Record<string, unknown>) => Record<string, unknown>> = {};
+const MIGRATIONS: Record<number, (data: Record<string, unknown>) => Record<string, unknown>> = {
+  // 명단·탐험·전투 어디에 있든 id 문자열만 바꾼다 (값과 키 모두. 키는 스킬 대기 시간 등)
+  1: (data) => JSON.parse(RENAMED_IDS.reduce((json, [from, to]) => json.replace(from, to), JSON.stringify(data))),
+};
 
 const MercProgressSave = TalkState.extend({ hired: z.boolean(), wage: z.number().int().min(0).optional() });
 const Supplies = z.object({ bandage: z.number().int().min(0), antidote: z.number().int().min(0), potion: z.number().int().min(0) });

@@ -106,3 +106,27 @@ describe("보수 저장", () => {
     expect(back.state.progress[id]).toMatchObject({ wage: 25, offers: { advance: true, share: true } });
   });
 });
+
+describe("저장 변환", () => {
+  it("버전 1 저장(창병·단검수 id)을 불러오면 기사·암살자로 바뀐다", () => {
+    const s = booted(initialState());
+    const v2 = JSON.parse(JSON.stringify(toSave(s)));
+    // 옛 형식 흉내: 버전 1, 옛 직업·스킬 id
+    const old = JSON.parse(
+      JSON.stringify({ ...v2, version: 1 })
+        .replace(/"knight"/g, '"spearman"')
+        .replace(/"assassin"/g, '"dagger"')
+        .replace(/"knight_(pin|shove)"/g, '"spear_$1"')
+        .replace(/"knight_sweep"/g, '"spear_whirl"')
+        .replace(/"assassin_(throat|smoke|ambush)"/g, '"dagger_$1"')
+        .replace(/combo:knight:/g, "combo:spearman:")
+        .replace(/combo:assassin:/g, "combo:dagger:"),
+    );
+    expect(JSON.stringify(old)).toContain('"spearman"');
+    const loaded = fromSave(old);
+    expect("state" in loaded).toBe(true);
+    const state = (loaded as { state: GameState }).state;
+    expect(state.roster).toEqual(s.roster);
+    expect(JSON.stringify(state.roster)).not.toContain("spearman");
+  });
+});

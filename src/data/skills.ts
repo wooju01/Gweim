@@ -8,7 +8,7 @@ export type SkillEffect =
   /**
    * 피해. 기본은 공격력 굴림 × multiplier + bonus.
    * fixed가 있으면 공격력 대신 그 범위를 쓴다. area "all"이면 살아 있는 적 전체.
-   * onHit: 공격자의 상태이상 부여(단검수 출혈 등)를 굴리나 (기본 true)
+   * onHit: 공격자의 상태이상 부여(암살자 출혈 등)를 굴리나 (기본 true)
    */
   | {
       kind: "damage";
@@ -61,11 +61,11 @@ export type SkillDef = {
 export type Skill = SkillDef & { description: string };
 
 const DEFS: SkillDef[] = [
-  { id: "guard", name: "막아서기", source: { job: "spearman" }, cooldown: 2, target: "none", effects: [{ kind: "taunt" }] },
+  { id: "guard", name: "막아서기", source: { job: "knight" }, cooldown: 2, target: "none", effects: [{ kind: "taunt" }] },
   {
     id: "pierce",
     name: "급소 찌르기",
-    source: { job: "dagger" },
+    source: { job: "assassin" },
     cooldown: 2,
     target: "enemy",
     effects: [
@@ -131,10 +131,10 @@ const DEFS: SkillDef[] = [
     ],
   },
   // ── 직업 스킬 (대표 스킬 외 3개씩) ──
-  { id: "spear_pin", name: "꿰뚫기", source: { job: "spearman" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.4 }, { kind: "applyStatus", status: "crack" }] },
-  { id: "spear_shove", name: "밀쳐내기", source: { job: "spearman" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage" }, { kind: "applyStatus", status: "weaken" }] },
-  { id: "dagger_throat", name: "목 긋기", source: { job: "dagger" }, cooldown: 3, target: "enemy", effects: [{ kind: "damage", multiplier: 1.6 }] },
-  { id: "dagger_smoke", name: "연막", source: { job: "dagger" }, cooldown: 2, target: "none", effects: [{ kind: "shield", amount: 5, who: "self" }] },
+  { id: "knight_pin", name: "꿰뚫기", source: { job: "knight" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.4 }, { kind: "applyStatus", status: "crack" }] },
+  { id: "knight_shove", name: "밀쳐내기", source: { job: "knight" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage" }, { kind: "applyStatus", status: "weaken" }] },
+  { id: "assassin_throat", name: "목 긋기", source: { job: "assassin" }, cooldown: 3, target: "enemy", effects: [{ kind: "damage", multiplier: 1.6 }] },
+  { id: "assassin_smoke", name: "연막", source: { job: "assassin" }, cooldown: 2, target: "none", effects: [{ kind: "shield", amount: 5, who: "self" }] },
   { id: "nun_bless", name: "축복", source: { job: "nun" }, cooldown: 3, target: "ally", effects: [{ kind: "applyStatus", status: "awaken" }] },
   { id: "nun_ward", name: "보호의 기도", source: { job: "nun" }, cooldown: 2, target: "ally", effects: [{ kind: "shield", amount: 5 }] },
   { id: "archer_aim", name: "조준 사격", source: { job: "archer" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.6 }] },
@@ -148,8 +148,8 @@ const DEFS: SkillDef[] = [
   { id: "spirit_breath", name: "정령의 숨결", source: { job: "spiritcaller" }, cooldown: 2, target: "ally", effects: [{ kind: "fail", chance: 0.2 }, { kind: "heal", amount: 7 }] },
   { id: "spirit_quake", name: "땅 정령의 분노", source: { job: "spiritcaller" }, cooldown: 3, target: "enemy", effects: [{ kind: "damage", fixed: [4, 7], onHit: false }, { kind: "applyStatus", status: "weaken" }] },
 
-  { id: "spear_whirl", name: "창 휘두르기", source: { job: "spearman" }, cooldown: 3, target: "none", effects: [{ kind: "damage", multiplier: 0.5, area: "all" }] },
-  { id: "dagger_ambush", name: "기습", source: { job: "dagger" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.3 }, { kind: "applyStatus", status: "weaken" }] },
+  { id: "knight_sweep", name: "방패 휘두르기", source: { job: "knight" }, cooldown: 3, target: "none", effects: [{ kind: "damage", multiplier: 0.5, area: "all" }] },
+  { id: "assassin_ambush", name: "기습", source: { job: "assassin" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.3 }, { kind: "applyStatus", status: "weaken" }] },
   { id: "nun_judge", name: "정죄", source: { job: "nun" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.3 }, { kind: "applyStatus", status: "crack" }] },
   { id: "archer_poison", name: "독화살", source: { job: "archer" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", onHit: false }, { kind: "applyStatus", status: "poison" }] },
   { id: "gs_dread", name: "위압", source: { job: "greatsword" }, cooldown: 3, target: "none", effects: [{ kind: "taunt" }, { kind: "applyStatus", status: "weaken", area: "all" }] },
@@ -240,8 +240,8 @@ export const SKILL_SLOTS = 4;
 
 /** 직업의 대표 스킬. 시작 스킬에 언제나 들어간다 */
 export const JOB_SKILL: Record<string, SkillId> = {
-  spearman: "guard",
-  dagger: "pierce",
+  knight: "guard",
+  assassin: "pierce",
   nun: "pray",
   archer: "volley",
   greatsword: "cleave",

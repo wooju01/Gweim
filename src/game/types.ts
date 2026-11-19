@@ -22,7 +22,7 @@ export type Reaction = {
 export type Trait = {
   id: string;
   kind: "race" | "job" | "personality" | "background";
-  /** 카드에 보이는 이름. 예: "오만함", "창병", "탈영병" */
+  /** 카드에 보이는 이름. 예: "오만함", "기사", "탈영병" */
   name: string;
   /** 호칭에 쓰는 꾸밈말. 성격에만. 예: "오만한" */
   adjective?: string;

@@ -3,8 +3,14 @@
 
 const WEAPON: Record<string, React.ReactNode> = {
   // 오른손 쪽에 든 무기 (캐릭터는 오른쪽을 바라본다)
-  spearman: <path d="M44 20 L76 4 M72 6 l6 -3 -2 6" strokeWidth={2.5} />,
-  dagger: <path d="M46 46 L58 40" strokeWidth={3} />,
+  // 검과 방패 (방패는 앞쪽 팔에)
+  knight: (
+    <>
+      <path d="M50 34 L66 10 M48 30 l6 4" strokeWidth={3} />
+      <path d="M52 40 h12 v14 q-6 8 -12 0 z" strokeWidth={1.5} />
+    </>
+  ),
+  assassin: <path d="M46 46 L58 40" strokeWidth={3} />,
   nun: <path d="M50 30 v18 M45 35 h10" strokeWidth={2.5} />,
   archer: <path d="M52 22 q12 18 0 36 M52 22 v36" strokeWidth={2} fill="none" />,
   greatsword: <path d="M44 50 L70 12" strokeWidth={5} />,

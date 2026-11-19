@@ -7,7 +7,15 @@ import { getTrait } from "../../data/traits";
 import { LEVELS, getPassive, type Passive } from "../../data/passives";
 import { getSkill } from "../../data/skillgen";
 import type { Trait } from "../../game/types";
-import type { Direction, EventInput, FarewellInput, ProfileInput, ReplyContext, SummaryInput, TurnEvent } from "./types";
+import type {
+  Direction,
+  EventInput,
+  FarewellInput,
+  ProfileInput,
+  ReplyContext,
+  SummaryInput,
+  TurnEvent,
+} from "./types";
 
 const TONE_NAME: Record<ChoiceTone, string> = {
   respect: "존중",
@@ -84,11 +92,20 @@ function passiveText(passives: Passive[]): string {
 /** 등급과 전투 특기. 대화에서 자기 실력을 말할 때 참고한다 */
 function abilityLines(merc: Merc): string {
   const lines: string[] = [];
-  if (merc.level) lines.push(`- 등급: ${LEVELS[merc.level].name}. 등급이 높을수록 자신감 있고 몸값을 높게 부른다.`);
+  if (merc.level)
+    lines.push(
+      `- 등급: ${LEVELS[merc.level].name}. 등급이 높을수록 자신감 있고 몸값을 높게 부른다.`,
+    );
   const passives = (merc.passives ?? []).flatMap((id) => getPassive(id) ?? []);
-  if (passives.length) lines.push(`- 전투 특기: ${passiveText(passives)}. 자랑하거나 넌지시 내비칠 수 있다. 수치는 말하지 않는다.`);
+  if (passives.length)
+    lines.push(
+      `- 전투 특기: ${passiveText(passives)}. 자랑하거나 넌지시 내비칠 수 있다. 수치는 말하지 않는다.`,
+    );
   const skills = (merc.skills ?? []).flatMap((id) => getSkill(id)?.name ?? []);
-  if (skills.length) lines.push(`- 쓰는 기술: ${skills.join(", ")}. 말할 때 기술 이름을 굳이 꺼내지 않아도 된다.`);
+  if (skills.length)
+    lines.push(
+      `- 쓰는 기술: ${skills.join(", ")}. 말할 때 기술 이름을 굳이 꺼내지 않아도 된다.`,
+    );
   return lines.length ? lines.join("\n") + "\n" : "";
 }
 
@@ -162,8 +179,13 @@ const REST_SCENE = (merc: Merc) =>
   `[장면 바뀜] 지금은 길드가 아니다. ${merc.name}은(는) 이미 길안내자의 파티로 던전에 들어와 있고, 무너진 통로 구석에서 잠시 쉬는 중이다. 고용이나 동행 이야기는 하지 않는다. 지나온 길, 피로, 동료, 자기 이야기를 짧게 나눈다. 짧은 휴식이라 한두 마디로 끝맺는다.\n`;
 
 /** 처음 만나는 자리면 코드가 정한 첫인상을 첫마디에 드러내게 한다 */
-function firstMeeting(merc: Merc, history: HistoryLine[], event: TurnEvent): string {
-  if (event.kind !== "open" || history.length > 0 || !merc.impression) return "";
+function firstMeeting(
+  merc: Merc,
+  history: HistoryLine[],
+  event: TurnEvent,
+): string {
+  if (event.kind !== "open" || history.length > 0 || !merc.impression)
+    return "";
   return `\n- 처음 만나는 자리다. 플레이어 눈에 비친 ${merc.name}의 모습: "${merc.impression}" 이 모습과 어울리는 첫마디를 해서 성격이 은근히 드러나게 한다.`;
 }
 
@@ -178,7 +200,10 @@ ${merc.name}은(는) ${AFFINITY_FEELING[event.affinity]}. 그리고 ${WILLINGNES
 이 반응을 담아 대답한다.`;
     }
     case "offer": {
-      const what = event.offer === "advance" ? "선금을 먼저 내밀었다" : "앞으로 몫을 더 넉넉히 주겠다고 약속했다";
+      const what =
+        event.offer === "advance"
+          ? "선금을 먼저 내밀었다"
+          : "앞으로 몫을 더 넉넉히 주겠다고 약속했다";
       const inner = event.note ? `\n속마음: ${event.note}` : "";
       return `플레이어가 동행 조건으로 ${what}.
 ${merc.name}은(는) ${AFFINITY_FEELING[event.affinity]}. 그리고 ${WILLINGNESS_FEELING[event.willingness]}.${inner}
@@ -192,7 +217,16 @@ ${merc.name}은(는) ${AFFINITY_FEELING[event.affinity]}. 그리고 ${WILLINGNES
 }
 
 /** 매 턴 바뀌는 부분. 시스템 프롬프트 뒤, user 메시지로 들어간다. */
-export function turnPrompt({ merc, stage, resolve, history, memory, event, talksLeft, scene = "guild" }: ReplyContext): string {
+export function turnPrompt({
+  merc,
+  stage,
+  resolve,
+  history,
+  memory,
+  event,
+  talksLeft,
+  scene = "guild",
+}: ReplyContext): string {
   const remembered = memory.trim()
     ? `# 오래전 대화의 기억 (${merc.name}이(가) 기억하는 것)\n${memory.trim()}\n\n`
     : "";
@@ -229,7 +263,6 @@ ${transcript(merc, lines)}
 - 호감도 같은 숫자나 게임 시스템은 적지 않는다.`;
 }
 
-
 /** 랜덤 용병 프로필 생성. 특성은 코드가 정했고, AI는 그걸 살아 있는 인물로 만든다. */
 export function profilePrompt(input: ProfileInput): string {
   const race = input.traits.find((t) => t.kind === "race");
@@ -256,7 +289,7 @@ ${race ? `- 종족: ${race.name} — ${race.description} 인간을 보는 눈: $
 
 # 만들 것
 - name: 한국어로 쓴 판타지풍 이름, 띄어쓰기 포함 12자 이내. ${race?.nameStyle ?? "2~3음절, 성은 없다."} 종족의 문화에서 나온 이름처럼. 다음 이름과 겹치지 않게: ${avoid}
-- title: 카드에 붙는 짧은 호칭. 성격이나 배경이 묻어나게. 예: "외눈 창병", "빚쟁이 단검수"
+- title: 카드에 붙는 짧은 호칭. 성격이나 배경이 묻어나게. 예: "외눈 기사", "빚쟁이 암살자"
 - persona: 성격 요약 1~2문장. 정해진 성격들이 어떻게 한 사람 안에 섞였는지 드러나게.
 - background: 다른 사람도 알 수 있는 과거 1~2문장.
 - secret: 숨긴 비밀 1문장. 비밀의 씨앗을 이 인물에 맞게 구체화한다.
@@ -287,8 +320,13 @@ ${TONE_GUIDE}
 
 /** 던전 사건. 사실(facts)과 선택지의 뜻은 그대로 두고, 지금 파티에 맞게 문장만 새로 쓴다 */
 export function eventPrompt({ event, party }: EventInput): string {
-  const members = party.map((m) => `${m.name}(${[m.race, m.job].filter(Boolean).join(" ")})`).join(", ") || "(없음)";
-  const choices = event.choices.map((c) => `- id: ${c.id} / 뜻: ${c.text}`).join("\n");
+  const members =
+    party
+      .map((m) => `${m.name}(${[m.race, m.job].filter(Boolean).join(" ")})`)
+      .join(", ") || "(없음)";
+  const choices = event.choices
+    .map((c) => `- id: ${c.id} / 뜻: ${c.text}`)
+    .join("\n");
   return `다크 판타지 텍스트 RPG의 던전 사건 장면을 쓴다.
 
 # 세계

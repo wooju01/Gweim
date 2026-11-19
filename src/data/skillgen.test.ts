@@ -53,7 +53,7 @@ describe("무작위 조합 스킬", () => {
 });
 
 describe("직업·종족 시작 스킬", () => {
-  const JOBS = ["spearman", "dagger", "nun", "archer", "greatsword", "herbalist", "mage", "spiritcaller"];
+  const JOBS = ["knight", "assassin", "nun", "archer", "greatsword", "herbalist", "mage", "spiritcaller"];
   const RACES = ["human", "dwarf", "elf", "beastfolk", "barbarian"];
 
   it("직업마다 4개, 종족마다 4개의 스킬이 있고 id와 이름이 겹치지 않는다", () => {
@@ -83,14 +83,14 @@ describe("직업·종족 시작 스킬", () => {
 
   it("다른 직업·종족의 스킬은 거부한다", () => {
     expect(validSkillsFor(["firelance"], "mage", "elf")).toBe(true);
-    expect(validSkillsFor(["firelance"], "spearman", "elf")).toBe(false);
+    expect(validSkillsFor(["firelance"], "knight", "elf")).toBe(false);
     expect(validSkillsFor(["dwarf_hammer"], "mage", "elf")).toBe(false);
     expect(validSkillsFor(["gen:5"], "mage", "elf")).toBe(true);
   });
 
   it("모든 스킬의 설명이 만들어지고, 자신에게 쓰는 스킬은 '자신'으로 적힌다", () => {
     expect(getSkill("human_resolve")!.description).toContain("자신에게 각성");
-    expect(getSkill("dagger_smoke")!.description).toContain("자신에게 피해를 먼저 막는 보호막 5");
+    expect(getSkill("assassin_smoke")!.description).toContain("자신에게 피해를 먼저 막는 보호막 5");
     for (const id of [...JOBS.flatMap((job) => skillsFrom({ job })), ...RACES.flatMap((race) => skillsFrom({ race }))]) {
       expect(getSkill(id)!.description.length, id).toBeGreaterThan(5);
     }
@@ -98,7 +98,7 @@ describe("직업·종족 시작 스킬", () => {
 });
 
 describe("조합 스킬", () => {
-  const JOBS = ["spearman", "dagger", "nun", "archer", "greatsword", "herbalist", "mage", "spiritcaller"];
+  const JOBS = ["knight", "assassin", "nun", "archer", "greatsword", "herbalist", "mage", "spiritcaller"];
   const RACES = ["human", "dwarf", "elf", "beastfolk", "barbarian"];
 
   it("직업 8 × 종족 5 × 2 = 80개가 모두 만들어지고, 그 직업·종족만 가질 수 있다", () => {
@@ -121,9 +121,9 @@ describe("조합 스킬", () => {
     const rand = () => ((n = (n * 16807) % 2147483647) / 2147483647);
     let combos = 0;
     for (let i = 0; i < 1000; i++) {
-      const ids = rollSkills("dagger", "elf", rand);
-      if (ids.includes(earlyCombo("dagger", "elf")!)) combos++;
-      expect(validSkillsFor(ids, "dagger", "elf")).toBe(true);
+      const ids = rollSkills("assassin", "elf", rand);
+      if (ids.includes(earlyCombo("assassin", "elf")!)) combos++;
+      expect(validSkillsFor(ids, "assassin", "elf")).toBe(true);
     }
     expect(combos / 1000).toBeGreaterThan(0.24);
     expect(combos / 1000).toBeLessThan(0.36);
