@@ -1,4 +1,8 @@
 import { LEVELS, getPassive } from "@/data/passives";
+import { SUPPLY, type SupplyKind } from "@/data/combat";
+import { CURRENCY, PACK_LIMIT, PRICE } from "@/data/economy";
+import { getRelic } from "@/data/relics";
+import { wageOf } from "@/game/wages";
 import type { Merc } from "@/game/types";
 import { Button, MercStats, Portrait } from "./parts";
 import { GUIDE, MERC_SLOTS } from "@/game/party";
@@ -20,6 +24,10 @@ type Props = {
   onNewGame?: () => void;
   /** 잃은 동료 */
   memorial?: Fallen[];
+  /** 금화·짐·유물·상점 재고 */
+  shop?: { gold: number; pack: Record<SupplyKind, number>; relics: string[]; stock: Record<SupplyKind, number> };
+  onBuy?: (item: SupplyKind) => void;
+  onSell?: (index: number) => void;
 };
 
 export function GuildScreen({
@@ -35,6 +43,9 @@ export function GuildScreen({
   onDismissNotices,
   onNewGame,
   memorial = [],
+  shop,
+  onBuy,
+  onSell,
 }: Props) {
   const byId = new Map(mercs.map((m) => [m.id, m]));
 
@@ -148,6 +159,9 @@ export function GuildScreen({
                 {merc.impression && <p className="text-sm italic text-ember/80">{merc.impression}</p>}
                 <p className="flex-1 text-sm leading-relaxed text-bone/80">{merc.background}</p>
                 <MercStats affinity={p.affinity} willingness={p.willingness} />
+                <p className="text-[11px] text-ash">
+                  {p.hired ? `보수: 원정마다 ${CURRENCY} ${p.wage ?? wageOf(merc)}` : `요구 보수: 원정마다 ${CURRENCY} ${wageOf(merc)}`}
+                </p>
                 {p.hired ? (
                   <Button variant="danger" onClick={() => onDismiss(merc.id)}>
                     계약 해지
@@ -187,6 +201,10 @@ export function GuildScreen({
             던전으로 내려간다
           </Button>
           {party.length === 0 && <p className="text-[11px] text-ash">용병을 한 명 이상 고용해야 한다.</p>}
+          {shop && party.length > 0 && Object.values(shop.pack).every((n) => n === 0) && (
+            <p className="text-[11px] text-blood">짐이 비어 있다. 물자 없이 내려가면 다친 동료를 돌볼 수 없다.</p>
+          )}
+          {shop && onBuy && onSell && <Shop {...shop} onBuy={onBuy} onSell={onSell} />}
         </aside>
       </div>
       {memorial.length > 0 && (
@@ -206,6 +224,67 @@ export function GuildScreen({
         </section>
       )}
     </main>
+  );
+}
+
+const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
+
+/** 상점: 원정 물자를 사서 짐에 넣고, 던전에서 가져온 유물을 판다 */
+function Shop({
+  gold,
+  pack,
+  relics,
+  stock,
+  onBuy,
+  onSell,
+}: NonNullable<Props["shop"]> & { onBuy: (item: SupplyKind) => void; onSell: (index: number) => void }) {
+  const packed = Object.values(pack).reduce((a, b) => a + b, 0);
+  return (
+    <div className="mt-2 flex flex-col gap-3 border-t border-edge pt-3">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-sm font-bold">상점</h3>
+        <span className="text-sm text-ember">
+          {CURRENCY} {gold}
+        </span>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {SUPPLY_ORDER.map((k) => (
+          <div key={k} className="flex items-center justify-between gap-2 text-xs">
+            <span title={SUPPLY[k].description}>
+              {SUPPLY[k].name} <span className="text-ash">· 짐 {pack[k]} · 재고 {stock[k]}</span>
+            </span>
+            <Button
+              className="!px-2 !py-0.5 text-[11px]"
+              disabled={gold < PRICE[k] || stock[k] <= 0 || packed >= PACK_LIMIT}
+              onClick={() => onBuy(k)}
+            >
+              {PRICE[k]} 사기
+            </Button>
+          </div>
+        ))}
+        <p className="text-[11px] text-ash">
+          원정 짐 {packed} / {PACK_LIMIT} · 돌아오면 남은 물자는 짐으로 돌아온다
+        </p>
+      </div>
+      {relics.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <h4 className="text-xs text-ash">가진 유물</h4>
+          {relics.map((id, i) => {
+            const r = getRelic(id);
+            return (
+              r && (
+                <div key={`${id}-${i}`} className="flex items-center justify-between gap-2 text-xs">
+                  <span title={r.description}>{r.name}</span>
+                  <Button className="!px-2 !py-0.5 text-[11px]" onClick={() => onSell(i)}>
+                    {r.value} 팔기
+                  </Button>
+                </div>
+              )
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

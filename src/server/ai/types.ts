@@ -27,7 +27,9 @@ export type TurnEvent =
       /** 반응표의 속마음 힌트 */
       note?: string;
     }
-  | { kind: "propose"; joined: boolean };
+  | { kind: "propose"; joined: boolean }
+  /** 조건 제시 (선금·몫 약속). 숫자는 넣지 않는다 */
+  | { kind: "offer"; offer: "advance" | "share"; affinity: Direction; willingness: Direction; note?: string };
 
 export type ReplyContext = {
   merc: Merc;

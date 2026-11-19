@@ -20,6 +20,10 @@ export type EventEffect = {
   cureAll?: boolean;
   /** 물자 증감 */
   supply?: Partial<Record<SupplyKind, number>>;
+  /** 금화 (살아서 돌아와야 내 것이 된다) */
+  gold?: number;
+  /** 무작위 유물 개수 */
+  relics?: number;
 };
 
 export type EventOutcome = {
@@ -96,7 +100,7 @@ export const EVENTS: EventTemplate[] = [
         tone: null,
         requires: { items: { antidote: 1 } },
         consumes: { antidote: 1 },
-        outcomes: once("정화된 시체는 끝내 움직이지 않았다. 가방에서 물약과 붕대를 찾았다.", { supply: { potion: 1, bandage: 1 } }),
+        outcomes: once("정화된 시체는 끝내 움직이지 않았다. 가방에서 물약과 붕대, 금화 주머니를 찾았다.", { supply: { potion: 1, bandage: 1 }, gold: 15 }),
       },
       {
         id: "rite",
@@ -112,7 +116,7 @@ export const EVENTS: EventTemplate[] = [
         approach: "risk",
         tone: "greed",
         outcomes: [
-          { weight: 7, text: "가방 안에서 물약과 붕대를 찾았다.", effect: { supply: { potion: 1, bandage: 1 } } },
+          { weight: 7, text: "가방 안에서 물약과 붕대, 금화 주머니를 찾았다.", effect: { supply: { potion: 1, bandage: 1 }, gold: 15 } },
           { weight: 3, text: "손을 뻗는 순간 시체가 눈을 떴다! {who}이(가) 할퀴어 피를 흘린다.", effect: { damageOne: 5, status: "bleed" } },
         ],
       },
@@ -214,7 +218,7 @@ export const EVENTS: EventTemplate[] = [
         tone: null,
         requires: { items: { potion: 1 } },
         consumes: { potion: 1 },
-        outcomes: once("문양이 붉게 빛나다 스르르 꺼졌다. 안쪽 선반에 물약과 붕대가 남아 있었다.", { supply: { potion: 2, bandage: 1 } }),
+        outcomes: once("문양이 붉게 빛나다 스르르 꺼졌다. 안쪽 선반에 물약과 붕대, 오래된 유물이 남아 있었다.", { supply: { potion: 2, bandage: 1 }, relics: 1 }),
       },
       {
         id: "commune",
@@ -222,7 +226,7 @@ export const EVENTS: EventTemplate[] = [
         approach: "person",
         tone: "respect",
         requires: { job: "spiritcaller" },
-        outcomes: once("{helper}이(가) 봉인에 깃든 정령과 말을 나누자 문이 열렸다. 안에 물약이 있었다.", { supply: { potion: 2 } }),
+        outcomes: once("{helper}이(가) 봉인에 깃든 정령과 말을 나누자 문이 열렸다. 안에 물약과 오래된 유물이 있었다.", { supply: { potion: 2 }, relics: 1 }),
       },
       {
         id: "force",
@@ -230,7 +234,7 @@ export const EVENTS: EventTemplate[] = [
         approach: "risk",
         tone: null,
         outcomes: [
-          { weight: 3, text: "문이 무너지며 파편이 튀었다. 안쪽 선반에 물자가 남아 있었다.", effect: { damageAll: 2, supply: { potion: 1, bandage: 1 } } },
+          { weight: 3, text: "문이 무너지며 파편이 튀었다. 안쪽 선반에 물자와 유물이 남아 있었다.", effect: { damageAll: 2, supply: { potion: 1, bandage: 1 }, relics: 1 } },
           { weight: 2, text: "문은 부쉈지만 안은 텅 비어 있었다. 파편에 모두 긁혔다.", effect: { damageAll: 2 } },
         ],
       },
@@ -266,7 +270,7 @@ export const EVENTS: EventTemplate[] = [
         approach: "risk",
         tone: "greed",
         outcomes: [
-          { weight: 7, text: "도굴꾼의 자루를 빼앗았다. 그는 욕설을 퍼부으며 기어서 멀어졌다.", effect: { supply: { bandage: 1, antidote: 1 } } },
+          { weight: 7, text: "도굴꾼의 자루를 빼앗았다. 금화와 유물이 들어 있었다. 그는 욕설을 퍼부으며 기어서 멀어졌다.", effect: { supply: { bandage: 1, antidote: 1 }, gold: 20, relics: 1 } },
           { weight: 3, text: "도굴꾼이 숨겨 둔 칼을 휘둘렀다. {who}이(가) 베였다. 자루는 챙겼다.", effect: { damageOne: 4, status: "bleed", supply: { bandage: 1 } } },
         ],
       },
@@ -318,7 +322,7 @@ export const EVENTS: EventTemplate[] = [
         approach: "other",
         tone: "mockery",
         outcomes: [
-          { weight: 1, text: "공물 사이에서 물약을 찾았다.", effect: { supply: { potion: 1 } } },
+          { weight: 1, text: "공물 사이에서 물약과 금화를 찾았다.", effect: { supply: { potion: 1 }, gold: 20 } },
           { weight: 1, text: "공물을 집자 촛불이 꺼졌다. {who}의 몸에 한기가 스며든다.", effect: { supply: { potion: 1 }, status: "poison" } },
         ],
       },

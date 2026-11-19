@@ -24,6 +24,8 @@ function playerLineFor(action: TalkAction): string | null {
       return action.text;
     case "propose":
       return "함께 가자고 제안한다.";
+    case "offer":
+      return action.offer === "advance" ? "선금을 먼저 내민다." : "앞으로 몫을 더 넉넉히 주겠다고 약속한다.";
   }
 }
 
@@ -56,11 +58,11 @@ export function Game() {
   async function send(mercId: string, action: TalkAction) {
     const entry = findEntry(mercId);
     if (!entry) return;
-    const { affinity, willingness, recentTones, history, memory, talks } = state.progress[mercId];
+    const { affinity, willingness, recentTones, history, memory, talks, offers } = state.progress[mercId];
     try {
       const res = await postTalk({
         merc: entry,
-        state: { affinity, willingness, recentTones, history, memory, talks },
+        state: { affinity, willingness, recentTones, history, memory, talks, offers },
         action,
         scene: "guild",
       });
@@ -116,11 +118,11 @@ export function Game() {
   async function sendRest(mercId: string, action: TalkAction) {
     const entry = findEntry(mercId);
     if (!entry) return;
-    const { affinity, willingness, recentTones, history, memory, talks } = state.progress[mercId];
+    const { affinity, willingness, recentTones, history, memory, talks, offers } = state.progress[mercId];
     try {
       const res = await postTalk({
         merc: entry,
-        state: { affinity, willingness, recentTones, history, memory, talks },
+        state: { affinity, willingness, recentTones, history, memory, talks, offers },
         action,
         scene: "rest",
       });
@@ -141,7 +143,7 @@ export function Game() {
         const p = state.progress[u.id];
         return entry && p ? [{ id: u.id, entry, memory: p.memory, stage: getStage(p.affinity) }] : [];
       });
-    dispatch({ type: "battleFinish" });
+    dispatch({ type: "battleFinish", seed: roll() });
     for (const r of requests) {
       try {
         const res = await postFarewell({ merc: r.entry, memory: r.memory, stage: r.stage });
@@ -205,6 +207,7 @@ export function Game() {
           partyFull={state.party.length >= MERC_SLOTS}
           onAct={act}
           onLeave={() => dispatch({ type: "leave" })}
+          gold={state.gold}
         />
       );
     }
@@ -224,6 +227,9 @@ export function Game() {
       onDismissNotices={() => dispatch({ type: "dismissNotices" })}
       onNewGame={newGame}
       memorial={state.memorial}
+      shop={{ gold: state.gold, pack: state.pack, relics: state.relics, stock: state.stock }}
+      onBuy={(item) => dispatch({ type: "buy", item })}
+      onSell={(index) => dispatch({ type: "sell", index })}
     />
   );
 }

@@ -65,6 +65,8 @@ export type Merc = {
   passives?: string[];
   /** 장착 스킬 id (data/skills.ts). 없으면 직업 스킬 하나 */
   skills?: string[];
+  /** 성격·배경 특성 id (보수·돈 얘기 반응에 쓴다). 랜덤 용병에만 있다 */
+  traitIds?: { personalities: string[]; background: string };
   name: string;
   /** 카드에 붙는 짧은 호칭 */
   title: string;

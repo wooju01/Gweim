@@ -4,6 +4,7 @@
 // 전투 중이면 전투 그대로 저장한다 (새로고침으로 도망칠 수 없게).
 import { z } from "zod";
 import { MercRef, TalkState } from "@/lib/schemas";
+import { START_GOLD, START_PACK, START_STOCK } from "@/data/economy";
 import { entryId, initialState, mercOf, type GameState } from "./state";
 
 export const SAVE_KEY = "ashen-save";
@@ -14,7 +15,8 @@ export const SAVE_VERSION = 1;
 /** 버전 n의 데이터를 n+1로 바꾸는 함수들. 형식을 바꿀 때 여기에 더한다 */
 const MIGRATIONS: Record<number, (data: Record<string, unknown>) => Record<string, unknown>> = {};
 
-const MercProgressSave = TalkState.extend({ hired: z.boolean() });
+const MercProgressSave = TalkState.extend({ hired: z.boolean(), wage: z.number().int().min(0).optional() });
+const Supplies = z.object({ bandage: z.number().int().min(0), antidote: z.number().int().min(0), potion: z.number().int().min(0) });
 
 // 탐험·전투는 엔진이 만든 큰 구조라 핵심 칸만 검사하고 나머지는 그대로 둔다
 const ExpeditionSave = z.looseObject({
@@ -60,6 +62,10 @@ export const SaveFile = z.object({
     memorial: z
       .array(z.object({ id: z.string(), name: z.string(), title: z.string(), words: z.string().nullable(), depth: z.number() }))
       .default([]),
+    gold: z.number().int().min(0).default(START_GOLD),
+    pack: Supplies.default({ ...START_PACK }),
+    relics: z.array(z.string()).default([]),
+    stock: Supplies.default({ ...START_STOCK }),
   }),
 });
 export type SaveFile = z.infer<typeof SaveFile>;
@@ -87,6 +93,10 @@ export function toSave(state: GameState, now = new Date()): SaveFile {
       renown: state.renown,
       reputation: state.reputation,
       memorial: state.memorial,
+      gold: state.gold,
+      pack: state.pack,
+      relics: state.relics,
+      stock: state.stock,
     } as SaveFile["state"],
   };
 }
@@ -116,7 +126,10 @@ export function fromSave(raw: unknown): { state: GameState } | { error: string }
   const ids = new Set(s.roster.map(entryId));
   if (s.party.some((id) => !ids.has(id))) return { error: "파티에 명단에 없는 용병이 있다" };
 
-  const expedition = s.expedition as unknown as GameState["expedition"];
+  // 금화 기능 이전의 저장: 원정에 금화·유물 칸이 없으면 0으로
+  const expedition = s.expedition
+    ? ({ gold: 0, loot: [], ...s.expedition } as unknown as NonNullable<GameState["expedition"]>)
+    : null;
   const room = expedition?.room;
   const base = initialState();
   return {
@@ -132,6 +145,10 @@ export function fromSave(raw: unknown): { state: GameState } | { error: string }
       reputation: s.reputation,
       // 마지막 말을 기다리다 끊겼으면 기본 문장 없이 비워 둔다
       memorial: s.memorial.map((f) => ({ ...f, words: f.words ?? "…" })),
+      gold: s.gold,
+      pack: s.pack,
+      relics: s.relics,
+      stock: s.stock,
       // 사건 칸에서 멈췄으면 AI 묘사 없이 기본 문장으로 이어 간다
       narration: room?.kind === "event" && !room.result ? { eventId: room.eventId, pending: false, data: null } : null,
     },

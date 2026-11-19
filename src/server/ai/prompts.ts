@@ -177,6 +177,13 @@ function eventLine(merc: Merc, event: TurnEvent): string {
 ${merc.name}은(는) ${AFFINITY_FEELING[event.affinity]}. 그리고 ${WILLINGNESS_FEELING[event.willingness]}.${inner}
 이 반응을 담아 대답한다.`;
     }
+    case "offer": {
+      const what = event.offer === "advance" ? "선금을 먼저 내밀었다" : "앞으로 몫을 더 넉넉히 주겠다고 약속했다";
+      const inner = event.note ? `\n속마음: ${event.note}` : "";
+      return `플레이어가 동행 조건으로 ${what}.
+${merc.name}은(는) ${AFFINITY_FEELING[event.affinity]}. 그리고 ${WILLINGNESS_FEELING[event.willingness]}.${inner}
+돈 얘기에 대한 이 반응을 캐릭터답게 담아 대답한다. 액수는 말하지 않는다.`;
+    }
     case "propose":
       return event.joined
         ? "플레이어가 동행을 제안했고, 받아들이기로 했다. 지금 호감 상태에 맞게 캐릭터답게 수락한다(마음이 없다면 마지못해, 거래처럼). 선택지는 형식상 만들되 쓰이지 않는다."

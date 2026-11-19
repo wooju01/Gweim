@@ -41,6 +41,8 @@ const BOND: Record<Stage, { name: string; style: string }> = {
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
+const TARGET_LABEL = { enemy: "적 하나", ally: "아군 하나", none: "대상 없음 (자신·적 전체)" } as const;
+
 /** 호감 단계가 전투에 주는 효과 (경계·중립은 없음) */
 const BOND_EFFECT: Partial<Record<Stage, string>> = {
   hostile: "가끔 명령을 무시하고 제멋대로 공격한다",
@@ -362,20 +364,37 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds }: Prop
                     }
                     const s = getSkill(id)!;
                     const wait = actor.cooldowns[id] ?? 0;
+                    // 대기 중인(비활성) 버튼에는 마우스 이벤트가 오지 않아서, 감싼 칸이 마우스와 설명을 맡는다
                     return (
-                      <Button
+                      <div
                         key={id}
-                        variant={aiming === id ? "ember" : "ghost"}
-                        disabled={wait > 0}
-                        onClick={() => onSkillButton(id)}
+                        className="group relative"
                         onMouseEnter={() => setSkillHover(id)}
                         onMouseLeave={() => setSkillHover((h) => (h === id ? null : h))}
-                        title={`${s.description} (대기 ${s.cooldown}턴)`}
-                        className="text-left !px-3"
                       >
-                        <span className="block font-bold">{s.name}</span>
-                        <span className="block text-[11px] text-ash">{wait > 0 ? `${wait}턴 뒤 사용 가능` : `대기 ${s.cooldown}턴`}</span>
-                      </Button>
+                        <Button
+                          variant={aiming === id ? "ember" : "ghost"}
+                          disabled={wait > 0}
+                          onClick={() => onSkillButton(id)}
+                          className="w-full text-left !px-3"
+                        >
+                          <span className="block font-bold">{s.name}</span>
+                          <span className="block text-[11px] text-ash">{wait > 0 ? `${wait}턴 뒤 사용 가능` : `대기 ${s.cooldown}턴`}</span>
+                        </Button>
+                        <div
+                          role="tooltip"
+                          className="pointer-events-none absolute bottom-full left-0 z-30 mb-1.5 hidden w-64 rounded-sm border border-edge bg-ink/95 p-2.5 text-xs leading-relaxed text-bone shadow-lg group-hover:block"
+                        >
+                          <p className="font-bold text-ember">{s.name}</p>
+                          <p>{s.description}</p>
+                          <p className="mt-1 text-ash">
+                            대상: {TARGET_LABEL[s.target]} · 대기 {s.cooldown}턴{wait > 0 ? ` · ${wait}턴 뒤 사용 가능` : ""}
+                          </p>
+                          <p className="text-ash">
+                            {s.target === "none" ? "무대에 예상 결과가 표시된다." : "누른 뒤 대상에 마우스를 올리면 예상 결과가 보인다."}
+                          </p>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
@@ -580,7 +599,7 @@ function InfoCard({
         {(unit.shield ?? 0) > 0 && <span className="text-frost"> · 보호막 {unit.shield}</span>}
       </p>
       <p className="text-bone/80">
-        공격 {stats.attack[0]}~{stats.attack[1]} · 방어 {stats.defense} · 회피 {pct(stats.evadeChance)}
+        공격 {stats.attack[0]}~{stats.attack[1]} · 방어 {stats.defense} · 속도 {stats.speed} · 회피 {pct(stats.evadeChance)}
       </p>
       {unit.statuses.length > 0 && (
         <p className="text-ash">{unit.statuses.map((s) => `${STATUS[s.kind].name} ${s.turns}턴`).join(" · ")}</p>
@@ -623,13 +642,13 @@ function InfoCard({
   );
 }
 
-/** 현재 차례 용병의 능력치, 효과, 패시브 (속도는 보여 주지 않는다) */
+/** 현재 차례 용병의 능력치, 효과, 패시브 (속도는 보여 주되 행동 순서는 숨긴다) */
 function ActorStats({ battle, unit }: { battle: Battle; unit: Unit }) {
   const stats = unitStats(unit);
   return (
     <div className="flex flex-col gap-1 rounded-sm bg-ink/60 px-2.5 py-2 text-[11px] text-bone/80">
       <p>
-        공격 {stats.attack[0]}~{stats.attack[1]} · 방어 {stats.defense} · 치명타 {pct(stats.critChance)} · 회피 {pct(stats.evadeChance)}
+        공격 {stats.attack[0]}~{stats.attack[1]} · 방어 {stats.defense} · 속도 {stats.speed} · 치명타 {pct(stats.critChance)} · 회피 {pct(stats.evadeChance)}
       </p>
       {unit.statuses.length > 0 && (
         <p className="flex flex-wrap gap-1">
@@ -645,9 +664,15 @@ function ActorStats({ battle, unit }: { battle: Battle; unit: Unit }) {
         const passive = getPassive(id);
         const note = passiveNote(battle, unit, id);
         return (
-          <p key={id} title={passive?.description} className={note ? "text-ember" : "text-ash"}>
+          <p key={id} className={`group relative w-fit cursor-default ${note ? "text-ember" : "text-ash"}`}>
             ✦ {passive?.name}
             <span className="ml-1 text-[10px]">{note ? (note === "상시" ? "" : `· ${note}`) : "· 꺼짐"}</span>
+            <span
+              role="tooltip"
+              className="pointer-events-none absolute bottom-full left-0 z-30 mb-1 hidden w-56 rounded-sm border border-edge bg-ink/95 px-2.5 py-2 text-xs text-bone shadow-lg group-hover:block"
+            >
+              {passive?.description}
+            </span>
           </p>
         );
       })}

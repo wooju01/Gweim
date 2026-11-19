@@ -196,6 +196,7 @@ export function buildMerc(seed: MercSeed): Merc | null {
     tags: traitTags(traits),
     race: seed.traits.race,
     job: seed.traits.job,
+    traitIds: { personalities: seed.traits.personalities, background: seed.traits.background },
     level: seed.level,
     passives: seed.passives,
     skills: seed.skills,

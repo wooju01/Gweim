@@ -45,6 +45,8 @@ export const TalkState = z.object({
   memory: z.string().max(600).default(""),
   /** 지금까지 주고받은 말 횟수. 한도는 game/affinity.ts의 TALK_LIMIT */
   talks: z.number().int().min(0).max(99).default(0),
+  /** 이미 제시한 조건 (용병마다 한 번씩) */
+  offers: z.object({ advance: z.boolean(), share: z.boolean() }).default({ advance: false, share: false }),
 });
 export type TalkState = z.infer<typeof TalkState>;
 
@@ -56,6 +58,8 @@ export const TalkAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("choice"), choice: Choice }),
   z.object({ type: z.literal("free"), text: z.string().trim().min(1).max(FREE_TEXT_MAX) }),
   z.object({ type: z.literal("propose") }),
+  /** 조건 제시: 선금(지금 금화를 낸다) / 몫 약속(앞으로 보수 +50%) */
+  z.object({ type: z.literal("offer"), offer: z.enum(["advance", "share"]) }),
 ]);
 export type TalkAction = z.infer<typeof TalkAction>;
 
@@ -167,6 +171,8 @@ export type TalkResponse = {
   forget: number;
   /** 이번 턴 이후 주고받은 말 횟수 */
   talks: number;
+  /** 이번 턴에 받아들여진 조건 제시 (클라이언트가 선금을 내고 기록한다) */
+  offer: "advance" | "share" | null;
 };
 
 // ── 던전 사건 ──────────────────────────────────────────────

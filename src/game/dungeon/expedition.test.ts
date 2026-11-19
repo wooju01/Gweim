@@ -6,6 +6,7 @@ import { act, currentActor, living } from "../combat/engine";
 import type { Merc } from "../types";
 import {
   battleFor,
+  battleSpoils,
   canMove,
   choiceProblem,
   chooseEvent,
@@ -252,5 +253,30 @@ describe("쓰러진 용병", () => {
     expect(k).toMatchObject({ hp: 1, down: false, fell: true });
     expect(rescueBonds(after)[kass.id]).toBe(8);
     expect(battleFor(after, mercs, 10).units.some((u) => u.id === kass.id)).toBe(true);
+  });
+});
+
+describe("전리품", () => {
+  it("전투에서 이기면 적 한 마리당 금화 4~8, 지면 없다", () => {
+    const exp = startExpedition(mercs, 11);
+    const b = battleFor(exp, mercs, 11);
+    const enemies = b.units.filter((u) => u.side === "enemy").length;
+    const won = battleSpoils(exp, { ...b, outcome: "victory" }, 3);
+    expect(won.exp.gold).toBeGreaterThanOrEqual(4 * enemies);
+    expect(won.exp.gold).toBeLessThanOrEqual(8 * enemies);
+    expect(won.lines[0]).toContain("금화");
+    expect(battleSpoils(exp, { ...b, outcome: "defeat" }, 3).exp.gold).toBe(0);
+  });
+
+  it("보물 칸은 물자와 금화, 가끔 유물을 준다. 목적지는 금화 40", () => {
+    let relics = 0;
+    for (let seed = 0; seed < 200; seed++) {
+      const t = expeditionWithFirst("treasure");
+      const found = moveTo(t.exp, mercs, t.target, seed)!.exp;
+      expect(found.gold).toBeGreaterThanOrEqual(10);
+      relics += found.loot.length;
+    }
+    expect(relics / 200).toBeGreaterThan(0.25);
+    expect(relics / 200).toBeLessThan(0.55);
   });
 });

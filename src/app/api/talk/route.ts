@@ -1,4 +1,8 @@
-import { TALK_LIMIT, applyTone, getResolve, getStage, proposeJoin, reactionTo, usesTalk } from "@/game/affinity";
+import { TALK_LIMIT, applyTone, clampStat, getResolve, getStage, proposeJoin, reactionTo, usesTalk } from "@/game/affinity";
+import { offerEffect } from "@/game/wages";
+
+/** 돈 얘기 반응의 호감 1점 = 호감도 1 (PAY_TEMPER의 affinity는 호감도 수치 그대로) */
+const AFFINITY_STEP_PER_POINT = 1;
 import { MEMORY_MAX_CHARS, planFold } from "@/game/memory";
 import { mercFromRef } from "@/game/roster";
 import type { Merc } from "@/game/types";
@@ -34,6 +38,7 @@ export async function POST(request: Request) {
   let { affinity, willingness, recentTones } = state;
   let delta = { affinity: 0, willingness: 0 };
   let joined: boolean | null = null;
+  let offer: TalkResponse["offer"] = null;
   let event: TurnEvent;
 
   switch (action.type) {
@@ -63,6 +68,25 @@ export async function POST(request: Request) {
         affinity: direction(delta.affinity),
         willingness: direction(delta.willingness),
         note: reactionTo(merc, tone).note,
+      };
+      break;
+    }
+
+    case "offer": {
+      // 조건 제시는 길드에서, 용병마다 한 번씩. 효과는 성격·배경이 정한다 (금화 차감은 클라이언트)
+      if (rest) return Response.json({ error: "휴식 중에는 조건을 제시하지 않는다" }, { status: 400 });
+      if (state.offers[action.offer]) return Response.json({ error: "이미 제시한 조건" }, { status: 400 });
+      const effect = offerEffect(merc, action.offer);
+      affinity = clampStat(state.affinity + effect.affinity * AFFINITY_STEP_PER_POINT);
+      willingness = clampStat(state.willingness + effect.willingness);
+      delta = { affinity: affinity - state.affinity, willingness: willingness - state.willingness };
+      offer = action.offer;
+      event = {
+        kind: "offer",
+        offer: action.offer,
+        affinity: direction(delta.affinity),
+        willingness: direction(delta.willingness),
+        note: effect.note,
       };
       break;
     }
@@ -115,6 +139,7 @@ export async function POST(request: Request) {
     memory,
     forget,
     talks,
+    offer,
   };
   return Response.json(body);
 }

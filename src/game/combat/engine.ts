@@ -978,11 +978,12 @@ export function passiveNote(b: Battle, u: Unit, passive: string): string | null 
   }
 }
 
-/** 화면 표시용 능력치 (속도는 보여 주지 않는다) */
+/** 화면 표시용 능력치 (속도는 보여 주되, 행동 순서는 보여 주지 않는다) */
 export function unitStats(u: Unit) {
   return {
     attack: u.attack,
     defense: u.defense,
+    speed: speedOf(u),
     critChance: CRIT_CHANCE + (has(u, "keen_eye") ? PASSIVE.keenEyeCrit : 0),
     evadeChance: evadeChance(u),
   };

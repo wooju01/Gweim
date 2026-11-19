@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SURE_JOIN, TALK_LIMIT } from "@/game/affinity";
+import { advanceCost, wageOf } from "@/game/wages";
+import { CURRENCY } from "@/data/economy";
 import type { Merc } from "@/game/types";
 import { FREE_TEXT_MAX, type TalkAction } from "@/lib/schemas";
 import { Button, MercStats, Portrait } from "./parts";
@@ -12,9 +14,13 @@ type Props = {
   partyFull: boolean;
   onAct: (action: TalkAction) => void;
   onLeave: () => void;
+  /** 가진 금화 (선금을 낼 수 있는지) */
+  gold: number;
 };
 
-export function DialogueScreen({ merc, screen, progress, partyFull, onAct, onLeave }: Props) {
+export function DialogueScreen({ merc, screen, progress, partyFull, onAct, onLeave, gold }: Props) {
+  const wage = wageOf(merc);
+  const advance = advanceCost(merc);
   const { reply, pending, error, ended } = screen;
   const [draft, setDraft] = useState("");
   const logEnd = useRef<HTMLDivElement>(null);
@@ -173,6 +179,30 @@ export function DialogueScreen({ merc, screen, progress, partyFull, onAct, onLea
                   동행을 제안한다 · {progress.willingness >= SURE_JOIN ? "확정" : `${progress.willingness}%`}
                 </Button>
                 {partyFull && <span className="text-xs text-ash">파티에 빈 자리가 없다.</span>}
+              </div>
+
+              {/* 조건 제시: 용병마다 한 번씩. 효과는 성격·배경에 따라 다르다 */}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-ash">
+                  요구 보수: 원정마다 {CURRENCY} {progress.offers.share ? wageOf(merc, true) : wage}
+                </span>
+                <Button
+                  className="!px-2.5 !py-1 text-xs"
+                  disabled={pending || !reply || progress.offers.advance || gold < advance}
+                  onClick={() => onAct({ type: "offer", offer: "advance" })}
+                  title="지금 금화를 먼저 낸다. 돈을 반기는 용병일수록 효과가 크다"
+                >
+                  {progress.offers.advance ? "선금을 냈다" : `선금 ${advance} 내밀기`}
+                </Button>
+                <Button
+                  className="!px-2.5 !py-1 text-xs"
+                  disabled={pending || !reply || progress.offers.share}
+                  onClick={() => onAct({ type: "offer", offer: "share" })}
+                  title="고용하면 앞으로 보수를 50% 더 준다"
+                >
+                  {progress.offers.share ? "몫을 약속했다" : `몫 약속 (보수 ${wage} → ${wageOf(merc, true)})`}
+                </Button>
+                {gold < advance && !progress.offers.advance && <span className="text-blood">금화가 모자라다 (가진 금화 {gold})</span>}
               </div>
             </>
           )}

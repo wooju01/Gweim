@@ -5,12 +5,17 @@ import { BOND } from "@/data/bond";
 import { DEATH } from "@/data/death";
 import { MEMORY_MAX_CHARS } from "@/game/memory";
 import { applyTone, clampStat, getStage } from "@/game/affinity";
-import { createRng } from "@/game/random";
+import { createRng, rollInt } from "@/game/random";
+import { PACK_LIMIT, PRICE, START_GOLD, START_PACK, START_STOCK, STOCK_RANGE } from "@/data/economy";
+import { getRelic } from "@/data/relics";
+import { WAGE } from "@/data/wages";
+import { advanceCost, wageOf } from "@/game/wages";
 import { act, giftsReceived, type Battle, type BattleAction } from "@/game/combat/engine";
 import {
   chooseEvent,
   finishBattle,
   giveSupply,
+  battleSpoils,
   leaveRoom,
   markRestTalk,
   moveTo,
@@ -24,7 +29,8 @@ import type { EventResponse, HistoryLine, MercRef, MercSeed, Stage, TalkResponse
 
 const HISTORY_LIMIT = 20;
 
-export type MercProgress = TalkState & { hired: boolean };
+/** wage: 고용할 때 정해진 원정 1회 보수 (몫 약속을 했으면 더 많다). 고용 전에는 없다 */
+export type MercProgress = TalkState & { hired: boolean; wage?: number };
 
 /** 길드 명단의 한 칸. 고유 용병은 id만, 랜덤 용병은 다시 만들 수 있는 시드를 들고 있다. */
 export type RosterEntry = MercRef;
@@ -64,6 +70,14 @@ export type GameState = {
   booted: boolean;
   /** 던전에서 잃은 동료 (추모 명단). words는 마지막 말 (기다리는 중이면 null) */
   memorial: Fallen[];
+  /** 가진 금화 (원정에서 얻은 금화는 살아 돌아와야 여기에 더해진다) */
+  gold: number;
+  /** 원정 짐: 다음 원정에 들고 갈 물자 */
+  pack: Record<SupplyKind, number>;
+  /** 가진 유물 id (마을에서 판다) */
+  relics: string[];
+  /** 상점 재고 (원정에서 돌아올 때마다 새로 들어온다) */
+  stock: Record<SupplyKind, number>;
 };
 
 export type Fallen = { id: string; name: string; title: string; words: string | null; depth: number };
@@ -95,8 +109,11 @@ export type GameAction =
   | { type: "leaveRoom" }
   | { type: "giveSupply"; item: SupplyKind; target: string }
   | { type: "battleAct"; action: BattleAction }
-  /** 전투가 끝나고 맵으로 돌아간다 */
-  | { type: "battleFinish" }
+  /** 전투가 끝나고 맵으로 돌아간다. seed: 전리품 */
+  | { type: "battleFinish"; seed?: number }
+  /** 상점: 물자 하나 사기, 유물 하나 팔기 */
+  | { type: "buy"; item: SupplyKind }
+  | { type: "sell"; index: number }
   /** 탐험을 끝내고 길드로 (귀환, 후퇴, 전멸). 다음 탐험은 모두 회복한 채 시작한다. seed: 계약 파기 판정 */
   | { type: "endExpedition"; seed: number }
   | { type: "restTalkStart"; mercId: string }
@@ -157,6 +174,38 @@ function bury(state: GameState, deadIds: string[]): GameState {
     lines.push(...down.lines);
   }
   return { ...next, reactions: [...next.reactions, ...lines] };
+}
+
+/** 원정을 마친 용병들에게 보수를 준다. 파티 순서대로 주다가 금화가 모자라면 그 뒤는 체불 */
+function payWages(state: GameState, ids: string[]): { state: GameState; lines: string[] } {
+  let gold = state.gold;
+  let paidTotal = 0;
+  const unpaid: Record<string, number> = {};
+  for (const id of ids) {
+    const p = state.progress[id];
+    const entry = state.roster.find((e) => entryId(e) === id);
+    if (!p?.hired || !entry) continue;
+    const wage = p.wage ?? wageOf(mercOf(entry));
+    if (gold >= wage) {
+      gold -= wage;
+      paidTotal += wage;
+    } else {
+      unpaid[id] = WAGE.unpaidAffinity;
+    }
+  }
+  const lines: string[] = [];
+  if (paidTotal > 0) lines.push(`보수로 금화 ${paidTotal}을(를) 나눠 주었다.`);
+  const after = bumpAffinity({ ...state, gold }, unpaid, "보수를 받지 못했다");
+  lines.push(...after.lines);
+  return { state: { ...state, gold, progress: after.progress }, lines };
+}
+
+/** 상점 재고를 새로 들인다 */
+function restock(seed: number): Record<SupplyKind, number> {
+  const rng = createRng(seed ^ 0x5eed);
+  return Object.fromEntries(
+    (Object.keys(STOCK_RANGE) as SupplyKind[]).map((k) => [k, rollInt(rng.next, STOCK_RANGE[k][0], STOCK_RANGE[k][1])]),
+  ) as Record<SupplyKind, number>;
 }
 
 /** 동행 중인 용병의 호감 단계 */
@@ -230,6 +279,7 @@ function freshProgress(merc: Merc): MercProgress {
     history: [],
     memory: "",
     talks: 0,
+    offers: { advance: false, share: false },
     hired: false,
   };
 }
@@ -255,6 +305,10 @@ export function initialState(): GameState {
     reputation: 0,
     booted: false,
     memorial: [],
+    gold: START_GOLD,
+    pack: { ...START_PACK },
+    relics: [],
+    stock: { ...START_STOCK },
   };
 }
 
@@ -283,6 +337,11 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         { speaker: "merc", text: res.message },
       ];
       const joined = res.joined === true;
+      const entry = state.roster.find((e) => entryId(e) === mercId);
+      const merc = entry ? mercOf(entry) : undefined;
+      // 조건 제시가 받아들여졌으면 기록하고, 선금이면 금화를 낸다
+      const offers = res.offer ? { ...prev.offers, [res.offer]: true } : prev.offers;
+      const paid = res.offer === "advance" && merc ? advanceCost(merc) : 0;
       const progress: MercProgress = {
         affinity: res.affinity,
         willingness: res.willingness,
@@ -291,10 +350,14 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         history: [...prev.history.slice(res.forget), ...lines].slice(-HISTORY_LIMIT),
         memory: res.memory,
         talks: res.talks,
+        offers,
         hired: prev.hired || joined,
+        // 고용될 때 보수가 정해진다 (몫 약속을 했으면 +50%)
+        wage: prev.wage ?? (joined && merc ? wageOf(merc, offers.share) : undefined),
       };
       return {
         ...state,
+        gold: Math.max(0, state.gold - paid),
         progress: { ...state.progress, [mercId]: progress },
         party: joined && !state.party.includes(mercId) ? [...state.party, mercId] : state.party,
         screen:
@@ -314,7 +377,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       if (mercs.length === 0) return state;
       return {
         ...state,
-        expedition: startExpedition(mercs, action.seed),
+        // 짐을 들고 떠난다 (남은 물자는 돌아올 때 짐으로 돌아온다)
+        expedition: startExpedition(mercs, action.seed, state.pack),
+        pack: { ...START_PACK },
         narration: null,
         reactions: [],
         screen: { kind: "dungeon" },
@@ -382,6 +447,24 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       if (!state.restTalk) return state;
       return { ...state, restTalk: { ...state.restTalk, pending: false, error: action.error } };
 
+    case "buy": {
+      const price = PRICE[action.item];
+      const packed = Object.values(state.pack).reduce((a, b) => a + b, 0);
+      if (state.expedition || state.gold < price || state.stock[action.item] <= 0 || packed >= PACK_LIMIT) return state;
+      return {
+        ...state,
+        gold: state.gold - price,
+        pack: { ...state.pack, [action.item]: state.pack[action.item] + 1 },
+        stock: { ...state.stock, [action.item]: state.stock[action.item] - 1 },
+      };
+    }
+
+    case "sell": {
+      const relic = getRelic(state.relics[action.index] ?? "");
+      if (state.expedition || !relic) return state;
+      return { ...state, gold: state.gold + relic.value, relics: state.relics.filter((_, i) => i !== action.index) };
+    }
+
     case "dismissNotices":
       return { ...state, notices: [] };
 
@@ -405,11 +488,13 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         Object.fromEntries(Object.entries(gifts).map(([id, n]) => [id, n * BOND.giftAffinity])),
         "물자를 받았다",
       );
+      // 이기면 전리품 (금화, 가끔 유물)
+      const spoils = battleSpoils(finishBattle(state.expedition, state.screen.battle), state.screen.battle, action.seed ?? 0);
       const next: GameState = {
         ...state,
         ...gained,
-        reactions: gained.lines,
-        expedition: finishBattle(state.expedition, state.screen.battle),
+        reactions: [...spoils.lines, ...gained.lines],
+        expedition: spoils.exp,
         screen: { kind: "dungeon" },
       };
       return bury(next, state.screen.battle.units.filter((u) => u.side === "merc" && u.dead).map((u) => u.id));
@@ -430,6 +515,23 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       let next: GameState = { ...state, expedition: null, narration: null, reactions: [], restTalk: null, screen: { kind: "guild" } };
       if (!exp) return next;
       const notices: string[] = [];
+      // 살아 돌아왔으면 얻은 금화·유물과 남은 물자를 챙긴다. 전멸하면 모두 잃는다
+      if (exp.room?.kind === "defeat") {
+        if (exp.gold > 0 || exp.loot.length > 0) notices.push(`쓰러진 동료들을 끌고 나오느라 금화 ${exp.gold}와 유물 ${exp.loot.length}개를 두고 왔다.`);
+      } else {
+        next = {
+          ...next,
+          gold: next.gold + exp.gold,
+          relics: [...next.relics, ...exp.loot],
+          pack: { ...exp.supplies },
+        };
+        if (exp.gold > 0 || exp.loot.length > 0) notices.push(`금화 ${exp.gold}와 유물 ${exp.loot.length}개를 들고 돌아왔다.`);
+      }
+      next = { ...next, stock: restock(action.seed) };
+      // 보수: 살아 있는 동행 용병에게 원정마다 준다. 모자라면 체불 (호감이 떨어진다)
+      const payroll = payWages(next, exp.members.filter((m) => !m.dead).map((m) => m.id));
+      next = payroll.state;
+      notices.push(...payroll.lines);
       // 쓰러진 동료를 데리고 돌아왔으면 그 용병과 동료들이 고마워한다
       const rescue = rescueBonds(exp);
       if (Object.keys(rescue).length) {

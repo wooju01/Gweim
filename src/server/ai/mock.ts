@@ -253,6 +253,10 @@ export function createMockAI(rand: () => number = Math.random): MercAI {
                 : "neutral";
           return { message: reaction, emotion, choices };
         }
+        case "offer":
+          return event.affinity === "down"
+            ? { message: "돈이면 다 되는 줄 아나 보군.", emotion: "annoyed", choices }
+            : { message: "좋아. 그 말, 잊지 마.", emotion: "pleased", choices };
         case "propose":
           return event.joined
             ? { message: lines.accept, emotion: "pleased", choices }

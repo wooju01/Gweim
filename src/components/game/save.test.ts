@@ -96,3 +96,13 @@ describe("저장", () => {
     expect(loadGame(memoryStore())).toEqual({ state: null });
   });
 });
+
+describe("보수 저장", () => {
+  it("고용할 때 정해진 보수와 조건 제시 기록이 저장된다", () => {
+    const s = booted(initialState());
+    const id = "s-tob";
+    const withWage = { ...s, progress: { ...s.progress, [id]: { ...s.progress[id], hired: true, wage: 25, offers: { advance: true, share: true } } } };
+    const back = fromSave(JSON.parse(JSON.stringify(toSave(withWage)))) as { state: GameState };
+    expect(back.state.progress[id]).toMatchObject({ wage: 25, offers: { advance: true, share: true } });
+  });
+});

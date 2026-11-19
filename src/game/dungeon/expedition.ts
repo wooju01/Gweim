@@ -3,6 +3,8 @@
 // 순수 함수만 둔다. 난수는 시드로 받는다.
 import { HARMFUL, POTION_HEAL, START_SUPPLIES, type SupplyKind } from "../../data/combat";
 import { REST_HEAL_RATIO, TREASURE_COUNT, TREASURE_WEIGHTS, type RoomKind } from "../../data/dungeon";
+import { BATTLE_GOLD, BATTLE_RELIC_CHANCE, CURRENCY, GOAL_GOLD, TREASURE_GOLD, TREASURE_RELIC_CHANCE } from "../../data/economy";
+import { rollRelic } from "../../data/relics";
 import { EVENTS, getEvent, type EventEffect, type EventOutcome, type EventRequirement, type EventUnlock } from "../../data/events";
 import type { ChoiceTone, Stage } from "../../lib/schemas";
 import { BOND } from "../../data/bond";
@@ -53,11 +55,15 @@ export type Expedition = {
   supplies: Record<SupplyKind, number>;
   depth: number;
   room: Room | null;
+  /** 이번 원정에서 얻은 금화와 유물 id (살아서 돌아와야 내 것이 된다) */
+  gold: number;
+  loot: string[];
 };
 
 // ── 시작 ────────────────────────────────────────────────
 
-export function startExpedition(mercs: Merc[], seed: number): Expedition {
+/** pack: 짐에 넣어 가는 물자 (마을 상점에서 산 것) */
+export function startExpedition(mercs: Merc[], seed: number, pack: Record<SupplyKind, number> = START_SUPPLIES): Expedition {
   const map = generateMap(seed);
   return {
     map,
@@ -67,9 +73,11 @@ export function startExpedition(mercs: Merc[], seed: number): Expedition {
       const unit = mercUnit(m);
       return { id: m.id, name: m.name, job: m.job, race: m.race, hp: unit.hp, maxHp: unit.maxHp, statuses: [], down: false };
     }),
-    supplies: { ...START_SUPPLIES },
+    supplies: { ...pack },
     depth: 1,
     room: null,
+    gold: 0,
+    loot: [],
   };
 }
 
@@ -121,6 +129,7 @@ export function moveTo(
       break;
     case "goal":
       next.room = { kind: "goal" };
+      next.gold += GOAL_GOLD;
       break;
   }
   return { exp: next, battle: null, kind: node.kind };
@@ -205,6 +214,33 @@ function rest(exp: Expedition): string[] {
   return lines.length ? lines : ["모두 기운이 넘친다."];
 }
 
+/** 금화와 유물을 얻는다. 화면에 보일 줄을 돌려준다 */
+function gain(exp: Expedition, gold: number, relics: number, rng: Rng): string[] {
+  const lines: string[] = [];
+  if (gold > 0) {
+    exp.gold += gold;
+    lines.push(`${CURRENCY} +${gold}`);
+  }
+  for (let i = 0; i < relics; i++) {
+    const relic = rollRelic(rng);
+    exp.loot.push(relic.id);
+    lines.push(`유물: ${relic.name}`);
+  }
+  return lines;
+}
+
+/** 전투에서 이기면: 적 한 마리당 금화, 가끔 유물 */
+export function battleSpoils(exp: Expedition, battle: Battle, seed: number): { exp: Expedition; lines: string[] } {
+  if (battle.outcome !== "victory") return { exp, lines: [] };
+  const rng = createRng(seed);
+  const next = structuredClone(exp);
+  const enemies = battle.units.filter((u) => u.side === "enemy").length;
+  let gold = 0;
+  for (let i = 0; i < enemies; i++) gold += rollInt(rng.next, BATTLE_GOLD[0], BATTLE_GOLD[1]);
+  const lines = gain(next, gold, rng.next() < BATTLE_RELIC_CHANCE ? 1 : 0, rng);
+  return { exp: next, lines };
+}
+
 function treasure(exp: Expedition, rng: Rng): string[] {
   const count = rollInt(rng.next, TREASURE_COUNT[0], TREASURE_COUNT[1]);
   const kinds = Object.keys(TREASURE_WEIGHTS) as (keyof typeof TREASURE_WEIGHTS)[];
@@ -215,7 +251,8 @@ function treasure(exp: Expedition, rng: Rng): string[] {
     const kind = kinds.find((k) => (roll -= TREASURE_WEIGHTS[k]) < 0) ?? kinds[0];
     found[kind] = (found[kind] ?? 0) + 1;
   }
-  return supplyLines(exp, found);
+  const gold = rollInt(rng.next, TREASURE_GOLD[0], TREASURE_GOLD[1]);
+  return [...supplyLines(exp, found), ...gain(exp, gold, rng.next() < TREASURE_RELIC_CHANCE ? 1 : 0, rng)];
 }
 
 const SUPPLY_NAME: Record<SupplyKind, string> = { bandage: "붕대", antidote: "해독제", potion: "물약" };
@@ -351,6 +388,7 @@ function applyEffect(exp: Expedition, effect: EventEffect, rng: Rng): { lines: s
     lines.push(`${target.name} ${effect.status === "bleed" ? "출혈" : "중독"}`);
   }
   if (effect.supply) lines.push(...supplyLines(exp, effect.supply));
+  lines.push(...gain(exp, effect.gold ?? 0, effect.relics ?? 0, rng));
   return { lines, who: target?.name };
 }
 
