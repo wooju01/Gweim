@@ -2,7 +2,7 @@
 
 import { useEffect, useReducer } from "react";
 import type { TalkAction } from "@/lib/schemas";
-import { postEvent, postRecruit, postTalk } from "./api";
+import { postEvent, postFarewell, postRecruit, postTalk } from "./api";
 import { BattleScreen } from "./BattleScreen";
 import { DungeonScreen } from "./DungeonScreen";
 import { alive, pickEvent } from "@/game/dungeon/expedition";
@@ -131,6 +131,27 @@ export function Game() {
     }
   }
 
+  /** 전투를 마치고 지도로. 죽은 용병이 있으면 마지막 말을 부탁한다 (명단에서 지워지기 전에 정보를 챙긴다) */
+  async function leaveBattle() {
+    if (state.screen.kind !== "battle") return;
+    const requests = state.screen.battle.units
+      .filter((u) => u.side === "merc" && u.dead)
+      .flatMap((u) => {
+        const entry = findEntry(u.id);
+        const p = state.progress[u.id];
+        return entry && p ? [{ id: u.id, entry, memory: p.memory, stage: getStage(p.affinity) }] : [];
+      });
+    dispatch({ type: "battleFinish" });
+    for (const r of requests) {
+      try {
+        const res = await postFarewell({ merc: r.entry, memory: r.memory, stage: r.stage });
+        dispatch({ type: "farewell", mercId: r.id, words: res.words });
+      } catch {
+        dispatch({ type: "farewell", mercId: r.id, words: "…" });
+      }
+    }
+  }
+
   if (!state.booted) return <main className="flex flex-1 items-center justify-center text-sm text-ash">불러오는 중…</main>;
 
   if (state.screen.kind === "battle") {
@@ -140,7 +161,7 @@ export function Game() {
         key={state.expedition?.at ?? "battle"}
         battle={state.screen.battle}
         onAct={(action) => dispatch({ type: "battleAct", action })}
-        onLeave={() => dispatch({ type: "battleFinish" })}
+        onLeave={() => void leaveBattle()}
         leaveLabel={state.expedition ? { victory: "계속 나아간다", defeat: "결과를 본다" } : undefined}
         bonds={Object.fromEntries(state.party.map((id) => [id, getStage(state.progress[id]?.affinity ?? 0)]))}
       />
@@ -202,6 +223,7 @@ export function Game() {
       notices={state.notices}
       onDismissNotices={() => dispatch({ type: "dismissNotices" })}
       onNewGame={newGame}
+      memorial={state.memorial}
     />
   );
 }

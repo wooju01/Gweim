@@ -24,6 +24,8 @@ export type Member = {
   down: boolean;
   /** 이번 탐험에서 한 번이라도 쓰러졌나 (데리고 귀환하면 호감이 오른다) */
   fell?: boolean;
+  /** 죽었다 (생존 판정 실패). 탐험에서 영영 빠진다 */
+  dead?: boolean;
 };
 
 /** 지금 들어와 있는 칸에서 벌어진 일. null이면 맵에서 다음 칸을 고르는 중 */
@@ -71,7 +73,7 @@ export function startExpedition(mercs: Merc[], seed: number): Expedition {
   };
 }
 
-export const alive = (exp: Expedition) => exp.members.filter((m) => !m.down);
+export const alive = (exp: Expedition) => exp.members.filter((m) => !m.down && !m.dead);
 
 /** 전투에서 이기면 쓰러졌던 용병이 이 체력으로 일어난다 */
 export const REVIVE_HP = 1;
@@ -137,10 +139,12 @@ export function markRestTalk(exp: Expedition): Expedition {
 export function rescueBonds(exp: Expedition): Record<string, number> {
   if (exp.room?.kind === "defeat") return {};
   // 쓰러졌다가 일어난 용병도 포함한다 (체력 1로 일어나도 데려온 건 동료들이다)
-  const fallen = exp.members.filter((m) => m.down || m.fell);
+  // 죽은 용병은 데려올 수 없다
+  const living = exp.members.filter((m) => !m.dead);
+  const fallen = living.filter((m) => m.down || m.fell);
   if (fallen.length === 0) return {};
   return Object.fromEntries(
-    exp.members.map((m) => [m.id, m.down || m.fell ? BOND.rescuedAffinity : BOND.rescuerAffinity * fallen.length]),
+    living.map((m) => [m.id, m.down || m.fell ? BOND.rescuedAffinity : BOND.rescuerAffinity * fallen.length]),
   );
 }
 
@@ -173,6 +177,7 @@ export function finishBattle(exp: Expedition, battle: Battle): Expedition {
     const unit = battle.units.find((u) => u.id === m.id && u.side === "merc");
     if (!unit) return m;
     const fellNow = unit.hp <= 0;
+    if (unit.dead) return { ...m, hp: 0, statuses: [], down: true, fell: true, dead: true };
     return {
       ...m,
       hp: fellNow && won ? REVIVE_HP : unit.hp,

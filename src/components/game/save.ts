@@ -57,6 +57,9 @@ export const SaveFile = z.object({
     notices: z.array(z.string()).default([]),
     renown: z.number().default(0),
     reputation: z.number().default(0),
+    memorial: z
+      .array(z.object({ id: z.string(), name: z.string(), title: z.string(), words: z.string().nullable(), depth: z.number() }))
+      .default([]),
   }),
 });
 export type SaveFile = z.infer<typeof SaveFile>;
@@ -83,6 +86,7 @@ export function toSave(state: GameState, now = new Date()): SaveFile {
       notices: state.notices,
       renown: state.renown,
       reputation: state.reputation,
+      memorial: state.memorial,
     } as SaveFile["state"],
   };
 }
@@ -126,6 +130,8 @@ export function fromSave(raw: unknown): { state: GameState } | { error: string }
       notices: s.notices,
       renown: s.renown,
       reputation: s.reputation,
+      // 마지막 말을 기다리다 끊겼으면 기본 문장 없이 비워 둔다
+      memorial: s.memorial.map((f) => ({ ...f, words: f.words ?? "…" })),
       // 사건 칸에서 멈췄으면 AI 묘사 없이 기본 문장으로 이어 간다
       narration: room?.kind === "event" && !room.result ? { eventId: room.eventId, pending: false, data: null } : null,
     },

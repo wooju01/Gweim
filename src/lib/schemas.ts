@@ -191,3 +191,16 @@ export const EventRequest = z.object({
 export type EventRequest = z.infer<typeof EventRequest>;
 
 export type EventResponse = EventNarration & { mode: AIMode };
+
+// ── 마지막 말 ──────────────────────────────────────────────
+
+export const FarewellRequest = z.object({
+  merc: MercRef,
+  /** 그 용병이 길안내자와 나눈 대화의 기억 */
+  memory: z.string().max(600).default(""),
+  stage: Stage,
+});
+export type FarewellRequest = z.infer<typeof FarewellRequest>;
+
+export const Farewell = z.object({ words: z.string().min(1).max(100) });
+export type FarewellResponse = { mode: AIMode; words: string };

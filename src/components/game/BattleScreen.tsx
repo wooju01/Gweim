@@ -108,6 +108,14 @@ function floatsFor(e: BattleEvent): Omit<Float, "id">[] {
       return [{ unit: e.target, text: "회피", tone: "frost" }];
     case "disobey":
       return [{ unit: e.unit, text: "명령 무시", tone: "info" }];
+    case "dying":
+      return [{ unit: e.target, text: "빈사", tone: "crit" }];
+    case "rescue":
+      return [{ unit: e.target, text: "구출!", tone: "heal" }];
+    case "survive":
+      return [{ unit: e.target, text: "버텼다", tone: "gold" }];
+    case "death":
+      return [{ unit: e.target, text: "사망", tone: "crit" }];
     case "skill":
       return [{ unit: e.actor, text: getSkill(e.skill)?.name ?? "", tone: "gold" }];
     case "fizzle":
@@ -298,7 +306,16 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds }: Prop
       <section aria-label="전투 기록" className="h-24 overflow-y-auto rounded-sm border border-edge bg-panel px-3 py-2 text-xs leading-relaxed">
         {battle.log.slice(0, play.shown).map((event, i) =>
           event.type === "round" ? null : (
-            <p key={i} className={event.type === "down" ? "text-blood" : event.type === "end" ? "font-bold text-ember" : "text-bone/75"}>
+            <p
+              key={i}
+              className={
+                event.type === "down" || event.type === "death" || event.type === "dying"
+                  ? "text-blood"
+                  : event.type === "end" || event.type === "rescue" || event.type === "survive"
+                    ? "font-bold text-ember"
+                    : "text-bone/75"
+              }
+            >
               {describe(event, battle)}
             </p>
           ),
@@ -446,7 +463,16 @@ function Figure({
       style={{ left: `${slot.x}%`, top: `${slot.y}%`, zIndex: Math.round(slot.y), ["--dir" as string]: dir }}
     >
       {/* 머리 위 정보 */}
-      <div className={`mb-1 flex w-24 flex-col items-center gap-0.5 transition-opacity ${down ? "opacity-0" : ""}`}>
+      {down && unit.side === "merc" && (
+        <p
+          className={`mb-1 w-24 text-center text-[11px] font-bold ${unit.dead ? "text-ash" : unit.stable ? "text-ember" : "animate-pulse text-blood"}`}
+        >
+          {unit.name}
+          <br />
+          {unit.dead ? "사망" : unit.stable ? "의식 없이 버티는 중" : unit.dying !== undefined ? `빈사 · ${unit.dying}라운드` : ""}
+        </p>
+      )}
+      <div className={`mb-1 flex w-24 flex-col items-center gap-0.5 transition-opacity ${down ? "hidden" : ""}`}>
         {preview && (
           <span className="rounded-sm border border-blood/60 bg-ink/90 px-1.5 text-[11px] font-bold text-bone">
             {preview.min === preview.max ? preview.min : `${preview.min}~${preview.max}`}

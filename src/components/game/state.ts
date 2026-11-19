@@ -2,6 +2,8 @@ import { MERCS, getMerc } from "@/data/mercs";
 import { USE_SAMPLE_ROSTER, sampleSeeds } from "@/data/sampleRoster";
 import type { SupplyKind } from "@/data/combat";
 import { BOND } from "@/data/bond";
+import { DEATH } from "@/data/death";
+import { MEMORY_MAX_CHARS } from "@/game/memory";
 import { applyTone, clampStat, getStage } from "@/game/affinity";
 import { createRng } from "@/game/random";
 import { act, giftsReceived, type Battle, type BattleAction } from "@/game/combat/engine";
@@ -60,7 +62,11 @@ export type GameState = {
   reputation: number;
   /** 저장을 읽고 나서 true (그전에는 화면을 그리지 않고 저장도 하지 않는다). 저장하지 않는 칸 */
   booted: boolean;
+  /** 던전에서 잃은 동료 (추모 명단). words는 마지막 말 (기다리는 중이면 null) */
+  memorial: Fallen[];
 };
+
+export type Fallen = { id: string; name: string; title: string; words: string | null; depth: number };
 
 export type RestTalk = {
   mercId: string;
@@ -98,6 +104,8 @@ export type GameAction =
   | { type: "restTalkReply"; res: TalkResponse; done: boolean }
   | { type: "restTalkFailed"; error: string }
   | { type: "dismissNotices" }
+  /** 죽은 용병의 마지막 말이 도착했다 */
+  | { type: "farewell"; mercId: string; words: string }
   /** 저장에서 불러온 상태로 바꾼다 */
   | { type: "load"; state: GameState }
   /** 저장을 지우고 처음부터 */
@@ -112,6 +120,43 @@ export function mercOf(entry: RosterEntry): Merc {
   const merc = entry.kind === "unique" ? getMerc(entry.id) : buildMerc(entry.seed);
   if (!merc) throw new Error(`잘못된 명단 항목: ${entryId(entry)}`);
   return merc;
+}
+
+/**
+ * 죽은 용병을 명단에서 영영 지우고 추모 명단에 올린다.
+ * 함께 있던 동료들은 호감이 떨어지고(지켜 주지 못했다), 기억에 그 죽음이 남는다.
+ */
+function bury(state: GameState, deadIds: string[]): GameState {
+  if (deadIds.length === 0) return state;
+  let next = state;
+  const lines: string[] = [];
+  for (const id of deadIds) {
+    const entry = next.roster.find((e) => entryId(e) === id);
+    if (!entry) continue;
+    const merc = mercOf(entry);
+    const progress = { ...next.progress };
+    delete progress[id];
+    next = {
+      ...next,
+      roster: next.roster.filter((e) => entryId(e) !== id),
+      party: next.party.filter((x) => x !== id),
+      progress,
+      memorial: [...next.memorial, { id, name: merc.name, title: merc.title, words: null, depth: next.expedition?.depth ?? 1 }],
+    };
+    lines.push(`${merc.name}이(가) 숨을 거두었다.`);
+    // 함께 있던 동료들: 호감 하락, 기억에 남는다
+    const witnesses = next.party.filter((x) => next.progress[x]);
+    const down = bumpAffinity(next, Object.fromEntries(witnesses.map((x) => [x, DEATH.allyAffinity])), `${merc.name}을(를) 잃었다`);
+    const remembered = { ...down.progress };
+    for (const x of witnesses) {
+      const p = remembered[x];
+      const memory = `${p.memory} ${merc.name}이(가) 던전에서 죽었다.`.trim();
+      remembered[x] = { ...p, memory: memory.slice(-MEMORY_MAX_CHARS) };
+    }
+    next = { ...next, progress: remembered };
+    lines.push(...down.lines);
+  }
+  return { ...next, reactions: [...next.reactions, ...lines] };
 }
 
 /** 동행 중인 용병의 호감 단계 */
@@ -134,7 +179,8 @@ function bumpAffinity(
     if (affinity === p.affinity) continue;
     progress[id] = { ...p, affinity };
     const entry = state.roster.find((e) => entryId(e) === id);
-    lines.push(`${entry ? mercOf(entry).name : id}: 호감 ${n >= BOND.rescuedAffinity ? "↑↑" : "↑"} (${why})`);
+    const arrow = n >= BOND.rescuedAffinity ? "↑↑" : n > 0 ? "↑" : "↓";
+    lines.push(`${entry ? mercOf(entry).name : id}: 호감 ${arrow} (${why})`);
   }
   return { progress, lines };
 }
@@ -208,6 +254,7 @@ export function initialState(): GameState {
     renown: 0,
     reputation: 0,
     booted: false,
+    memorial: [],
   };
 }
 
@@ -358,12 +405,23 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         Object.fromEntries(Object.entries(gifts).map(([id, n]) => [id, n * BOND.giftAffinity])),
         "물자를 받았다",
       );
-      return {
+      const next: GameState = {
         ...state,
         ...gained,
         reactions: gained.lines,
         expedition: finishBattle(state.expedition, state.screen.battle),
         screen: { kind: "dungeon" },
+      };
+      return bury(next, state.screen.battle.units.filter((u) => u.side === "merc" && u.dead).map((u) => u.id));
+    }
+
+    case "farewell": {
+      const memorial = state.memorial.map((f) => (f.id === action.mercId ? { ...f, words: action.words } : f));
+      const fallen = memorial.find((f) => f.id === action.mercId);
+      return {
+        ...state,
+        memorial,
+        reactions: fallen ? [...state.reactions, `${fallen.name}의 마지막 말: “${action.words}”`] : state.reactions,
       };
     }
 

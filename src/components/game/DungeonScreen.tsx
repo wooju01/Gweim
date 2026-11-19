@@ -403,7 +403,11 @@ function MemberCard({ member, stage, children }: { member: Member; stage?: Stage
           {member.name}
           {stage && <span className={`ml-1.5 text-[11px] font-normal ${STAGE_LABEL[stage].style}`}>{STAGE_LABEL[stage].name}</span>}
         </h3>
-        {member.down && <span className="text-[11px] text-blood">쓰러짐</span>}
+        {member.dead ? (
+          <span className="text-[11px] text-ash">사망</span>
+        ) : (
+          member.down && <span className="text-[11px] text-blood">쓰러짐</span>
+        )}
       </div>
       <div>
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink ring-1 ring-edge">

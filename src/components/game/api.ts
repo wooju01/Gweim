@@ -1,4 +1,4 @@
-import type { EventRequest, EventResponse, RecruitRequest, RecruitResponse, TalkRequest, TalkResponse } from "@/lib/schemas";
+import type { EventRequest, EventResponse, FarewellRequest, FarewellResponse, RecruitRequest, RecruitResponse, TalkRequest, TalkResponse } from "@/lib/schemas";
 
 // 데스크톱 빌드에서는 호스팅 서버 주소를 넣는다. 웹에서는 비워 두면 같은 서버로 간다.
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
@@ -26,4 +26,8 @@ export function postRecruit(body: RecruitRequest): Promise<RecruitResponse> {
 
 export function postEvent(body: EventRequest): Promise<EventResponse> {
   return post("/api/event", body);
+}
+
+export function postFarewell(body: FarewellRequest): Promise<FarewellResponse> {
+  return post("/api/farewell", body);
 }

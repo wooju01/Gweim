@@ -2,7 +2,7 @@ import { LEVELS, getPassive } from "@/data/passives";
 import type { Merc } from "@/game/types";
 import { Button, MercStats, Portrait } from "./parts";
 import { GUIDE, MERC_SLOTS } from "@/game/party";
-import type { MercProgress } from "./state";
+import type { Fallen, MercProgress } from "./state";
 
 type Props = {
   mercs: Merc[];
@@ -18,6 +18,8 @@ type Props = {
   onDismissNotices?: () => void;
   /** 저장을 지우고 처음부터 */
   onNewGame?: () => void;
+  /** 잃은 동료 */
+  memorial?: Fallen[];
 };
 
 export function GuildScreen({
@@ -32,6 +34,7 @@ export function GuildScreen({
   notices = [],
   onDismissNotices,
   onNewGame,
+  memorial = [],
 }: Props) {
   const byId = new Map(mercs.map((m) => [m.id, m]));
 
@@ -186,6 +189,22 @@ export function GuildScreen({
           {party.length === 0 && <p className="text-[11px] text-ash">용병을 한 명 이상 고용해야 한다.</p>}
         </aside>
       </div>
+      {memorial.length > 0 && (
+        <section aria-label="잃은 동료" className="flex flex-col gap-2 border-t border-edge pt-6">
+          <h2 className="text-sm tracking-widest text-ash">잃은 동료</h2>
+          <ul className="flex flex-col gap-1.5 text-sm">
+            {memorial.map((f) => (
+              <li key={f.id} className="text-bone/80">
+                <span className="font-bold">{f.name}</span>
+                <span className="ml-2 text-xs text-ash">
+                  {f.title} · {f.depth}층에서
+                </span>
+                {f.words && <p className="pl-3 text-xs text-ash italic">“{f.words}”</p>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </main>
   );
 }

@@ -41,3 +41,33 @@ describe("호감도와 탐험 (상태)", () => {
     expect(s.reactions[0]).toContain("브란");
   });
 });
+
+describe("죽음 (상태)", () => {
+  it("전투에서 죽은 용병은 명단에서 사라지고 추모 명단에 오른다. 동료는 호감이 떨어지고 기억에 남는다", () => {
+    let s = inDungeon(["s-bran", "s-mirel", "s-tob", "s-durgan"]);
+    const exp = s.expedition!;
+    const battleNode = exp.map.nodes.find((n) => n.kind === "battle")!;
+    // 전투 화면을 직접 만들고, 브란이 죽은 채로 이긴 것으로 한다
+    const fake = {
+      round: 1, order: [], turn: 0, supplies: exp.supplies, depth: 1, walked: 1, guideUsed: false, rng: 1, outcome: "victory" as const, log: [],
+      units: exp.members.map((m) => ({
+        id: m.id, side: "merc" as const, name: m.name, title: "", hp: m.id === "s-bran" ? 0 : m.hp, maxHp: m.maxHp,
+        attack: [1, 1] as const, defense: 0, speed: 0, statuses: [], skills: [], cooldowns: {}, guarding: false,
+        dead: m.id === "s-bran",
+      })),
+    };
+    void battleNode;
+    const before = s.progress["s-mirel"].affinity;
+    s = gameReducer({ ...s, screen: { kind: "battle", battle: fake } }, { type: "battleFinish" });
+    expect(s.roster.some((e) => e.kind === "random" && e.seed.id === "s-bran")).toBe(false);
+    expect(s.party).not.toContain("s-bran");
+    expect(s.memorial).toEqual([expect.objectContaining({ id: "s-bran", name: "브란", words: null })]);
+    expect(s.progress["s-mirel"].affinity).toBe(before - 5);
+    expect(s.progress["s-mirel"].memory).toContain("브란");
+    expect(s.expedition!.members.find((m) => m.id === "s-bran")).toMatchObject({ dead: true });
+
+    s = gameReducer(s, { type: "farewell", mercId: "s-bran", words: "먼저 간다." });
+    expect(s.memorial[0].words).toBe("먼저 간다.");
+    expect(s.reactions.some((r) => r.includes("먼저 간다."))).toBe(true);
+  });
+});

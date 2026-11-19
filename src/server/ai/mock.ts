@@ -11,7 +11,7 @@ import {
 import { dislikedTones, likedTones } from "../../game/affinity";
 import type { Merc } from "../../game/types";
 import { MEMORY_MAX_CHARS } from "../../game/memory";
-import type { EventInput, MercAI, ProfileInput, ReplyContext, SummaryInput } from "./types";
+import type { EventInput, FarewellInput, MercAI, ProfileInput, ReplyContext, SummaryInput } from "./types";
 
 type MercLines = {
   open: Record<Stage, string>;
@@ -183,6 +183,17 @@ export function mockClassify(text: string): Tone {
   return "neutral";
 }
 
+/** 호감 단계에 따른 기본 마지막 말 */
+export function mockFarewell({ stage }: FarewellInput): string {
+  return {
+    hostile: "…결국 이렇게 되는군. 당신을 따라온 게 잘못이었어.",
+    wary: "여기까지인가… 길은… 당신이 알아서 찾아.",
+    neutral: "먼저 간다. 끝까지… 살아서 나가.",
+    warm: "괜찮아… 당신 탓이 아니야. 남은 녀석들을 부탁해.",
+    trusted: "당신과 걸어서… 나쁘지 않았어. 멈추지 마.",
+  }[stage];
+}
+
 /** 사건 틀의 기본 문장을 그대로 쓴다 */
 export function mockNarration({ event }: EventInput) {
   return { intro: event.intro, choices: event.choices.map((c) => ({ id: c.id, text: c.text })) };
@@ -202,6 +213,9 @@ export function createMockAI(rand: () => number = Math.random): MercAI {
     },
     async narrateEvent(input) {
       return mockNarration(input);
+    },
+    async farewell(input) {
+      return mockFarewell(input);
     },
     async reply({ merc, stage, event }: ReplyContext) {
       const lines = GENERIC_LINES;

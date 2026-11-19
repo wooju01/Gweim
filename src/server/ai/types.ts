@@ -68,6 +68,9 @@ export type EventInput = {
   party: { name: string; race?: string; job?: string }[];
 };
 
+/** 마지막 말 입력 */
+export type FarewellInput = { merc: Merc; memory: string; stage: Stage };
+
 /** 실제 AI와 mock이 똑같이 구현하는 인터페이스 */
 export interface MercAI {
   readonly mode: "mock" | "live";
@@ -79,4 +82,6 @@ export interface MercAI {
   summarize(input: SummaryInput): Promise<string>;
   /** 던전 사건의 상황 묘사와 선택지 문장을 파티에 맞게 쓴다 (결과는 코드가 정한다) */
   narrateEvent(input: EventInput): Promise<EventNarration>;
+  /** 던전에서 죽어 가는 용병이 길안내자에게 남기는 마지막 한마디 */
+  farewell(input: FarewellInput): Promise<string>;
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { POTION_HEAL, START_SUPPLIES, STATUS } from "../../data/combat";
 import { TEST_MERCS } from "../../test/fixtures";
 import { PASSIVES } from "../../data/passives";
+import { survivalChance } from "../../data/death";
 import { createRng } from "../random";
 import type { Merc } from "../types";
 import {
@@ -981,5 +982,81 @@ describe("용병형 적", () => {
       expect(n).toBeGreaterThanOrEqual(3);
       expect(n).toBeLessThanOrEqual(4);
     }
+  });
+});
+
+describe("빈사와 죽음", () => {
+  /** 바른은 체력 1, 적은 공격력 5로 바로 쓰러뜨린다. 엘케가 함께 있어 전투가 이어진다 */
+  const setup = (seed: number, bond?: Unit["bond"]) => {
+    let b = start([varn, elke], seed, [dummy("e0", 999, { attack: [5, 5] })]);
+    b = edit(b, (c) => {
+      const v = unitById(c, varn.id)!;
+      v.hp = 1;
+      v.bond = bond;
+      unitById(c, elke.id)!.hp = 999;
+      unitById(c, elke.id)!.maxHp = 999;
+    });
+    return b;
+  };
+  /** 적이 바른을 칠 때까지 진행 */
+  const untilDying = (b: Battle) => {
+    for (let i = 0; i < 20 && !unitById(b, varn.id)!.dying; i++) {
+      const actor = currentActor(b);
+      if (!actor) break;
+      b = act(b, { type: "attack", target: "e0" });
+    }
+    return b;
+  };
+
+  it("체력 0이 되면 죽지 않고 빈사로 쓰러진다", () => {
+    const b = untilDying(setup(1));
+    // 적의 차례에 쓰러지면, 다음 용병 차례가 올 때는 다음 라운드가 시작되어 1라운드가 남는다
+    expect(unitById(b, varn.id)!).toMatchObject({ hp: 0, dying: 1 });
+    expect(b.log).toContainEqual({ type: "dying", target: varn.id, rounds: 2 });
+  });
+
+  it("길안내자가 물약이나 붕대로 일으킬 수 있다 (해독제는 안 된다)", () => {
+    const b = untilDying(setup(1));
+    expect(validate(b, { type: "guide", item: "antidote", target: varn.id })).toBe("건넬 수 없는 대상");
+    const p = act(b, { type: "guide", item: "potion", target: varn.id });
+    expect(unitById(p, varn.id)!.hp).toBe(12);
+    expect(unitById(p, varn.id)!.dying).toBeUndefined();
+    expect(p.log.some((e) => e.type === "rescue")).toBe(true);
+    const g = act(b, { type: "guide", item: "bandage", target: varn.id });
+    expect(unitById(g, varn.id)!.hp).toBe(3);
+  });
+
+  it("구하지 못하면 2라운드 뒤 생존 판정. 신뢰가 깊을수록 잘 버틴다", () => {
+    const deathRate = (bond: Unit["bond"]) => {
+      let died = 0;
+      for (let seed = 0; seed < 300; seed++) {
+        let b = untilDying(setup(seed, bond));
+        for (let i = 0; i < 30 && !b.outcome && !b.log.some((e) => (e.type === "death" || e.type === "survive") && e.target === varn.id); i++) {
+          b = act(b, { type: "attack", target: "e0" });
+        }
+        if (unitById(b, varn.id)!.dead) died++;
+      }
+      return died / 300;
+    };
+    const hostile = deathRate("hostile");
+    const trusted = deathRate("trusted");
+    expect(hostile).toBeGreaterThan(0.6); // 생존 25%
+    expect(trusted).toBeLessThan(0.4); // 생존 75%
+  });
+
+  it("죽은 용병은 물자를 받을 수 없다", () => {
+    let b = untilDying(setup(1));
+    b = edit(b, (c) => {
+      const v = unitById(c, varn.id)!;
+      v.dead = true;
+      v.dying = undefined;
+    });
+    expect(validate(b, { type: "guide", item: "potion", target: varn.id })).toBe("건넬 수 없는 대상");
+  });
+
+  it("생존 확률: 기본 50%, 호감·종족·등급으로 오르내리고 5~95% 안", () => {
+    expect(survivalChance({})).toBe(0.5);
+    expect(survivalChance({ bond: "trusted", race: "barbarian", level: "legend" })).toBe(0.95);
+    expect(survivalChance({ bond: "hostile", race: "elf" })).toBeCloseTo(0.2);
   });
 });

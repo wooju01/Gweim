@@ -70,7 +70,11 @@ describe("탐험", () => {
     const won = battle.outcome === "victory";
     for (const m of after.members) {
       const unit = battle.units.find((u) => u.id === m.id)!;
-      // 이기면 쓰러졌던 용병은 체력 1로 일어나고, 지면 쓰러진 채로 남는다
+      // 죽은 용병은 빠지고, 이기면 쓰러졌던 용병은 체력 1로 일어나고, 지면 쓰러진 채로 남는다
+      if (unit.dead) {
+        expect(m).toMatchObject({ hp: 0, dead: true, down: true });
+        continue;
+      }
       expect(m.hp).toBe(unit.hp <= 0 && won ? 1 : unit.hp);
       expect(m.down).toBe(unit.hp <= 0 && !won);
       expect(m.fell ?? false).toBe(unit.hp <= 0);

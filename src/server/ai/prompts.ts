@@ -7,7 +7,7 @@ import { getTrait } from "../../data/traits";
 import { LEVELS, getPassive, type Passive } from "../../data/passives";
 import { getSkill } from "../../data/skillgen";
 import type { Trait } from "../../game/types";
-import type { Direction, EventInput, ProfileInput, ReplyContext, SummaryInput, TurnEvent } from "./types";
+import type { Direction, EventInput, FarewellInput, ProfileInput, ReplyContext, SummaryInput, TurnEvent } from "./types";
 
 const TONE_NAME: Record<ChoiceTone, string> = {
   respect: "존중",
@@ -302,4 +302,21 @@ ${choices}
 - choices: 위 선택지마다 같은 id로, 길안내자가 할 행동을 한 문장으로. 40자 이내. 뜻을 바꾸거나 새 선택지를 만들지 않는다.
 - 결과를 미리 말하지 않는다. 숫자, 확률, 게임 시스템을 언급하지 않는다.
 - 현실의 인종·민족을 연상시키는 묘사를 하지 않는다. 성적인 묘사, 현실의 위험한 방법은 쓰지 않는다.`;
+}
+
+/** 마지막 말. 시스템 프롬프트(캐릭터 설정)는 대사와 같은 것을 쓴다 */
+export function farewellPrompt({ merc, memory, stage }: FarewellInput): string {
+  return `# 장면
+던전 깊은 곳의 전투에서 ${merc.name}이(가) 치명상을 입고 쓰러졌다. 아무도 제때 구하지 못했고, 지금 숨이 끊어지려 한다. 곁에는 길안내자(플레이어)가 있다.
+
+# 길안내자에 대한 마음
+${STAGE_GUIDE[stage]}
+
+# 함께한 기억
+${memory.trim() || "(길안내자와 깊은 이야기를 나눈 적은 없다)"}
+
+# 쓸 것
+${merc.name}이(가) 마지막으로 남기는 한마디. 한국어 1~2문장, 60자 이내. 말투와 성격을 지킨다.
+기억에 있는 일을 짧게 떠올려도 좋다. 비밀을 털어놓을 수도, 끝내 숨길 수도 있다.
+수치, 게임 시스템, AI라는 사실은 말하지 않는다.`;
 }

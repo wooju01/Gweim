@@ -2,10 +2,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import { EventNarration, MercProfile, MercReply, Tone } from "../../lib/schemas";
+import { EventNarration, Farewell, MercProfile, MercReply, Tone } from "../../lib/schemas";
 import {
   classifyPrompt,
   eventPrompt,
+  farewellPrompt,
   profilePrompt,
   summaryPrompt,
   systemPrompt,
@@ -136,6 +137,24 @@ export function createClaudeAI(options: { model?: string } = {}): MercAI {
         throw new AIOutputError(`사건 묘사 실패 (stop_reason: ${response.stop_reason})`);
       }
       return response.parsed_output;
+    },
+
+    async farewell(input) {
+      const response = await client.messages.parse({
+        model,
+        ...thinkingOption(),
+        max_tokens: 1000,
+        output_config: { effort: "low", format: zodOutputFormat(Farewell) },
+        // 캐릭터 설정은 대사와 같은 시스템 프롬프트 (캐시를 함께 쓴다)
+        system: [{ type: "text", text: systemPrompt(input.merc), cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: farewellPrompt(input) }],
+      });
+      logUsage("farewell", response.usage);
+
+      if (response.stop_reason === "refusal" || !response.parsed_output) {
+        throw new AIOutputError(`마지막 말 실패 (stop_reason: ${response.stop_reason})`);
+      }
+      return response.parsed_output.words;
     },
 
     async classify(text) {

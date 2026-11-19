@@ -69,6 +69,14 @@ export function describe(event: BattleEvent, b: Battle): string {
       return `${name(event.target)}의 몸을 정령의 보호막(${event.amount})이 감쌌다.`;
     case "fizzle":
       return `${name(event.actor)}의 부름에 정령이 답하지 않았다.`;
+    case "dying":
+      return `${josa(name(event.target), "이", "가")} 빈사 상태다. ${event.rounds}라운드 안에 물약이나 붕대로 구하지 않으면 위험하다.`;
+    case "rescue":
+      return `당신이 ${name(event.target)}에게 ${event.via === "potion" ? "물약을 먹였다" : "붕대를 감았다"}. ${josa(name(event.target), "이", "가")} 정신을 차렸다.`;
+    case "survive":
+      return `${josa(name(event.target), "은", "는")} 숨이 끊어질 듯하면서도 끝까지 버텼다.`;
+    case "death":
+      return `${josa(name(event.target), "이", "가")} 숨을 거두었다.`;
     case "refresh":
       return `${name(event.actor)}의 ${josa(getSkill(event.skill)?.name ?? "스킬", "을", "를")} 바로 다시 쓸 수 있다.`;
     case "disobey":

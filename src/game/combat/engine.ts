@@ -30,7 +30,8 @@ import {
 } from "../../data/combat";
 import type { SkillEffect } from "../../data/skills";
 import { BOND } from "../../data/bond";
-import type { Stage } from "../../lib/schemas";
+import { DEATH, survivalChance } from "../../data/death";
+import type { MercLevel, Stage } from "../../lib/schemas";
 import { createRng, rollInt, type Rng } from "../random";
 import type { Merc } from "../types";
 
@@ -62,6 +63,14 @@ export type Unit = {
   passives?: string[];
   /** 용병만: 길안내자에 대한 호감 단계 (전투 시작 때 정해진다) */
   bond?: Stage;
+  /** 용병만: 등급 (생존 판정에 쓴다) */
+  level?: MercLevel;
+  /** 용병만: 빈사. 생존 판정까지 남은 라운드 시작 수 */
+  dying?: number;
+  /** 용병만: 생존 판정을 넘겨 의식 없이 버티는 중 (이기면 일어난다) */
+  stable?: boolean;
+  /** 용병만: 죽었다 (되돌릴 수 없다) */
+  dead?: boolean;
   /** 적만: 정보에 보이는 특징 한 줄 */
   note?: string;
   /** 용병만: 화면에 그릴 때 쓰는 직업·종족 id (규칙에는 쓰지 않는다) */
@@ -112,6 +121,11 @@ export type BattleEvent =
   | { type: "evade"; actor: string; target: string }
   /** 처치해서 스킬 대기 시간이 초기화됐다 (조합 스킬 사냥) */
   | { type: "refresh"; actor: string; skill: SkillId }
+  /** 빈사 상태로 쓰러졌다 / 길안내자가 구했다 / 생존 판정을 넘겼다 / 죽었다 */
+  | { type: "dying"; target: string; rounds: number }
+  | { type: "rescue"; target: string; via: "potion" | "bandage" }
+  | { type: "survive"; target: string; chance: number }
+  | { type: "death"; target: string; chance: number }
   /** 적대 단계 용병이 명령을 무시했다 */
   | { type: "disobey"; unit: string }
   /** 스킬이 실패했다 (정령이 답하지 않음 등) */
@@ -209,7 +223,9 @@ export function validate(b: Battle, action: BattleAction): string | null {
       if (b.guideUsed) return "이번 라운드에는 이미 도왔다";
       if (b.supplies[action.item] <= 0) return "물자가 없다";
       const target = unitById(b, action.target);
-      if (!target || target.side !== "merc" || target.hp <= 0) return "건넬 수 없는 대상";
+      if (!target || target.side !== "merc" || target.dead) return "건넬 수 없는 대상";
+      // 빈사인 용병은 물약이나 붕대로 일으킬 수 있다
+      if (target.hp <= 0) return isDying(target) && action.item !== "antidote" ? null : "건넬 수 없는 대상";
       if (action.item === "bandage" && !hasStatus(target, "bleed")) return "출혈이 없다";
       if (action.item === "antidote" && !hasStatus(target, "poison")) return "중독이 없다";
       if (action.item === "potion" && target.hp >= target.maxHp) return "체력이 가득하다";
@@ -273,6 +289,7 @@ export function mercUnit(merc: Merc): Unit {
     cooldowns: {},
     guarding: false,
     passives: merc.passives ?? [],
+    level: merc.level,
     fx: {},
     job: merc.job,
     race: merc.race,
@@ -403,6 +420,15 @@ export function act(battle: Battle, action: BattleAction): Battle {
       const target = unitById(b, action.target)!;
       b.supplies[action.item]--;
       b.guideUsed = true;
+      if (target.hp <= 0) {
+        // 빈사 구출: 물약은 원래 회복량, 붕대는 조금
+        const amount = action.item === "potion" ? Math.round(POTION_HEAL * potionMultiplier(target)) : DEATH.bandageRevive;
+        heal(b, target, amount, "guide");
+        target.dying = undefined;
+        target.stable = undefined;
+        b.log.push({ type: "rescue", target: target.id, via: action.item === "potion" ? "potion" : "bandage" });
+        break;
+      }
       if (action.item === "bandage") cure(b, target, "bleed", "guide", "bandage");
       if (action.item === "antidote") cure(b, target, "poison", "guide", "antidote");
       if (action.item === "potion") {
@@ -447,7 +473,35 @@ function damage(b: Battle, target: Unit, amount: number) {
   if (target.hp === 0) {
     target.statuses = [];
     b.log.push({ type: "down", target: target.id });
+    // 용병은 바로 죽지 않고 빈사로 쓰러진다
+    if (target.side === "merc" && !target.dead) {
+      target.dying = DEATH.dyingRounds;
+      b.log.push({ type: "dying", target: target.id, rounds: DEATH.dyingRounds });
+    }
     checkOutcome(b);
+  }
+}
+
+/** 빈사인가 (아직 구할 수 있다) */
+export function isDying(u: Unit): boolean {
+  return u.hp <= 0 && !u.dead && (u.dying !== undefined || !!u.stable);
+}
+
+/** 라운드 시작: 빈사 시간이 다 된 용병은 생존 판정 */
+function rollDeaths(b: Battle, rng: Rng) {
+  for (const u of b.units) {
+    if (u.side !== "merc" || u.hp > 0 || u.dead || u.dying === undefined) continue;
+    u.dying--;
+    if (u.dying > 0) continue;
+    u.dying = undefined;
+    const chance = survivalChance(u);
+    if (rng.next() < chance) {
+      u.stable = true;
+      b.log.push({ type: "survive", target: u.id, chance });
+    } else {
+      u.dead = true;
+      b.log.push({ type: "death", target: u.id, chance });
+    }
   }
 }
 
@@ -983,6 +1037,7 @@ function newRound(b: Battle, rng: Rng) {
   b.turn = -1;
   b.guideUsed = false;
   b.log.push({ type: "round", round: b.round });
+  rollDeaths(b, rng);
   // 야생의 회복력: 라운드 시작마다 체력 회복
   for (const u of b.units) {
     if (u.hp > 0 && has(u, "wild_recovery") && u.hp < u.maxHp) heal(b, u, PASSIVE.wildRecovery, u.id);
