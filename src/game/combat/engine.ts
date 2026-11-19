@@ -30,6 +30,7 @@ import {
 } from "../../data/combat";
 import type { SkillEffect } from "../../data/skills";
 import { BOND } from "../../data/bond";
+import { JOB_STAT, PER_POINT, type PowerStat, type StatKey } from "../../data/growth";
 import { DEATH, survivalChance } from "../../data/death";
 import type { MercLevel, Stage } from "../../lib/schemas";
 import { createRng, rollInt, type Rng } from "../random";
@@ -73,6 +74,11 @@ export type Unit = {
   dead?: boolean;
   /** 적만: 정보에 보이는 특징 한 줄 */
   note?: string;
+  /** 성장 스탯에서 오는 기술 위력 (힘·마법·신성 1점당 +1) */
+  power?: Partial<Record<PowerStat, number>>;
+  /** 성장 스탯에서 오는 치명타·회피 확률 추가 */
+  critBonus?: number;
+  evadeBonus?: number;
   /** 적만: 종류 id (data/combat.ts의 ENEMIES). 유실물 드롭표에 쓴다 */
   kind?: string;
   /** 용병만: 화면에 그릴 때 쓰는 직업·종족 id (규칙에는 쓰지 않는다) */
@@ -275,16 +281,22 @@ export function neighbors(b: Battle, unit: Unit): Unit[] {
 
 export function mercUnit(merc: Merc): Unit {
   const stats = (merc.job && JOB_STATS[merc.job]) || DEFAULT_STATS;
+  // 성장 스탯 (레벨업·단련장)
+  const g = (k: StatKey) => (merc.stats?.[k] ?? 0) * PER_POINT[k];
+  const maxHp = stats.hp + g("hp");
   return {
     id: merc.id,
     side: "merc",
     name: merc.name,
     title: merc.title,
-    hp: stats.hp,
-    maxHp: stats.hp,
+    hp: maxHp,
+    maxHp,
     attack: stats.attack,
-    defense: stats.defense,
-    speed: stats.speed,
+    defense: stats.defense + g("defense"),
+    speed: stats.speed + g("speed"),
+    power: { str: g("str"), mag: g("mag"), faith: g("faith") },
+    critBonus: g("crit"),
+    evadeBonus: g("evade"),
     onHit: stats.onHit,
     statuses: [],
     skills: loadout(merc),
@@ -538,6 +550,8 @@ type StrikeOptions = {
   enemiesAtStart?: number;
   /** 이 공격의 치명타 확률 추가 (조합 스킬 정밀) */
   critBonus?: number;
+  /** 이 공격이 따르는 스탯 (공격자의 그 스탯만큼 피해 +) */
+  stat?: PowerStat;
 };
 
 /** 잃은 체력 비율 (0~1) */
@@ -579,6 +593,8 @@ export function strikeFactors(b: Battle, actor: Unit, target: Unit, opts: Strike
   // 깊은 곳의 피: 층 구조가 생기기 전까지는 지나온 칸 2칸마다 +1 (최대 +3)
   if (has(actor, "deep_blood")) bonus += Math.min(PASSIVE.deepBloodMax, Math.floor(b.walked / PASSIVE.deepBloodStep));
   if (has(actor, "solidarity") && friends(b, actor).length >= 4) bonus += PASSIVE.solidarityBonus;
+  // 성장 스탯: 이 공격이 따르는 스탯(힘·마법·신성)만큼 피해 +
+  if (opts.stat) bonus += actor.power?.[opts.stat] ?? 0;
   if (hasStatus(actor, "awaken")) bonus += PASSIVE.awakenBonus;
   if (hasStatus(actor, "weaken")) bonus -= PASSIVE.weakenAmount;
   if (actor.bond === "trusted") bonus += BOND.trustAttack;
@@ -607,7 +623,7 @@ export function strikeFactors(b: Battle, actor: Unit, target: Unit, opts: Strike
   return {
     bonus,
     multiplier,
-    critChance: CRIT_CHANCE + (has(actor, "keen_eye") ? PASSIVE.keenEyeCrit : 0) + (opts.critBonus ?? 0),
+    critChance: CRIT_CHANCE + (has(actor, "keen_eye") ? PASSIVE.keenEyeCrit : 0) + (opts.critBonus ?? 0) + (actor.critBonus ?? 0),
     evadeChance: evadeChance(target),
     crack: hasStatus(target, "crack"),
     guard: target.guarding,
@@ -650,8 +666,14 @@ function evadeChance(target: Unit): number {
   return (
     (has(target, "feather_step") ? PASSIVE.featherEvade : 0) +
     (has(target, "beast_reflex") ? PASSIVE.reflexEvade : 0) +
-    (has(target, "wind_dance") ? PASSIVE.windDanceEvade : 0)
+    (has(target, "wind_dance") ? PASSIVE.windDanceEvade : 0) +
+    (target.evadeBonus ?? 0)
   );
+}
+
+/** 이 효과가 따르는 스탯: 효과 조각 → 스킬 → 쓰는 용병의 직업 스탯 순서 */
+export function statOf(skill: { stat?: PowerStat }, effect: { stat?: PowerStat } | undefined, actor: Unit): PowerStat {
+  return effect?.stat ?? skill.stat ?? (actor.job ? JOB_STAT[actor.job] : undefined) ?? "str";
 }
 
 /** 공격자의 상태이상 부여 확률 (강철 심장이면 절반) */
@@ -739,7 +761,7 @@ function rollBase(rng: Rng, actor: Unit, e: DamageEffect): number {
 }
 
 function attack(b: Battle, rng: Rng, actor: Unit, target: Unit) {
-  strike(b, rng, actor, target, rollBase(rng, actor, BASIC_ATTACK), { enemiesAtStart: foes(b, actor).length });
+  strike(b, rng, actor, target, rollBase(rng, actor, BASIC_ATTACK), { enemiesAtStart: foes(b, actor).length, stat: "str" });
 }
 
 function heal(b: Battle, target: Unit, amount: number, by: Actor) {
@@ -774,12 +796,17 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
         if (e.area === "all") {
           for (const enemy of foes(b, actor)) {
             if (b.outcome) break;
-            strike(b, rng, actor, enemy, rollBase(rng, actor, e), { onHit: e.onHit ?? true, aoe: true, enemiesAtStart });
+            strike(b, rng, actor, enemy, rollBase(rng, actor, e), { onHit: e.onHit ?? true, aoe: true, enemiesAtStart, stat: statOf(skill, e, actor) });
           }
         } else {
           for (let h = 0; h < (e.hits ?? 1); h++) {
             if (!target || target.hp <= 0 || b.outcome) break;
-            strike(b, rng, actor, target, rollBase(rng, actor, e), { onHit: e.onHit ?? true, enemiesAtStart, critBonus: e.critBonus });
+            strike(b, rng, actor, target, rollBase(rng, actor, e), {
+              onHit: e.onHit ?? true,
+              enemiesAtStart,
+              critBonus: e.critBonus,
+              stat: statOf(skill, e, actor),
+            });
           }
         }
         break;
@@ -790,7 +817,7 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
       }
       case "heal": {
         const t = e.who === "self" ? actor : target;
-        if (t) heal(b, t, e.amount, actor.id);
+        if (t) heal(b, t, e.amount + (actor.power?.faith ?? 0), actor.id);
         break;
       }
       case "cure": {
@@ -800,7 +827,7 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
       }
       case "shield": {
         const t = e.who === "self" ? actor : target;
-        if (t) giveShield(b, t, e.amount, actor.id);
+        if (t) giveShield(b, t, e.amount + (actor.power?.[statOf(skill, e, actor)] ?? 0), actor.id);
         break;
       }
       case "taunt":
@@ -876,7 +903,8 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
   const b = structuredClone(battle);
   const actor = currentActor(b)!;
   const target = action.target ? unitById(b, action.target) : undefined;
-  const effects = action.type === "attack" ? [BASIC_ATTACK] : getSkill(skillOf(actor, action)!)!.effects;
+  const skill = action.type === "attack" ? null : getSkill(skillOf(actor, action)!)!;
+  const effects = skill ? skill.effects : [BASIC_ATTACK];
   const enemiesAtStart = foes(b, actor).length;
   const out: ActionPreview = { damage: [], applies: [], heal: null, shield: null, cures: null, taunt: false, selfCost: 0, failChance: 0 };
 
@@ -889,7 +917,7 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
         // 연타는 같은 대상을 여러 번 친다 (타격마다 따로 계산)
         const targets = e.area === "all" ? foes(b, actor) : target ? Array.from({ length: e.hits ?? 1 }, () => target) : [];
         for (const t of targets) {
-          const f = strikeFactors(b, actor, t, { aoe: e.area === "all", enemiesAtStart, critBonus: e.critBonus });
+          const f = strikeFactors(b, actor, t, { aoe: e.area === "all", enemiesAtStart, critBonus: e.critBonus, stat: skill ? statOf(skill, e, actor) : "str" });
           const [lo, hi] = baseRange(actor, e);
           const p: TargetPreview = {
             target: t.id,
@@ -918,7 +946,7 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
       }
       case "heal": {
         const t = e.who === "self" ? actor : target;
-        if (t) out.heal = { target: t.id, amount: Math.min(e.amount, t.maxHp - t.hp) };
+        if (t) out.heal = { target: t.id, amount: Math.min(e.amount + (actor.power?.faith ?? 0), t.maxHp - t.hp) };
         break;
       }
       case "cure": {
@@ -928,7 +956,7 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
       }
       case "shield": {
         const t = e.who === "self" ? actor : target;
-        if (t) out.shield = { target: t.id, amount: e.amount };
+        if (t) out.shield = { target: t.id, amount: e.amount + (skill ? (actor.power?.[statOf(skill, e, actor)] ?? 0) : 0) };
         break;
       }
       case "taunt":
@@ -987,7 +1015,7 @@ export function unitStats(u: Unit) {
     attack: u.attack,
     defense: u.defense,
     speed: speedOf(u),
-    critChance: CRIT_CHANCE + (has(u, "keen_eye") ? PASSIVE.keenEyeCrit : 0),
+    critChance: CRIT_CHANCE + (has(u, "keen_eye") ? PASSIVE.keenEyeCrit : 0) + (u.critBonus ?? 0),
     evadeChance: evadeChance(u),
   };
 }

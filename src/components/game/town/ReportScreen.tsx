@@ -102,9 +102,16 @@ export function ReportScreen({ report, deaths, day, gold, onDone }: Props) {
         </Section>
       )}
 
-      <Section title="성장">
-        <p className="text-xs text-ash">경험치와 레벨업은 아직 없다. (단련장과 함께 열린다)</p>
-      </Section>
+      {report.growth.length > 0 && (
+        <Section title="성장">
+          {report.growth.map((line, i) => (
+            <p key={i} className={`text-sm ${line.includes("레벨") ? "text-ember" : "text-bone/80"}`}>
+              {line}
+            </p>
+          ))}
+          {report.growth.some((l) => l.includes("레벨")) && <p className="text-xs text-ash">단련장에서 스탯을 더 키울 수 있다.</p>}
+        </Section>
+      )}
 
       <Button variant="ember" className="self-start" onClick={onDone}>
         마을로 돌아간다

@@ -19,6 +19,8 @@ type Props = {
   relics: number;
   /** 가진 유실물 수 */
   salvage: number;
+  /** 남은 단련 기회 합 */
+  trainable: number;
   notices: string[];
   memorial: Fallen[];
   onGo: (place: TownPlace) => void;
@@ -30,7 +32,7 @@ type Facility = SceneFacility & { description: string };
 
 /** 마을(홈). 시설 카드에서 길드·상점·숙소·던전 입구로 간다. 나중 시설은 자리만 보인다 */
 export function TownScreen(props: Props) {
-  const { day, gold, hired, party, visitors, pack, relics, salvage, notices, memorial, onGo, onDismissNotices, onNewGame } = props;
+  const { day, gold, hired, party, visitors, pack, relics, salvage, trainable, notices, memorial, onGo, onDismissNotices, onNewGame } = props;
   const packed = Object.values(pack).reduce((a, b) => a + b, 0);
   const partySize = party.length;
 
@@ -63,7 +65,13 @@ export function TownScreen(props: Props) {
       description: "파티와 짐을 확인하고 무너진 던전으로 내려간다.",
       status: partySize === 0 ? "파티가 비어 있다" : packed === 0 ? "짐이 비어 있다" : "출발할 수 있다",
     },
-    { key: "yard", name: "단련장", description: "금화를 내고 용병을 단련한다.", later: "레벨업과 함께 열린다" },
+    {
+      key: "yard",
+      place: "yard",
+      name: "단련장",
+      description: "레벨업으로 생긴 기회마다 금화를 내고 스탯을 직접 배분한다.",
+      status: trainable ? `단련 기회 ${trainable}번` : "레벨업하면 단련할 수 있다",
+    },
     { key: "forge", name: "대장간", description: "유실물로 직업 전용 장신구를 만들고 강화한다.", later: "준비 중" },
     { key: "hall", name: "전수관", description: "유실물로 스킬 조각을 해금하고 조합한다.", later: "준비 중" },
     { key: "tavern", name: "게시판 · 주점", description: "의뢰와 소문, 용병들과의 이야기.", later: "준비 중" },

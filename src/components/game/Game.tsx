@@ -14,6 +14,7 @@ import { MERC_SLOTS } from "@/game/party";
 import { entryId, gameReducer, hiredCount, initialState, mercOf, type TownPlace } from "./state";
 import { GateScreen } from "./town/GateScreen";
 import { ReportScreen } from "./town/ReportScreen";
+import { YardScreen } from "./town/YardScreen";
 import { InnScreen } from "./town/InnScreen";
 import { ShopScreen } from "./town/ShopScreen";
 import { TownScreen } from "./town/TownScreen";
@@ -282,6 +283,17 @@ export function Game() {
           onBack={toTown}
         />
       );
+    case "yard":
+      return (
+        <YardScreen
+          day={state.day}
+          gold={state.gold}
+          hired={hired}
+          progress={state.progress}
+          onTrain={(mercId, alloc) => dispatch({ type: "train", mercId, alloc })}
+          onBack={toTown}
+        />
+      );
     case "gate":
       return (
         <GateScreen
@@ -305,6 +317,7 @@ export function Game() {
           pack={state.pack}
           relics={state.relics.length}
           salvage={salvageCount(state.salvage)}
+          trainable={hired.reduce((s, m) => s + (state.progress[m.id]?.trainable ?? 0), 0)}
           notices={state.notices}
           memorial={state.memorial}
           onGo={go}

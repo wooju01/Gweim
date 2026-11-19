@@ -1,6 +1,7 @@
 // 스킬 데이터. 스킬마다 코드를 짜지 않고 "효과 조각"을 조합해서 정의한다.
 // 엔진(combat/engine.ts)은 조각 종류별로 한 번씩만 처리하고, 미리보기와 설명 문장도 조각에서 만든다.
 import type { StatusKind } from "./combat";
+import type { PowerStat } from "./growth";
 
 export type SkillTarget = "enemy" | "ally" | "none";
 
@@ -21,17 +22,20 @@ export type SkillEffect =
       hits?: number;
       /** 이 공격의 치명타 확률 추가 */
       critBonus?: number;
+      /** 따르는 스탯 (없으면 스킬의 stat, 그것도 없으면 쓰는 용병의 직업 스탯) */
+      stat?: PowerStat;
     }
   /**
    * 대상(또는 area "all"이면 적 전체)에게 상태이상. 대상이 살아 있을 때만.
    * who "self"면 대상 대신 자신 (heal, cure, shield도 같다)
    */
   | { kind: "applyStatus"; status: StatusKind; area?: "one" | "all"; who?: "self" }
+  /** 회복량에는 쓰는 용병의 신성이 더해진다 */
   | { kind: "heal"; amount: number; who?: "self" }
   /** 대상의 출혈·중독을 씻는다 */
   | { kind: "cure"; who?: "self" }
   /** 보호막. 겹쳐 쌓지 않고 큰 쪽으로 채운다 */
-  | { kind: "shield"; amount: number; who?: "self" }
+  | { kind: "shield"; amount: number; who?: "self"; stat?: PowerStat }
   /** 다음 자기 차례까지 적의 공격을 끌어오고 받는 피해 절반 */
   | { kind: "taunt" }
   /** 자기 체력 소모 (체력 1 아래로는 깎지 않는다) */
@@ -56,6 +60,8 @@ export type SkillDef = {
   cooldown: number;
   target: SkillTarget;
   effects: SkillEffect[];
+  /** 따르는 스탯 (힘·마법·신성). 없으면 쓰는 용병의 직업 스탯 */
+  stat?: PowerStat;
 };
 
 export type Skill = SkillDef & { description: string };

@@ -5,6 +5,7 @@ import {
   currentActor,
   passiveNote,
   previewAction,
+  statOf,
   unitStats,
   validate,
   type ActionPreview,
@@ -15,6 +16,7 @@ import {
   type Unit,
 } from "@/game/combat/engine";
 import type { Stage } from "@/lib/schemas";
+import { STAT_NAME } from "@/data/growth";
 import { describe } from "@/game/combat/text";
 import { GUIDE } from "@/game/party";
 import { displayedHp, usePlayback } from "./battle/playback";
@@ -404,6 +406,10 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
                             대상: {TARGET_LABEL[s.target]} · 대기 {s.cooldown}턴{wait > 0 ? ` · ${wait}턴 뒤 사용 가능` : ""}
                           </p>
                           <p className="text-ash">
+                            따르는 능력치: {STAT_NAME[statOf(s, undefined, actor)]}
+                            {(actor.power?.[statOf(s, undefined, actor)] ?? 0) > 0 && ` (+${actor.power![statOf(s, undefined, actor)]})`}
+                          </p>
+                          <p className="text-ash">
                             {s.target === "none" ? "무대에 예상 결과가 표시된다." : "누른 뒤 대상에 마우스를 올리면 예상 결과가 보인다."}
                           </p>
                         </div>
@@ -663,6 +669,14 @@ function ActorStats({ battle, unit }: { battle: Battle; unit: Unit }) {
       <p>
         공격 {stats.attack[0]}~{stats.attack[1]} · 방어 {stats.defense} · 속도 {stats.speed} · 치명타 {pct(stats.critChance)} · 회피 {pct(stats.evadeChance)}
       </p>
+      {(["str", "mag", "faith"] as const).some((k) => (unit.power?.[k] ?? 0) > 0) && (
+        <p className="text-ember/90">
+          {(["str", "mag", "faith"] as const)
+            .filter((k) => (unit.power?.[k] ?? 0) > 0)
+            .map((k) => `${STAT_NAME[k]} +${unit.power![k]}`)
+            .join(" · ")}
+        </p>
+      )}
       {unit.statuses.length > 0 && (
         <p className="flex flex-wrap gap-1">
           {unit.statuses.map((s) => (

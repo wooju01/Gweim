@@ -11,6 +11,8 @@ import { PACK_LIMIT, PRICE, START_GOLD, START_PACK, START_STOCK, STOCK_RANGE } f
 import { getRelic } from "@/data/relics";
 import { addSalvage, getSalvage, salvageCount } from "@/data/loot";
 import { WAGE } from "@/data/wages";
+import { STAT_NAME, TRAINING_COST, XP_GOAL_BONUS, XP_PER_SQUARE, type StatBlock } from "@/data/growth";
+import { NO_GROWTH, addStats, canPromote, gainXp, statLine, validTraining, type Growth } from "@/game/growth";
 import { advanceCost, wageOf } from "@/game/wages";
 import { act, giftsReceived, type Battle, type BattleAction } from "@/game/combat/engine";
 import {
@@ -32,7 +34,7 @@ import type { EventResponse, HistoryLine, MercRef, MercSeed, Stage, TalkResponse
 const HISTORY_LIMIT = 20;
 
 /** wage: 고용할 때 정해진 원정 1회 보수 (몫 약속을 했으면 더 많다). 고용 전에는 없다 */
-export type MercProgress = TalkState & { hired: boolean; wage?: number };
+export type MercProgress = TalkState & { hired: boolean; wage?: number } & Growth;
 
 /** 길드 명단의 한 칸. 고유 용병은 id만, 랜덤 용병은 다시 만들 수 있는 시드를 들고 있다. */
 export type RosterEntry = MercRef;
@@ -111,10 +113,12 @@ export type Report = {
   wages: string[];
   bonds: string[];
   left: string[];
+  /** 경험치·레벨업 (한 줄씩) */
+  growth: string[];
 };
 
 /** 마을 안의 화면: 마을(홈), 용병 길드, 상점, 숙소(파티 편성), 던전 입구 */
-export type TownPlace = "town" | "guild" | "shop" | "inn" | "gate";
+export type TownPlace = "town" | "guild" | "shop" | "inn" | "gate" | "yard";
 
 export type RestTalk = {
   mercId: string;
@@ -150,6 +154,8 @@ export type GameAction =
   /** 상점: 물자 하나 사기, 유물 하나 팔기 */
   | { type: "buy"; item: SupplyKind }
   | { type: "sell"; index: number }
+  /** 단련장: 금화를 내고 스탯 3을 직접 배분 (레벨업으로 생긴 기회를 하나 쓴다) */
+  | { type: "train"; mercId: string; alloc: StatBlock }
   /** 유실물 팔기 (all이면 그 종류 전부) */
   | { type: "sellSalvage"; id: string; all?: boolean }
   /** 탐험을 끝내고 길드로 (귀환, 후퇴, 전멸). 다음 탐험은 모두 회복한 채 시작한다. seed: 계약 파기 판정 */
@@ -251,7 +257,7 @@ function restock(seed: number): Record<SupplyKind, number> {
 }
 
 export function isTown(kind: string): kind is TownPlace {
-  return kind === "town" || kind === "guild" || kind === "shop" || kind === "inn" || kind === "gate";
+  return kind === "town" || kind === "guild" || kind === "shop" || kind === "inn" || kind === "gate" || kind === "yard";
 }
 
 /** 고용한 용병 수 (파티에 들지 않은 사람 포함). 지금은 이 수가 MERC_SLOTS를 넘지 못한다 */
@@ -285,11 +291,11 @@ function bumpAffinity(
   return { progress, lines };
 }
 
-/** 동행 중인 용병 */
+/** 동행 중인 용병 (성장 스탯을 실어서) */
 function partyMercs(state: GameState): Merc[] {
   return state.party.flatMap((id) => {
     const entry = state.roster.find((e) => entryId(e) === id);
-    return entry ? [mercOf(entry)] : [];
+    return entry ? [{ ...mercOf(entry), stats: state.progress[id]?.stats }] : [];
   });
 }
 
@@ -332,6 +338,7 @@ function freshProgress(merc: Merc): MercProgress {
     talks: 0,
     offers: { advance: false, share: false },
     hired: false,
+    ...NO_GROWTH,
   };
 }
 
@@ -397,6 +404,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const offers = res.offer ? { ...prev.offers, [res.offer]: true } : prev.offers;
       const paid = res.offer === "advance" && merc ? advanceCost(merc) : 0;
       const progress: MercProgress = {
+        // 성장 상태 등 대화와 상관없는 칸은 그대로 둔다
+        ...prev,
         affinity: res.affinity,
         willingness: res.willingness,
         recentTones: res.recentTones,
@@ -518,6 +527,16 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const relic = getRelic(state.relics[action.index] ?? "");
       if (state.expedition || !relic) return state;
       return { ...state, gold: state.gold + relic.value, relics: state.relics.filter((_, i) => i !== action.index) };
+    }
+
+    case "train": {
+      const p = state.progress[action.mercId];
+      if (state.expedition || !p?.hired || p.trainable <= 0 || state.gold < TRAINING_COST || !validTraining(action.alloc)) return state;
+      return {
+        ...state,
+        gold: state.gold - TRAINING_COST,
+        progress: { ...state.progress, [action.mercId]: { ...p, stats: addStats(p.stats, action.alloc), trainable: p.trainable - 1 } },
+      };
     }
 
     case "sellSalvage": {
@@ -645,7 +664,25 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         wages: [],
         bonds: [],
         left: [],
+        growth: [],
       };
+      // 경험치: 살아 돌아온 용병. 지나온 칸 수 + 목적지 보너스
+      const xp = (exp.visited.length - 1) * XP_PER_SQUARE + (exp.room?.kind === "goal" ? XP_GOAL_BONUS : 0);
+      if (xp > 0) {
+        const progress = { ...next.progress };
+        for (const m of exp.members.filter((x) => !x.dead)) {
+          const p = progress[m.id];
+          if (!p) continue;
+          const { growth, gained } = gainXp(p, xp, m.job);
+          progress[m.id] = { ...p, ...growth };
+          report.growth.push(
+            gained.length
+              ? `${m.name}: 경험치 +${xp}, 레벨 ${growth.lv} (${gained.map((g) => statLine(g, STAT_NAME)).join(" / ")})${canPromote(growth) ? " · 승급할 수 있다" : ""}`
+              : `${m.name}: 경험치 +${xp}`,
+          );
+        }
+        next = { ...next, progress };
+      }
       // 살아 돌아왔으면 얻은 금화·유물과 남은 물자를 챙긴다. 전멸하면 모두 잃는다
       if (!defeat) {
         next = {

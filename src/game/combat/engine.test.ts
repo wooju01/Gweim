@@ -1082,6 +1082,14 @@ describe("미리보기", () => {
           job,
           race,
           skills,
+          // 성장 스탯도 무작위로 (미리보기가 스탯까지 맞게 계산하는지)
+          stats: {
+            str: Math.floor(r.next() * 4),
+            mag: Math.floor(r.next() * 4),
+            faith: Math.floor(r.next() * 4),
+            crit: Math.floor(r.next() * 3),
+            defense: Math.floor(r.next() * 3),
+          },
           passives: [ALL_PASSIVES[Math.floor(r.next() * ALL_PASSIVES.length)]],
         };
       });
@@ -1583,5 +1591,34 @@ describe("빈사와 죽음", () => {
       survivalChance({ bond: "trusted", race: "barbarian", level: "legend" }),
     ).toBe(0.95);
     expect(survivalChance({ bond: "hostile", race: "elf" })).toBeCloseTo(0.2);
+  });
+});
+
+describe("성장 스탯", () => {
+  it("체력·방어·속도는 능력치에, 힘·마법·신성은 위력에, 치명·회피는 확률에 더해진다", () => {
+    const u = mercUnit({ ...varn, job: "knight", stats: { hp: 2, defense: 1, speed: 3, str: 2, mag: 1, faith: 4, crit: 5, evade: 2 } });
+    expect(u).toMatchObject({ maxHp: 32 + 6, hp: 38, defense: 2 + 1, speed: 4 + 3, power: { str: 2, mag: 1, faith: 4 } });
+    expect(u.critBonus).toBeCloseTo(0.1);
+    expect(u.evadeBonus).toBeCloseTo(0.04);
+  });
+
+  it("힘은 기본 공격에, 마법은 마법 기술에만 더해진다", () => {
+    const mage: Merc = { ...varn, job: "mage", stats: { str: 2, mag: 5 } };
+    const b = start([mage], 1, [dummy("e0", 999)]);
+    const plain = start([{ ...varn, job: "mage" }], 1, [dummy("e0", 999)]);
+    const atk = previewAction(b, { type: "attack", target: "e0" })!.damage[0];
+    const base = previewAction(plain, { type: "attack", target: "e0" })!.damage[0];
+    expect(atk.min).toBe(base.min + 2);
+    const fire = previewAction(b, { type: "skill", skill: "firelance", target: "e0" })!.damage[0];
+    const fireBase = previewAction(plain, { type: "skill", skill: "firelance", target: "e0" })!.damage[0];
+    expect(fire.min).toBe(fireBase.min + 5);
+  });
+
+  it("신성은 회복량을 올린다", () => {
+    const nun = (faith: number) => fix2(start([{ ...varn, job: "nun", stats: { faith } }], 1, [dummy("e0", 999)]), varn.id, { hp: 1 });
+    expect(previewAction(nun(0), { type: "skill", skill: "pray", target: varn.id })!.heal!.amount).toBe(8);
+    expect(previewAction(nun(3), { type: "skill", skill: "pray", target: varn.id })!.heal!.amount).toBe(11);
+    const b = act(nun(3), { type: "skill", skill: "pray", target: varn.id });
+    expect(b.log).toContainEqual({ type: "heal", target: varn.id, amount: 11, by: varn.id });
   });
 });

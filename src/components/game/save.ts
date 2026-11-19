@@ -29,7 +29,15 @@ const MIGRATIONS: Record<number, (data: Record<string, unknown>) => Record<strin
   1: (data) => JSON.parse(RENAMED_IDS.reduce((json, [from, to]) => json.replace(from, to), JSON.stringify(data))),
 };
 
-const MercProgressSave = TalkState.extend({ hired: z.boolean(), wage: z.number().int().min(0).optional() });
+const MercProgressSave = TalkState.extend({
+  hired: z.boolean(),
+  wage: z.number().int().min(0).optional(),
+  // 성장 (이전 저장에는 없다)
+  xp: z.number().int().min(0).default(0),
+  lv: z.number().int().min(0).default(0),
+  stats: z.record(z.string(), z.number().int().min(0)).default({}),
+  trainable: z.number().int().min(0).default(0),
+});
 const Supplies = z.object({ bandage: z.number().int().min(0), antidote: z.number().int().min(0), potion: z.number().int().min(0) });
 
 // 탐험·전투는 엔진이 만든 큰 구조라 핵심 칸만 검사하고 나머지는 그대로 둔다

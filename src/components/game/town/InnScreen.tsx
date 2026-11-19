@@ -2,6 +2,7 @@ import { getStage } from "@/game/affinity";
 import { GUIDE, MERC_SLOTS } from "@/game/party";
 import type { Merc } from "@/game/types";
 import { wageOf } from "@/game/wages";
+import { xpToNext } from "@/game/growth";
 import { CURRENCY } from "@/data/economy";
 import type { Stage } from "@/lib/schemas";
 import { Button, Portrait } from "../parts";
@@ -70,7 +71,8 @@ export function InnScreen({ day, gold, hired, progress, party, onToggle, onBack 
                   </span>
                   <span className="text-xs text-ash">{merc.title}</span>
                   <span className="text-xs text-ash">
-                    보수 {CURRENCY} {p.wage ?? wageOf(merc)} / 원정
+                    보수 {CURRENCY} {p.wage ?? wageOf(merc)} / 원정 · 레벨 {p.lv}
+                    {xpToNext(p.lv) === null ? " (승급 가능)" : ` · 경험치 ${p.xp}/${xpToNext(p.lv)}`}
                   </span>
                   <Button
                     variant={inParty ? "ember" : "ghost"}

@@ -287,3 +287,26 @@ describe("유실물 (상태)", () => {
     expect(lost.report!.lost).toMatchObject({ salvage: 4 });
   });
 });
+
+describe("성장 (상태)", () => {
+  it("살아 돌아온 용병은 지나온 칸만큼 경험치를 받고, 레벨업이 결산에 남는다", () => {
+    let s = inDungeon(PARTY4);
+    s = { ...s, expedition: { ...s.expedition!, visited: ["a", "b", "c", "d", "e", "f"], room: { kind: "goal" } } };
+    const back = gameReducer(s, { type: "endExpedition", seed: 1 });
+    // 5칸 + 목적지 3 = 8 → 레벨 1 (5 필요), 3 남음
+    expect(back.progress["s-bran"]).toMatchObject({ lv: 1, xp: 3, trainable: 1, stats: { defense: 2, hp: 1 } });
+    expect(back.report!.growth.some((l) => l.includes("브란") && l.includes("레벨 1"))).toBe(true);
+  });
+
+  it("단련장: 금화 10을 내고 3점을 배분한다. 기회·금화가 없거나 배분이 틀리면 안 된다", () => {
+    let s = initialState();
+    const id = "s-bran";
+    s = { ...s, progress: { ...s.progress, [id]: { ...s.progress[id], hired: true, trainable: 1 } } };
+    const bad = gameReducer(s, { type: "train", mercId: id, alloc: { str: 2 } });
+    expect(bad).toBe(s);
+    const ok = gameReducer(s, { type: "train", mercId: id, alloc: { crit: 2, faith: 1 } });
+    expect(ok.gold).toBe(s.gold - 10);
+    expect(ok.progress[id]).toMatchObject({ trainable: 0, stats: { crit: 2, faith: 1 } });
+    expect(gameReducer(ok, { type: "train", mercId: id, alloc: { hp: 3 } })).toBe(ok);
+  });
+});
