@@ -84,6 +84,7 @@ export const SaveFile = z.object({
     gold: z.number().int().min(0).default(START_GOLD),
     pack: Supplies.default({ ...START_PACK }),
     relics: z.array(z.string()).default([]),
+    salvage: z.record(z.string(), z.number().int().min(0)).default({}),
     stock: Supplies.default({ ...START_STOCK }),
   }),
 });
@@ -116,6 +117,7 @@ export function toSave(state: GameState, now = new Date()): SaveFile {
       gold: state.gold,
       pack: state.pack,
       relics: state.relics,
+      salvage: state.salvage,
       stock: state.stock,
     } as SaveFile["state"],
   };
@@ -148,7 +150,7 @@ export function fromSave(raw: unknown): { state: GameState } | { error: string }
 
   // 금화 기능 이전의 저장: 원정에 금화·유물 칸이 없으면 0으로
   const expedition = s.expedition
-    ? ({ gold: 0, loot: [], ...s.expedition } as unknown as NonNullable<GameState["expedition"]>)
+    ? ({ gold: 0, loot: [], salvage: {}, ...s.expedition } as unknown as NonNullable<GameState["expedition"]>)
     : null;
   const room = expedition?.room;
   const base = initialState();
@@ -169,6 +171,7 @@ export function fromSave(raw: unknown): { state: GameState } | { error: string }
       gold: s.gold,
       pack: s.pack,
       relics: s.relics,
+      salvage: s.salvage,
       stock: s.stock,
       // 사건 칸에서 멈췄으면 AI 묘사 없이 기본 문장으로 이어 간다
       narration: room?.kind === "event" && !room.result ? { eventId: room.eventId, pending: false, data: null } : null,

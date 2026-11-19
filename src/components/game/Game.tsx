@@ -18,6 +18,7 @@ import { InnScreen } from "./town/InnScreen";
 import { ShopScreen } from "./town/ShopScreen";
 import { TownScreen } from "./town/TownScreen";
 import { clearSave, loadGame, saveGame } from "./save";
+import { salvageCount } from "@/data/loot";
 
 function playerLineFor(action: TalkAction): string | null {
   switch (action.type) {
@@ -262,6 +263,8 @@ export function Game() {
           pack={state.pack}
           stock={state.stock}
           relics={state.relics}
+          salvage={state.salvage}
+          onSellSalvage={(id, all) => dispatch({ type: "sellSalvage", id, all })}
           onBuy={(item) => dispatch({ type: "buy", item })}
           onSell={(index) => dispatch({ type: "sell", index })}
           onBack={toTown}
@@ -301,6 +304,7 @@ export function Game() {
           visitors={mercs.length - hired.length}
           pack={state.pack}
           relics={state.relics.length}
+          salvage={salvageCount(state.salvage)}
           notices={state.notices}
           memorial={state.memorial}
           onGo={go}

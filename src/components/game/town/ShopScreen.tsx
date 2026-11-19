@@ -1,6 +1,7 @@
 import { SUPPLY, type SupplyKind } from "@/data/combat";
 import { CURRENCY, PACK_LIMIT, PRICE } from "@/data/economy";
 import { getRelic } from "@/data/relics";
+import { getSalvage } from "@/data/loot";
 import { Button } from "../parts";
 import { TownBar } from "./TownBar";
 
@@ -10,15 +11,18 @@ type Props = {
   pack: Record<SupplyKind, number>;
   stock: Record<SupplyKind, number>;
   relics: string[];
+  salvage: Record<string, number>;
   onBuy: (item: SupplyKind) => void;
   onSell: (index: number) => void;
+  onSellSalvage: (id: string, all: boolean) => void;
   onBack: () => void;
 };
 
 const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
 
 /** 상점: 원정 물자를 사서 짐에 넣고, 던전에서 가져온 유물을 판다 */
-export function ShopScreen({ day, gold, pack, stock, relics, onBuy, onSell, onBack }: Props) {
+export function ShopScreen({ day, gold, pack, stock, relics, salvage, onBuy, onSell, onSellSalvage, onBack }: Props) {
+  const salvageItems = Object.entries(salvage).filter(([, n]) => n > 0);
   const packed = Object.values(pack).reduce((a, b) => a + b, 0);
   const total = relics.reduce((s, id) => s + (getRelic(id)?.value ?? 0), 0);
 
@@ -59,6 +63,42 @@ export function ShopScreen({ day, gold, pack, stock, relics, onBuy, onSell, onBa
             </div>
           );
         })}
+      </section>
+
+      <section aria-label="유실물" className="flex flex-col gap-2 rounded-sm border border-edge bg-panel p-4">
+        <div className="flex items-baseline justify-between">
+          <h2 className="font-bold">유실물 팔기</h2>
+          <span className="text-xs text-ash">나중에 대장간·전수관의 재료로도 쓰인다</span>
+        </div>
+        {salvageItems.length === 0 ? (
+          <p className="text-sm text-ash">팔 유실물이 없다. 전투에서 쓰러뜨린 적에게서 얻는다.</p>
+        ) : (
+          salvageItems.map(([id, n]) => {
+            const item = getSalvage(id);
+            return (
+              item && (
+                <div key={id} className="flex items-center justify-between gap-3 border-t border-edge/60 pt-2">
+                  <div className="flex flex-col">
+                    <span className="font-bold">
+                      {item.name} <span className="text-xs font-normal text-ash">×{n}</span>
+                    </span>
+                    <span className="text-xs text-bone/70">{item.description}</span>
+                  </div>
+                  <div className="flex shrink-0 gap-1.5">
+                    <Button className="!px-2.5 !py-1 text-xs" onClick={() => onSellSalvage(id, false)}>
+                      {CURRENCY} {item.value} · 하나
+                    </Button>
+                    {n > 1 && (
+                      <Button className="!px-2.5 !py-1 text-xs" onClick={() => onSellSalvage(id, true)}>
+                        {CURRENCY} {item.value * n} · 전부
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )
+            );
+          })
+        )}
       </section>
 
       <section aria-label="유물" className="flex flex-col gap-2 rounded-sm border border-edge bg-panel p-4">

@@ -9,6 +9,7 @@ import { applyTone, clampStat, getStage } from "@/game/affinity";
 import { createRng, rollInt } from "@/game/random";
 import { PACK_LIMIT, PRICE, START_GOLD, START_PACK, START_STOCK, STOCK_RANGE } from "@/data/economy";
 import { getRelic } from "@/data/relics";
+import { addSalvage, getSalvage, salvageCount } from "@/data/loot";
 import { WAGE } from "@/data/wages";
 import { advanceCost, wageOf } from "@/game/wages";
 import { act, giftsReceived, type Battle, type BattleAction } from "@/game/combat/engine";
@@ -81,6 +82,8 @@ export type GameState = {
   pack: Record<SupplyKind, number>;
   /** 가진 유물 id (마을에서 판다) */
   relics: string[];
+  /** 가진 유실물 (id별 개수). 팔거나, 나중에 대장간·전수관 재료로 */
+  salvage: Record<string, number>;
   /** 상점 재고 (원정에서 돌아올 때마다 새로 들어온다) */
   stock: Record<SupplyKind, number>;
 };
@@ -98,9 +101,10 @@ export type Report = {
   /** 가지고 돌아온 금화·유물·남은 물자 (전멸이면 0과 빈 목록) */
   gold: number;
   relics: string[];
+  salvage: Record<string, number>;
   supplies: Record<SupplyKind, number>;
   /** 전멸해서 두고 온 것 */
-  lost: { gold: number; relics: number; supplies: number } | null;
+  lost: { gold: number; relics: number; salvage: number; supplies: number } | null;
   /** 쓰러졌다가 살아 돌아온 용병 이름 */
   fallen: string[];
   /** 보수 지급·체불, 호감 변화, 떠난 용병 (한 줄씩) */
@@ -146,6 +150,8 @@ export type GameAction =
   /** 상점: 물자 하나 사기, 유물 하나 팔기 */
   | { type: "buy"; item: SupplyKind }
   | { type: "sell"; index: number }
+  /** 유실물 팔기 (all이면 그 종류 전부) */
+  | { type: "sellSalvage"; id: string; all?: boolean }
   /** 탐험을 끝내고 길드로 (귀환, 후퇴, 전멸). 다음 탐험은 모두 회복한 채 시작한다. seed: 계약 파기 판정 */
   | { type: "endExpedition"; seed: number }
   | { type: "restTalkStart"; mercId: string }
@@ -355,6 +361,7 @@ export function initialState(): GameState {
     gold: START_GOLD,
     pack: { ...START_PACK },
     relics: [],
+    salvage: {},
     stock: { ...START_STOCK },
   };
 }
@@ -513,6 +520,16 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, gold: state.gold + relic.value, relics: state.relics.filter((_, i) => i !== action.index) };
     }
 
+    case "sellSalvage": {
+      const item = getSalvage(action.id);
+      const have = state.salvage[action.id] ?? 0;
+      if (state.expedition || !item || have <= 0) return state;
+      const n = action.all ? have : 1;
+      const salvage = { ...state.salvage, [action.id]: have - n };
+      if (salvage[action.id] === 0) delete salvage[action.id];
+      return { ...state, gold: state.gold + item.value * n, salvage };
+    }
+
     case "dismissNotices":
       return { ...state, notices: [] };
 
@@ -614,9 +631,15 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         day: state.day,
         gold: defeat ? 0 : exp.gold,
         relics: defeat ? [] : exp.loot,
+        salvage: defeat ? {} : (exp.salvage ?? {}),
         supplies: defeat ? { ...START_PACK } : { ...exp.supplies },
         lost: defeat
-          ? { gold: exp.gold, relics: exp.loot.length, supplies: Object.values(exp.supplies).reduce((a, b) => a + b, 0) }
+          ? {
+              gold: exp.gold,
+              relics: exp.loot.length,
+              salvage: salvageCount(exp.salvage ?? {}),
+              supplies: Object.values(exp.supplies).reduce((a, b) => a + b, 0),
+            }
           : null,
         fallen: exp.members.filter((m) => m.fell && !m.dead).map((m) => m.name),
         wages: [],
@@ -629,6 +652,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           ...next,
           gold: next.gold + exp.gold,
           relics: [...next.relics, ...exp.loot],
+          salvage: addSalvage(next.salvage, exp.salvage ?? {}),
           pack: { ...exp.supplies },
         };
       }

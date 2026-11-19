@@ -73,6 +73,8 @@ export type Unit = {
   dead?: boolean;
   /** 적만: 정보에 보이는 특징 한 줄 */
   note?: string;
+  /** 적만: 종류 id (data/combat.ts의 ENEMIES). 유실물 드롭표에 쓴다 */
+  kind?: string;
   /** 용병만: 화면에 그릴 때 쓰는 직업·종족 id (규칙에는 쓰지 않는다) */
   job?: string;
   race?: string;
@@ -325,6 +327,7 @@ export function rollEncounter(rng: Rng): Unit[] {
       speed: k.speed,
       onHit: k.onHit,
       note: k.note,
+      kind: k.id,
       statuses: [],
       skills: [],
       cooldowns: {},

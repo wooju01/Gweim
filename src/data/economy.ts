@@ -23,8 +23,6 @@ export const START_STOCK: Record<SupplyKind, number> = { bandage: 5, antidote: 3
 
 /** 전투에서 이기면 적 한 마리당 금화 [최소, 최대] */
 export const BATTLE_GOLD = [4, 8] as const;
-/** 전투에서 이기면 유물이 나올 확률 */
-export const BATTLE_RELIC_CHANCE = 0.15;
 /** 보물 칸: 금화 [최소, 최대]와 유물 확률 */
 export const TREASURE_GOLD = [10, 25] as const;
 export const TREASURE_RELIC_CHANCE = 0.4;

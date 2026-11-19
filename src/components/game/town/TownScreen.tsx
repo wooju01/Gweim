@@ -17,6 +17,8 @@ type Props = {
   visitors: number;
   pack: Record<SupplyKind, number>;
   relics: number;
+  /** 가진 유실물 수 */
+  salvage: number;
   notices: string[];
   memorial: Fallen[];
   onGo: (place: TownPlace) => void;
@@ -28,7 +30,7 @@ type Facility = SceneFacility & { description: string };
 
 /** 마을(홈). 시설 카드에서 길드·상점·숙소·던전 입구로 간다. 나중 시설은 자리만 보인다 */
 export function TownScreen(props: Props) {
-  const { day, gold, hired, party, visitors, pack, relics, notices, memorial, onGo, onDismissNotices, onNewGame } = props;
+  const { day, gold, hired, party, visitors, pack, relics, salvage, notices, memorial, onGo, onDismissNotices, onNewGame } = props;
   const packed = Object.values(pack).reduce((a, b) => a + b, 0);
   const partySize = party.length;
 
@@ -45,7 +47,7 @@ export function TownScreen(props: Props) {
       place: "shop",
       name: "상점",
       description: "원정 물자를 사서 짐에 넣고, 던전에서 가져온 유물을 판다.",
-      status: `짐 ${packed} / ${PACK_LIMIT}${relics ? ` · 팔 수 있는 유물 ${relics}개` : ""}`,
+      status: `짐 ${packed} / ${PACK_LIMIT}${relics + salvage ? ` · 팔 것 ${relics + salvage}개` : ""}`,
     },
     {
       key: "inn",

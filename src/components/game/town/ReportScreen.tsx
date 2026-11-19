@@ -1,6 +1,7 @@
 import { SUPPLY, type SupplyKind } from "@/data/combat";
 import { CURRENCY } from "@/data/economy";
 import { getRelic } from "@/data/relics";
+import { getSalvage } from "@/data/loot";
 import { Button } from "../parts";
 import type { Fallen, Report } from "../state";
 import { TownBar } from "./TownBar";
@@ -41,7 +42,7 @@ export function ReportScreen({ report, deaths, day, gold, onDone }: Props) {
       <Section title="가져온 것">
         {report.lost ? (
           <p className="text-sm text-blood">
-            {CURRENCY} {report.lost.gold}, 유물 {report.lost.relics}개, 물자 {report.lost.supplies}개를 던전에 두고 왔다.
+            {CURRENCY} {report.lost.gold}, 유물 {report.lost.relics}개, 유실물 {report.lost.salvage}개, 물자 {report.lost.supplies}개를 던전에 두고 왔다.
           </p>
         ) : (
           <>
@@ -56,6 +57,14 @@ export function ReportScreen({ report, deaths, day, gold, onDone }: Props) {
             </p>
             {report.relics.length > 0 && (
               <p className="text-xs text-ash">{report.relics.map((id) => getRelic(id)?.name ?? id).join(", ")}</p>
+            )}
+            {Object.keys(report.salvage).length > 0 && (
+              <p className="text-xs text-ash">
+                유실물:{" "}
+                {Object.entries(report.salvage)
+                  .map(([id, n]) => `${getSalvage(id)?.name ?? id}${n > 1 ? ` ×${n}` : ""}`)
+                  .join(", ")}
+              </p>
             )}
             <p className="text-xs text-ash">
               짐으로 돌아온 물자: {SUPPLY_ORDER.map((k) => `${SUPPLY[k].name} ${report.supplies[k]}`).join(" · ")}

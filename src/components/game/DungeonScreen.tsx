@@ -4,6 +4,7 @@ import { PATH_LENGTH, ROOM_NAME, type RoomKind } from "@/data/dungeon";
 import { getEvent, type Approach } from "@/data/events";
 import { CURRENCY } from "@/data/economy";
 import { getRelic } from "@/data/relics";
+import { salvageCount } from "@/data/loot";
 import { alive, canMove, choiceProblem, helperFor, supplyProblem, type Expedition, type Member } from "@/game/dungeon/expedition";
 import { getStage } from "@/game/affinity";
 import type { MercProgress, RestTalk } from "./state";
@@ -54,7 +55,7 @@ export function DungeonScreen(props: Props) {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-ember" title="살아서 돌아와야 내 것이 된다. 전멸하면 잃는다">
-            {CURRENCY} {exp.gold} · 유물 {exp.loot.length}
+            {CURRENCY} {exp.gold} · 유물 {exp.loot.length} · 유실물 {salvageCount(exp.salvage ?? {})}
           </span>
           {!over && (
             <Button variant="danger" onClick={onEnd} title="지금까지 얻은 것을 들고 돌아간다">
@@ -257,9 +258,9 @@ function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, re
       return (
         <div className={`${box} border-blood/50 bg-blood/10`}>
           <p className="text-blood">파티가 전멸했다. 당신은 쓰러진 동료들을 끌고 간신히 빠져나왔다.</p>
-          {(exp.gold > 0 || exp.loot.length > 0) && (
+          {(exp.gold > 0 || exp.loot.length > 0 || salvageCount(exp.salvage ?? {}) > 0) && (
             <p className="text-xs text-ash">
-              동료들을 끌고 나오느라 {CURRENCY} {exp.gold}와 유물 {exp.loot.length}개를 두고 간다.
+              동료들을 끌고 나오느라 {CURRENCY} {exp.gold}, 유물 {exp.loot.length}개, 유실물 {salvageCount(exp.salvage ?? {})}개를 두고 간다.
             </p>
           )}
           <Button variant="ember" onClick={onEnd}>

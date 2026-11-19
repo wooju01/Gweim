@@ -15,13 +15,13 @@ import {
 } from "../../data/dungeon";
 import {
   BATTLE_GOLD,
-  BATTLE_RELIC_CHANCE,
   CURRENCY,
   GOAL_GOLD,
   TREASURE_GOLD,
   TREASURE_RELIC_CHANCE,
 } from "../../data/economy";
 import { rollRelic } from "../../data/relics";
+import { addSalvage, getSalvage, rollDrops } from "../../data/loot";
 import {
   EVENTS,
   getEvent,
@@ -94,6 +94,8 @@ export type Expedition = {
   /** 이번 원정에서 얻은 금화와 유물 id (살아서 돌아와야 내 것이 된다) */
   gold: number;
   loot: string[];
+  /** 이번 원정에서 얻은 유실물 (id별 개수) */
+  salvage: Record<string, number>;
 };
 
 // ── 시작 ────────────────────────────────────────────────
@@ -127,6 +129,7 @@ export function startExpedition(
     room: null,
     gold: 0,
     loot: [],
+    salvage: {},
   };
 }
 
@@ -325,7 +328,7 @@ function gain(
   return lines;
 }
 
-/** 전투에서 이기면: 적 한 마리당 금화, 가끔 유물 */
+/** 전투에서 이기면: 적 한 마리당 금화, 그리고 적 종류별 유실물 (유물은 사건·보물 칸에서만) */
 export function battleSpoils(
   exp: Expedition,
   battle: Battle,
@@ -334,11 +337,15 @@ export function battleSpoils(
   if (battle.outcome !== "victory") return { exp, lines: [] };
   const rng = createRng(seed);
   const next = structuredClone(exp);
-  const enemies = battle.units.filter((u) => u.side === "enemy").length;
+  const enemies = battle.units.filter((u) => u.side === "enemy");
   let gold = 0;
-  for (let i = 0; i < enemies; i++)
-    gold += rollInt(rng.next, BATTLE_GOLD[0], BATTLE_GOLD[1]);
-  const lines = gain(next, gold, rng.next() < BATTLE_RELIC_CHANCE ? 1 : 0, rng);
+  for (let i = 0; i < enemies.length; i++) gold += rollInt(rng.next, BATTLE_GOLD[0], BATTLE_GOLD[1]);
+  const lines = gain(next, gold, 0, rng);
+  const dropped: Record<string, number> = {};
+  for (const enemy of enemies) for (const id of rollDrops(enemy.kind, rng)) dropped[id] = (dropped[id] ?? 0) + 1;
+  next.salvage = addSalvage(next.salvage ?? {}, dropped);
+  const found = Object.entries(dropped).map(([id, n]) => `${getSalvage(id)?.name ?? id}${n > 1 ? ` ×${n}` : ""}`);
+  if (found.length) lines.push(`유실물: ${found.join(", ")}`);
   return { exp: next, lines };
 }
 

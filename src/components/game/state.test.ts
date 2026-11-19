@@ -266,3 +266,24 @@ describe("전투 중 후퇴 (상태)", () => {
     expect(gameReducer(s, { type: "fleeBattle", seed: 1 })).toBe(s);
   });
 });
+
+describe("유실물 (상태)", () => {
+  it("살아 돌아오면 유실물을 챙기고, 하나씩 또는 전부 판다. 전멸하면 잃는다", () => {
+    let s = inDungeon(PARTY4);
+    s = { ...s, expedition: { ...s.expedition!, salvage: { rat_fang: 3, warden_crest: 1 } } };
+    const back = gameReducer(s, { type: "endExpedition", seed: 1 });
+    expect(back.salvage).toEqual({ rat_fang: 3, warden_crest: 1 });
+    expect(back.report!.salvage).toEqual({ rat_fang: 3, warden_crest: 1 });
+
+    const one = gameReducer(back, { type: "sellSalvage", id: "rat_fang" });
+    expect(one.salvage.rat_fang).toBe(2);
+    expect(one.gold).toBe(back.gold + 2);
+    const all = gameReducer(one, { type: "sellSalvage", id: "rat_fang", all: true });
+    expect(all.salvage.rat_fang).toBeUndefined();
+    expect(all.gold).toBe(one.gold + 4);
+
+    const lost = gameReducer({ ...s, expedition: { ...s.expedition!, room: { kind: "defeat" } } }, { type: "endExpedition", seed: 1 });
+    expect(lost.salvage).toEqual({});
+    expect(lost.report!.lost).toMatchObject({ salvage: 4 });
+  });
+});

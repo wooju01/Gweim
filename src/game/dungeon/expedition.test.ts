@@ -280,3 +280,20 @@ describe("전리품", () => {
     expect(relics / 200).toBeLessThan(0.55);
   });
 });
+
+describe("전투 유실물", () => {
+  it("이기면 쓰러뜨린 적 종류의 유실물이 떨어지고, 유물은 나오지 않는다", () => {
+    let salvage = 0;
+    for (let seed = 0; seed < 100; seed++) {
+      const exp = startExpedition(mercs, seed);
+      const b = battleFor(exp, mercs, seed);
+      expect(b.units.filter((u) => u.side === "enemy").every((u) => !!u.kind)).toBe(true);
+      const won = battleSpoils(exp, { ...b, outcome: "victory" }, seed);
+      expect(won.exp.loot).toEqual([]);
+      salvage += Object.values(won.exp.salvage).reduce((a, n) => a + n, 0);
+    }
+    // 적 3~4마리 × (0.5 + 0.15) ≈ 한 번에 2개 남짓
+    expect(salvage / 100).toBeGreaterThan(1.5);
+    expect(salvage / 100).toBeLessThan(3.2);
+  });
+});
