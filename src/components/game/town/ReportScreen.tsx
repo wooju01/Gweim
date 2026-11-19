@@ -2,6 +2,7 @@ import { SUPPLY, type SupplyKind } from "@/data/combat";
 import { CURRENCY } from "@/data/economy";
 import { getRelic } from "@/data/relics";
 import { getSalvage } from "@/data/loot";
+import { getTrinket } from "@/data/trinkets";
 import { Button } from "../parts";
 import type { Fallen, Report } from "../state";
 import { TownBar } from "./TownBar";
@@ -66,10 +67,16 @@ export function ReportScreen({ report, deaths, day, gold, onDone }: Props) {
                   .join(", ")}
               </p>
             )}
+            {(report.trinkets ?? []).length > 0 && (
+              <p className="text-xs text-ember">장신구: {report.trinkets.map((id) => getTrinket(id)?.name ?? id).join(", ")} (대장간 보관함으로)</p>
+            )}
             <p className="text-xs text-ash">
               짐으로 돌아온 물자: {SUPPLY_ORDER.map((k) => `${SUPPLY[k].name} ${report.supplies[k]}`).join(" · ")}
             </p>
           </>
+        )}
+        {(report.lostTrinkets ?? []).length > 0 && (
+          <p className="text-xs text-blood">던전에 남은 장신구: {report.lostTrinkets.join(", ")}</p>
         )}
       </Section>
 

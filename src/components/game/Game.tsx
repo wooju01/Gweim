@@ -21,6 +21,7 @@ import { LEVELS, getPassive } from "@/data/passives";
 import { JOB_ULTIMATE, getSkill } from "@/data/combat";
 import { InnScreen } from "./town/InnScreen";
 import { SkillHallScreen } from "./town/SkillHallScreen";
+import { ForgeScreen } from "./town/ForgeScreen";
 import { ShopScreen } from "./town/ShopScreen";
 import { TownScreen } from "./town/TownScreen";
 import { clearSave, loadGame, saveGame } from "./save";
@@ -314,6 +315,22 @@ export function Game() {
           onTrain={(mercId, alloc) => dispatch({ type: "train", mercId, alloc })}
           promotions={promotionOffers}
           onPromote={(mercId, passive, skill) => dispatch({ type: "promote", mercId, passive, skill })}
+          onBack={toTown}
+        />
+      );
+    case "forge":
+      return (
+        <ForgeScreen
+          day={state.day}
+          gold={state.gold}
+          hired={hired}
+          progress={state.progress}
+          salvage={state.salvage}
+          trinkets={state.trinkets}
+          onForge={(trinket) => dispatch({ type: "forgeTrinket", trinket })}
+          onUpgrade={(where) => dispatch({ type: "upgradeTrinket", ...where })}
+          onEquip={(mercId, index) => dispatch({ type: "equipTrinket", mercId, index })}
+          onUnequip={(mercId) => dispatch({ type: "unequipTrinket", mercId })}
           onBack={toTown}
         />
       );

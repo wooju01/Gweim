@@ -16,6 +16,7 @@ import { NO_GROWTH, addStats, canPromote, gainXp, statLine, validTraining, type 
 import { promote, promoteCost } from "@/game/promotion";
 import { craft, knownPieces, paySalvage, swapSkills, unlockBlock } from "@/game/skillhall";
 import { CRAFT_COST, getPiece } from "@/data/craft";
+import { TRINKET_MAX_LV, forgeCost, getTrinket, trinketStats, type OwnedTrinket } from "@/data/trinkets";
 import { advanceCost, wageOf } from "@/game/wages";
 import { act, giftsReceived, type Battle, type BattleAction } from "@/game/combat/engine";
 import {
@@ -39,7 +40,8 @@ const HISTORY_LIMIT = 20;
 /** wage: 고용할 때 정해진 원정 1회 보수 (몫 약속을 했으면 더 많다). 고용 전에는 없다 */
 /** learned: 배웠지만 장착하지 않은 스킬 (장착 칸이 꽉 찼을 때, 전수관에서 바꿔 낀다) */
 /** pieces: 전수관에서 이 용병에게 뚫어 준 조각 (가진 스킬 안에 든 조각은 따로 저장하지 않는다) */
-export type MercProgress = TalkState & { hired: boolean; wage?: number; learned: string[]; pieces: string[] } & Growth;
+/** trinket: 끼고 있는 장신구 (대장간) */
+export type MercProgress = TalkState & { hired: boolean; wage?: number; learned: string[]; pieces: string[]; trinket?: OwnedTrinket } & Growth;
 
 /** 길드 명단의 한 칸. 고유 용병은 id만, 랜덤 용병은 다시 만들 수 있는 시드를 들고 있다. */
 export type RosterEntry = MercRef;
@@ -93,6 +95,8 @@ export type GameState = {
   salvage: Record<string, number>;
   /** 상점 재고 (원정에서 돌아올 때마다 새로 들어온다) */
   stock: Record<SupplyKind, number>;
+  /** 아무도 끼지 않은 장신구 (대장간 보관함) */
+  trinkets: OwnedTrinket[];
 };
 
 /** day: 죽은 날 (결산에서 이번 원정의 사망자를 찾는다) */
@@ -110,8 +114,12 @@ export type Report = {
   relics: string[];
   salvage: Record<string, number>;
   supplies: Record<SupplyKind, number>;
+  /** 찾아 온 장신구 id */
+  trinkets: string[];
   /** 전멸해서 두고 온 것 */
   lost: { gold: number; relics: number; salvage: number; supplies: number } | null;
+  /** 죽은 용병과 함께 잃은 장신구 이름 */
+  lostTrinkets: string[];
   /** 쓰러졌다가 살아 돌아온 용병 이름 */
   fallen: string[];
   /** 보수 지급·체불, 호감 변화, 떠난 용병 (한 줄씩) */
@@ -123,7 +131,7 @@ export type Report = {
 };
 
 /** 마을 안의 화면: 마을(홈), 용병 길드, 상점, 숙소(파티 편성), 던전 입구 */
-export type TownPlace = "town" | "guild" | "shop" | "inn" | "gate" | "yard" | "hall";
+export type TownPlace = "town" | "guild" | "shop" | "inn" | "gate" | "yard" | "hall" | "forge";
 
 export type RestTalk = {
   mercId: string;
@@ -169,6 +177,13 @@ export type GameAction =
   | { type: "craftSkill"; mercId: string; core: string; mods: string[] }
   /** 전수관: 장착 바꾸기 (배운 스킬 equip ↔ 장착 스킬 unequip) */
   | { type: "swapSkill"; mercId: string; equip?: string; unequip?: string }
+  /** 대장간: 장신구를 새로 만든다 (보관함으로) */
+  | { type: "forgeTrinket"; trinket: string }
+  /** 대장간: 장신구 강화 (용병이 낀 것은 mercId, 보관함 것은 index). 무조건 성공 */
+  | { type: "upgradeTrinket"; mercId?: string; index?: number }
+  /** 대장간: 보관함의 장신구를 용병에게 낀다 (끼던 것은 보관함으로) */
+  | { type: "equipTrinket"; mercId: string; index: number }
+  | { type: "unequipTrinket"; mercId: string }
   /** 유실물 팔기 (all이면 그 종류 전부) */
   | { type: "sellSalvage"; id: string; all?: boolean }
   /** 탐험을 끝내고 길드로 (귀환, 후퇴, 전멸). 다음 탐험은 모두 회복한 채 시작한다. seed: 계약 파기 판정 */
@@ -204,7 +219,7 @@ export function mercOf(entry: RosterEntry): Merc {
  * 죽은 용병을 명단에서 영영 지우고 추모 명단에 올린다.
  * 함께 있던 동료들은 호감이 떨어지고(지켜 주지 못했다), 기억에 그 죽음이 남는다.
  */
-function bury(state: GameState, deadIds: string[]): GameState {
+function bury(state: GameState, deadIds: string[], won: boolean): GameState {
   if (deadIds.length === 0) return state;
   let next = state;
   const lines: string[] = [];
@@ -213,6 +228,16 @@ function bury(state: GameState, deadIds: string[]): GameState {
     if (!entry) continue;
     const merc = mercOf(entry);
     const progress = { ...next.progress };
+    // 장신구: 그 전투를 이겼으면 시신에서 거둬 오고, 지거나 도망쳤으면 던전에 남는다
+    const trinket = progress[id]?.trinket;
+    if (trinket) {
+      if (won) next = { ...next, trinkets: [...next.trinkets, trinket] };
+      else if (next.expedition) {
+        const name = getTrinket(trinket.id)?.name ?? trinket.id;
+        next = { ...next, expedition: { ...next.expedition, lostTrinkets: [...(next.expedition.lostTrinkets ?? []), name] } };
+      }
+      lines.push(won ? `${merc.name}의 장신구를 거두었다.` : `${merc.name}의 장신구는 던전에 남았다.`);
+    }
     delete progress[id];
     next = {
       ...next,
@@ -262,6 +287,11 @@ function payWages(state: GameState, ids: string[]): { state: GameState; lines: s
 }
 
 /** 상점 재고를 새로 들인다 */
+/** 금화와 유실물로 낼 수 있나 */
+function canPay(state: GameState, cost: { gold: number; salvage: Record<string, number> }): boolean {
+  return state.gold >= cost.gold && Object.entries(cost.salvage).every(([id, n]) => (state.salvage[id] ?? 0) >= n);
+}
+
 function restock(seed: number): Record<SupplyKind, number> {
   const rng = createRng(seed ^ 0x5eed);
   return Object.fromEntries(
@@ -270,7 +300,7 @@ function restock(seed: number): Record<SupplyKind, number> {
 }
 
 export function isTown(kind: string): kind is TownPlace {
-  return kind === "town" || kind === "guild" || kind === "shop" || kind === "inn" || kind === "gate" || kind === "yard" || kind === "hall";
+  return kind === "town" || kind === "guild" || kind === "shop" || kind === "inn" || kind === "gate" || kind === "yard" || kind === "hall" || kind === "forge";
 }
 
 /** 고용한 용병 수 (파티에 들지 않은 사람 포함). 지금은 이 수가 MERC_SLOTS를 넘지 못한다 */
@@ -308,7 +338,9 @@ function bumpAffinity(
 function partyMercs(state: GameState): Merc[] {
   return state.party.flatMap((id) => {
     const entry = state.roster.find((e) => entryId(e) === id);
-    return entry ? [{ ...mercOf(entry), stats: state.progress[id]?.stats }] : [];
+    const p = state.progress[id];
+    // 성장 스탯 + 장신구
+    return entry ? [{ ...mercOf(entry), stats: addStats(p?.stats ?? {}, trinketStats(p?.trinket)) }] : [];
   });
 }
 
@@ -384,6 +416,7 @@ export function initialState(): GameState {
     pack: { ...START_PACK },
     relics: [],
     salvage: {},
+    trinkets: [],
     stock: { ...START_STOCK },
   };
 }
@@ -609,6 +642,48 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       };
     }
 
+    case "forgeTrinket": {
+      const t = getTrinket(action.trinket);
+      if (state.expedition || !t) return state;
+      const cost = forgeCost(t, 1);
+      if (!canPay(state, cost)) return state;
+      return { ...state, gold: state.gold - cost.gold, salvage: paySalvage(state.salvage, cost.salvage), trinkets: [...state.trinkets, { id: t.id, lv: 1 }] };
+    }
+
+    case "upgradeTrinket": {
+      if (state.expedition) return state;
+      const p = action.mercId ? state.progress[action.mercId] : undefined;
+      const owned = action.mercId ? p?.trinket : state.trinkets[action.index ?? -1];
+      const t = owned && getTrinket(owned.id);
+      if (!owned || !t || owned.lv >= TRINKET_MAX_LV) return state;
+      const cost = forgeCost(t, owned.lv + 1);
+      if (!canPay(state, cost)) return state;
+      const up = { ...owned, lv: owned.lv + 1 };
+      const paid = { ...state, gold: state.gold - cost.gold, salvage: paySalvage(state.salvage, cost.salvage) };
+      return action.mercId
+        ? { ...paid, progress: { ...state.progress, [action.mercId]: { ...p!, trinket: up } } }
+        : { ...paid, trinkets: state.trinkets.map((x, i) => (i === action.index ? up : x)) };
+    }
+
+    case "equipTrinket": {
+      const p = state.progress[action.mercId];
+      const entry = state.roster.find((e) => entryId(e) === action.mercId);
+      const owned = state.trinkets[action.index];
+      if (state.expedition || !p?.hired || !entry || !owned || getTrinket(owned.id)?.job !== mercOf(entry).job) return state;
+      const trinkets = state.trinkets.filter((_, i) => i !== action.index);
+      return {
+        ...state,
+        trinkets: p.trinket ? [...trinkets, p.trinket] : trinkets,
+        progress: { ...state.progress, [action.mercId]: { ...p, trinket: owned } },
+      };
+    }
+
+    case "unequipTrinket": {
+      const p = state.progress[action.mercId];
+      if (state.expedition || !p?.trinket) return state;
+      return { ...state, trinkets: [...state.trinkets, p.trinket], progress: { ...state.progress, [action.mercId]: { ...p, trinket: undefined } } };
+    }
+
     case "sellSalvage": {
       const item = getSalvage(action.id);
       const have = state.salvage[action.id] ?? 0;
@@ -663,7 +738,11 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         expedition: spoils.exp,
         screen: { kind: "dungeon" },
       };
-      return bury(next, state.screen.battle.units.filter((u) => u.side === "merc" && u.dead).map((u) => u.id));
+      return bury(
+        next,
+        state.screen.battle.units.filter((u) => u.side === "merc" && u.dead).map((u) => u.id),
+        state.screen.battle.outcome === "victory",
+      );
     }
 
     case "fleeBattle": {
@@ -673,6 +752,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       let next: GameState = bury(
         { ...state, expedition: { ...finishBattle(state.expedition, battle), room: null }, screen: { kind: "dungeon" } },
         battle.units.filter((u) => u.side === "merc" && u.dead).map((u) => u.id),
+        false,
       );
       // 살아 있는 동행 용병: 싸움에서 등을 보인 것에 대한 반응 (성격마다 다르다)
       const changes: Record<string, number> = {};
@@ -721,6 +801,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         gold: defeat ? 0 : exp.gold,
         relics: defeat ? [] : exp.loot,
         salvage: defeat ? {} : (exp.salvage ?? {}),
+        trinkets: defeat ? [] : (exp.trinkets ?? []),
+        lostTrinkets: [...(exp.lostTrinkets ?? []), ...(defeat ? (exp.trinkets ?? []).map((id) => getTrinket(id)?.name ?? id) : [])],
         supplies: defeat ? { ...START_PACK } : { ...exp.supplies },
         lost: defeat
           ? {
@@ -760,6 +842,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           gold: next.gold + exp.gold,
           relics: [...next.relics, ...exp.loot],
           salvage: addSalvage(next.salvage, exp.salvage ?? {}),
+          trinkets: [...next.trinkets, ...(exp.trinkets ?? []).map((id) => ({ id, lv: 1 }))],
           pack: { ...exp.supplies },
         };
       }
@@ -786,6 +869,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         delete progress[id];
         next = {
           ...next,
+          // 장신구는 두고 간다
+          trinkets: p.trinket ? [...next.trinkets, p.trinket] : next.trinkets,
           roster: next.roster.filter((e) => entryId(e) !== id),
           party: next.party.filter((x) => x !== id),
           progress,
@@ -794,15 +879,19 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...next, report };
     }
 
-    case "dismiss":
+    case "dismiss": {
+      // 내보내는 용병의 장신구는 보관함으로
+      const trinket = state.progress[action.mercId]?.trinket;
       return {
         ...state,
         party: state.party.filter((id) => id !== action.mercId),
+        trinkets: trinket ? [...state.trinkets, trinket] : state.trinkets,
         progress: {
           ...state.progress,
-          [action.mercId]: { ...state.progress[action.mercId], hired: false },
+          [action.mercId]: { ...state.progress[action.mercId], hired: false, trinket: undefined },
         },
       };
+    }
 
     case "recruitStart":
       return { ...state, recruit: { pending: true, error: null } };

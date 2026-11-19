@@ -370,3 +370,74 @@ describe("전수관 (상태)", () => {
   });
 });
 
+
+describe("대장간 (상태)", () => {
+  const hiredState = (): GameState => {
+    const s = initialState();
+    return {
+      ...s,
+      gold: 200,
+      salvage: { warden_crest: 5, hound_fang: 5 },
+      progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], hired: true }, "s-durgan": { ...s.progress["s-durgan"], hired: true } },
+    };
+  };
+
+  it("만들기 → 강화(무조건 성공, 3단계까지) → 같은 직업에게만 끼기 → 빼기", () => {
+    let s = gameReducer(hiredState(), { type: "forgeTrinket", trinket: "t_warden_badge" }); // 기사 전용
+    expect(s.gold).toBe(185);
+    expect(s.salvage.warden_crest).toBe(4);
+    expect(s.trinkets).toEqual([{ id: "t_warden_badge", lv: 1 }]);
+    s = gameReducer(s, { type: "upgradeTrinket", index: 0 });
+    expect(s.trinkets[0].lv).toBe(2);
+    // 대검사(두르강)는 기사 장신구를 낄 수 없다
+    expect(gameReducer(s, { type: "equipTrinket", mercId: "s-durgan", index: 0 })).toBe(s);
+    s = gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: 0 });
+    expect(s.trinkets).toEqual([]);
+    expect(s.progress["s-bran"].trinket).toEqual({ id: "t_warden_badge", lv: 2 });
+    s = gameReducer(s, { type: "upgradeTrinket", mercId: "s-bran" });
+    expect(s.progress["s-bran"].trinket!.lv).toBe(3);
+    expect(gameReducer(s, { type: "upgradeTrinket", mercId: "s-bran" })).toBe(s);
+    s = gameReducer(s, { type: "unequipTrinket", mercId: "s-bran" });
+    expect(s.progress["s-bran"].trinket).toBeUndefined();
+    expect(s.trinkets).toEqual([{ id: "t_warden_badge", lv: 3 }]);
+  });
+
+  it("유실물이 모자라면 만들 수 없다", () => {
+    const s = { ...hiredState(), salvage: {} };
+    expect(gameReducer(s, { type: "forgeTrinket", trinket: "t_warden_badge" })).toBe(s);
+  });
+
+  it("장신구 스탯이 전투에 들어간다", () => {
+    let s = hiredState();
+    s = { ...s, trinkets: [{ id: "t_rust_pauldron", lv: 2 }] }; // 기사, 단계마다 체력 포인트 2
+    const plain = inDungeon(["s-bran"]).expedition!.members[0].maxHp;
+    s = gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: 0 });
+    s = gameReducer({ ...s, party: ["s-bran"] }, { type: "enterDungeon", seed: 1 });
+    expect(s.expedition!.members[0].maxHp).toBe(plain + 12);
+  });
+
+  function deathBattle(outcome: "victory" | "defeat") {
+    let s = inDungeon(["s-bran", "s-mirel"]);
+    s = { ...s, progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], trinket: { id: "t_warden_badge", lv: 2 } } } };
+    const exp = s.expedition!;
+    const battle = {
+      round: 1, order: [], turn: 0, supplies: exp.supplies, depth: 1, walked: 1, guideUsed: false, rng: 1, outcome, log: [],
+      units: exp.members.map((m) => ({
+        id: m.id, side: "merc" as const, name: m.name, title: "", hp: m.id === "s-bran" ? 0 : m.hp, maxHp: m.maxHp,
+        attack: [1, 1] as const, defense: 0, speed: 0, statuses: [], skills: [], cooldowns: {}, guarding: false,
+        dead: m.id === "s-bran",
+      })),
+    };
+    return { ...s, screen: { kind: "battle" as const, battle } };
+  }
+
+  it("죽은 용병의 장신구: 이긴 전투면 거둬 오고, 도망치면 던전에 남는다", () => {
+    const won = gameReducer(deathBattle("victory"), { type: "battleFinish" });
+    expect(won.trinkets).toEqual([{ id: "t_warden_badge", lv: 2 }]);
+
+    const s = deathBattle("victory");
+    const fled = gameReducer({ ...s, screen: { ...s.screen, battle: { ...s.screen.battle, outcome: null } } } as GameState, { type: "fleeBattle", seed: 1 });
+    expect(fled.trinkets).toEqual([]);
+    expect(fled.report!.lostTrinkets).toEqual(["파수병 문장 방패걸이"]);
+  });
+});

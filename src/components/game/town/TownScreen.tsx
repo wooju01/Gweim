@@ -72,7 +72,13 @@ export function TownScreen(props: Props) {
       description: "레벨업으로 생긴 기회마다 금화를 내고 스탯을 직접 배분한다.",
       status: trainable ? `단련 기회 ${trainable}번` : "레벨업하면 단련할 수 있다",
     },
-    { key: "forge", name: "대장간", description: "유실물로 직업 전용 장신구를 만들고 강화한다.", later: "준비 중" },
+    {
+      key: "forge",
+      place: "forge",
+      name: "대장간",
+      description: "유실물로 직업 전용 장신구를 만들고 강화한다.",
+      status: salvage ? `유실물 ${salvage}개` : "유실물이 없다",
+    },
     {
       key: "hall",
       place: "hall",

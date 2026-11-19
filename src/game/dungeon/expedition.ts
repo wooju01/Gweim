@@ -21,6 +21,7 @@ import {
   TREASURE_RELIC_CHANCE,
 } from "../../data/economy";
 import { rollRelic } from "../../data/relics";
+import { TREASURE_TRINKET_CHANCE, rollTrinket } from "../../data/trinkets";
 import { addSalvage, getSalvage, rollDrops } from "../../data/loot";
 import {
   EVENTS,
@@ -96,6 +97,10 @@ export type Expedition = {
   loot: string[];
   /** 이번 원정에서 얻은 유실물 (id별 개수) */
   salvage: Record<string, number>;
+  /** 이번 원정에서 찾은 장신구 id (1단계. 살아서 돌아와야 내 것이 된다) */
+  trinkets?: string[];
+  /** 죽은 용병과 함께 던전에 남은 장신구 이름 (결산에 보여 준다) */
+  lostTrinkets?: string[];
 };
 
 // ── 시작 ────────────────────────────────────────────────
@@ -130,6 +135,7 @@ export function startExpedition(
     gold: 0,
     loot: [],
     salvage: {},
+    trinkets: [],
   };
 }
 
@@ -363,10 +369,14 @@ function treasure(exp: Expedition, rng: Rng): string[] {
     found[kind] = (found[kind] ?? 0) + 1;
   }
   const gold = rollInt(rng.next, TREASURE_GOLD[0], TREASURE_GOLD[1]);
-  return [
-    ...supplyLines(exp, found),
-    ...gain(exp, gold, rng.next() < TREASURE_RELIC_CHANCE ? 1 : 0, rng),
-  ];
+  const lines = [...supplyLines(exp, found), ...gain(exp, gold, rng.next() < TREASURE_RELIC_CHANCE ? 1 : 0, rng)];
+  // 낮은 확률로 장신구
+  if (rng.next() < TREASURE_TRINKET_CHANCE) {
+    const t = rollTrinket(rng);
+    exp.trinkets = [...(exp.trinkets ?? []), t.id];
+    lines.push(`장신구: ${t.name}`);
+  }
+  return lines;
 }
 
 const SUPPLY_NAME: Record<SupplyKind, string> = {

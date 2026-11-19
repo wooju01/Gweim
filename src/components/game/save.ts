@@ -39,6 +39,7 @@ const MercProgressSave = TalkState.extend({
   trainable: z.number().int().min(0).default(0),
   learned: z.array(z.string().max(40)).default([]),
   pieces: z.array(z.string().max(20)).default([]),
+  trinket: z.object({ id: z.string().max(40), lv: z.number().int().min(1).max(3) }).optional(),
 });
 const Supplies = z.object({ bandage: z.number().int().min(0), antidote: z.number().int().min(0), potion: z.number().int().min(0) });
 
@@ -96,6 +97,7 @@ export const SaveFile = z.object({
     relics: z.array(z.string()).default([]),
     salvage: z.record(z.string(), z.number().int().min(0)).default({}),
     stock: Supplies.default({ ...START_STOCK }),
+    trinkets: z.array(z.object({ id: z.string().max(40), lv: z.number().int().min(1).max(3) })).default([]),
   }),
 });
 export type SaveFile = z.infer<typeof SaveFile>;
@@ -129,6 +131,7 @@ export function toSave(state: GameState, now = new Date()): SaveFile {
       relics: state.relics,
       salvage: state.salvage,
       stock: state.stock,
+      trinkets: state.trinkets,
     } as SaveFile["state"],
   };
 }
@@ -183,6 +186,7 @@ export function fromSave(raw: unknown): { state: GameState } | { error: string }
       relics: s.relics,
       salvage: s.salvage,
       stock: s.stock,
+      trinkets: s.trinkets,
       // 사건 칸에서 멈췄으면 AI 묘사 없이 기본 문장으로 이어 간다
       narration: room?.kind === "event" && !room.result ? { eventId: room.eventId, pending: false, data: null } : null,
     },
