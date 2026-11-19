@@ -11,7 +11,7 @@ import { PACK_LIMIT, PRICE, START_GOLD, START_PACK, START_STOCK, STOCK_RANGE } f
 import { getRelic } from "@/data/relics";
 import { addSalvage, getSalvage, salvageCount } from "@/data/loot";
 import { WAGE } from "@/data/wages";
-import { STAT_NAME, TRAINING_COST, XP_GOAL_BONUS, XP_PER_SQUARE, type StatBlock } from "@/data/growth";
+import { STAT_NAME, TRAINING_COST, type StatBlock } from "@/data/growth";
 import { NO_GROWTH, addStats, canPromote, gainXp, statLine, validTraining, type Growth } from "@/game/growth";
 import { promote, promoteCost } from "@/game/promotion";
 import { craft, knownPieces, paySalvage, swapSkills, unlockBlock } from "@/game/skillhall";
@@ -24,6 +24,8 @@ import {
   finishBattle,
   giveSupply,
   battleSpoils,
+  descend,
+  expeditionXp,
   leaveRoom,
   markRestTalk,
   moveTo,
@@ -104,6 +106,8 @@ export type Fallen = { id: string; name: string; title: string; words: string | 
 
 /** 원정 결산 */
 export type Report = {
+  /** 가장 깊이 내려간 층 */
+  depth: number;
   outcome: "goal" | "retreat" | "defeat";
   /** 전투 중에 도망쳤다 (후퇴의 한 갈래) */
   fled?: boolean;
@@ -158,6 +162,8 @@ export type GameAction =
   | { type: "narrated"; eventId: string; data: EventResponse | null }
   | { type: "chooseEvent"; choiceId: string; seed: number }
   | { type: "leaveRoom" }
+  /** 목적지에서 다음 층으로 내려간다. seed: 새 지도 */
+  | { type: "descend"; seed: number }
   | { type: "giveSupply"; item: SupplyKind; target: string }
   | { type: "battleAct"; action: BattleAction }
   /** 전투 중 후퇴: 전투를 버리고 원정을 끝낸다 (동료들의 호감이 떨어진다) */
@@ -525,6 +531,11 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, expedition: exp, progress, reactions };
     }
 
+    case "descend": {
+      const next = state.expedition && descend(state.expedition, action.seed);
+      return next ? { ...state, expedition: next, reactions: [], narration: null, restTalk: null } : state;
+    }
+
     case "leaveRoom":
       if (!state.expedition) return state;
       if (state.restTalk?.pending) return state;
@@ -796,6 +807,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       if (!exp) return next;
       const defeat = exp.room?.kind === "defeat";
       const report: Report = {
+        depth: exp.depth,
         outcome: defeat ? "defeat" : exp.room?.kind === "goal" ? "goal" : "retreat",
         day: state.day,
         gold: defeat ? 0 : exp.gold,
@@ -819,7 +831,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         growth: [],
       };
       // 경험치: 살아 돌아온 용병. 지나온 칸 수 + 목적지 보너스
-      const xp = (exp.visited.length - 1) * XP_PER_SQUARE + (exp.room?.kind === "goal" ? XP_GOAL_BONUS : 0);
+      const xp = expeditionXp(exp);
       if (xp > 0) {
         const progress = { ...next.progress };
         for (const m of exp.members.filter((x) => !x.dead)) {

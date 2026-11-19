@@ -8,6 +8,9 @@ import {
   type SupplyKind,
 } from "../../data/combat";
 import {
+  MAX_DEPTH,
+  PATH_LENGTH,
+  depthGold,
   REST_HEAL_RATIO,
   TREASURE_COUNT,
   TREASURE_WEIGHTS,
@@ -21,6 +24,7 @@ import {
   TREASURE_RELIC_CHANCE,
 } from "../../data/economy";
 import { rollRelic } from "../../data/relics";
+import { XP_GOAL_BONUS, XP_PER_SQUARE } from "../../data/growth";
 import { TREASURE_TRINKET_CHANCE, rollTrinket } from "../../data/trinkets";
 import { addSalvage, getSalvage, rollDrops } from "../../data/loot";
 import {
@@ -101,6 +105,8 @@ export type Expedition = {
   trinkets?: string[];
   /** 죽은 용병과 함께 던전에 남은 장신구 이름 (결산에 보여 준다) */
   lostTrinkets?: string[];
+  /** 이번 원정에서 쌓인 경험치 (칸마다 층 수만큼, 목적지마다 보너스 × 층). 살아 돌아온 용병이 받는다 */
+  xp?: number;
 };
 
 // ── 시작 ────────────────────────────────────────────────
@@ -136,6 +142,7 @@ export function startExpedition(
     loot: [],
     salvage: {},
     trinkets: [],
+    xp: 0,
   };
 }
 
@@ -175,6 +182,7 @@ export function moveTo(
     ...exp,
     at: nodeId,
     visited: [...exp.visited, nodeId],
+    xp: expeditionXp(exp) + XP_PER_SQUARE * exp.depth,
   });
   const rng = createRng(seed);
 
@@ -196,10 +204,31 @@ export function moveTo(
       break;
     case "goal":
       next.room = { kind: "goal" };
-      next.gold += GOAL_GOLD;
+      next.gold += depthGold(next.depth, GOAL_GOLD);
+      next.xp! += XP_GOAL_BONUS * next.depth;
       break;
   }
   return { exp: next, battle: null, kind: node.kind };
+}
+
+/** 쌓인 경험치 (xp 칸이 없는 이전 저장은 지나온 칸 수로) */
+export function expeditionXp(exp: Expedition): number {
+  return exp.xp ?? (exp.visited.length - 1) * XP_PER_SQUARE + (exp.room?.kind === "goal" ? XP_GOAL_BONUS : 0);
+}
+
+/** 목적지에서 더 내려갈 수 있나 */
+export function canDescend(exp: Expedition): boolean {
+  return exp.room?.kind === "goal" && exp.depth < MAX_DEPTH && alive(exp).length > 0;
+}
+
+/**
+ * 다음 층으로 내려간다. 체력·상태이상·물자·전리품은 그대로 이어지고, 새 지도의 입구에서 시작한다.
+ * 쉬는 일은 없다 (지친 채로 내려간다)
+ */
+export function descend(exp: Expedition, seed: number): Expedition | null {
+  if (!canDescend(exp)) return null;
+  const map = generateMap(seed);
+  return { ...exp, xp: expeditionXp(exp), map, at: map.startId, visited: [map.startId], depth: exp.depth + 1, room: null };
 }
 
 /** 휴식 칸에서 한 명과 이야기했다고 표시한다 (휴식마다 한 번) */
@@ -262,7 +291,8 @@ export function battleFor(
   return startBattleFrom(units, seed, {
     depth: exp.depth,
     supplies: exp.supplies,
-    walked: exp.visited.length - 1,
+    // 지나온 칸 수 (앞 층들을 포함)
+    walked: (exp.depth - 1) * PATH_LENGTH + exp.visited.length - 1,
   });
 }
 
@@ -346,7 +376,7 @@ export function battleSpoils(
   const enemies = battle.units.filter((u) => u.side === "enemy");
   let gold = 0;
   for (let i = 0; i < enemies.length; i++) gold += rollInt(rng.next, BATTLE_GOLD[0], BATTLE_GOLD[1]);
-  const lines = gain(next, gold, 0, rng);
+  const lines = gain(next, depthGold(exp.depth, gold), 0, rng);
   const dropped: Record<string, number> = {};
   for (const enemy of enemies) for (const id of rollDrops(enemy.kind, rng)) dropped[id] = (dropped[id] ?? 0) + 1;
   next.salvage = addSalvage(next.salvage ?? {}, dropped);
@@ -368,7 +398,7 @@ function treasure(exp: Expedition, rng: Rng): string[] {
       kinds.find((k) => (roll -= TREASURE_WEIGHTS[k]) < 0) ?? kinds[0];
     found[kind] = (found[kind] ?? 0) + 1;
   }
-  const gold = rollInt(rng.next, TREASURE_GOLD[0], TREASURE_GOLD[1]);
+  const gold = depthGold(exp.depth, rollInt(rng.next, TREASURE_GOLD[0], TREASURE_GOLD[1]));
   const lines = [...supplyLines(exp, found), ...gain(exp, gold, rng.next() < TREASURE_RELIC_CHANCE ? 1 : 0, rng)];
   // 낮은 확률로 장신구
   if (rng.next() < TREASURE_TRINKET_CHANCE) {

@@ -32,6 +32,7 @@ import type { SkillEffect } from "../../data/skills";
 import { BOND } from "../../data/bond";
 import { JOB_STAT, PER_POINT, type PowerStat, type StatKey } from "../../data/growth";
 import { DEATH, survivalChance } from "../../data/death";
+import { DEPTH_ENEMY } from "../../data/dungeon";
 import type { MercLevel, Stage } from "../../lib/schemas";
 import { createRng, rollInt, type Rng } from "../random";
 import type { Merc } from "../types";
@@ -328,7 +329,11 @@ function pickEnemy(rng: Rng): EnemyKind {
 }
 
 /** 적 무리를 뽑는다. 같은 종류가 여럿이면 이름 뒤에 A, B…를 붙인다 */
-export function rollEncounter(rng: Rng): Unit[] {
+/** 적 무리. 깊은 층일수록 체력·공격·방어가 오른다 (data/dungeon.ts의 DEPTH_ENEMY) */
+export function rollEncounter(rng: Rng, depth = 1): Unit[] {
+  const d = Math.max(0, depth - 1);
+  const hpOf = (hp: number) => Math.round(hp * (1 + DEPTH_ENEMY.hpPerDepth * d));
+  const up = d * DEPTH_ENEMY.attackPerDepth;
   const count = rollInt(rng.next, ENCOUNTER_SIZE[0], ENCOUNTER_SIZE[1]);
   const kinds = Array.from({ length: count }, () => pickEnemy(rng));
   return kinds.map((k, i) => {
@@ -339,10 +344,10 @@ export function rollEncounter(rng: Rng): Unit[] {
       side: "enemy" as const,
       name: k.name + suffix,
       title: "",
-      hp: k.hp,
-      maxHp: k.hp,
-      attack: k.attack,
-      defense: k.defense,
+      hp: hpOf(k.hp),
+      maxHp: hpOf(k.hp),
+      attack: [k.attack[0] + up, k.attack[1] + up] as const,
+      defense: k.defense + Math.floor(d / DEPTH_ENEMY.defenseEvery),
       speed: k.speed,
       onHit: k.onHit,
       note: k.note,
@@ -358,7 +363,7 @@ export function rollEncounter(rng: Rng): Unit[] {
 /** 전투를 시작한다. 첫 용병의 차례까지 진행된 상태로 돌려준다 */
 export function startBattle(mercs: Merc[], seed: number, enemies?: Unit[], depth = 1): Battle {
   const rng = createRng(seed);
-  return begin([...mercs.map(mercUnit), ...(enemies ?? rollEncounter(rng))], rng, depth, START_SUPPLIES);
+  return begin([...mercs.map(mercUnit), ...(enemies ?? rollEncounter(rng, depth))], rng, depth, START_SUPPLIES);
 }
 
 /** 이미 만든 유닛으로 전투를 시작한다 (테스트에서 능력치를 고정할 때 쓴다) */
@@ -376,7 +381,7 @@ export function startBattleFrom(
   opts: { depth: number; supplies: Record<SupplyKind, number>; walked?: number; enemies?: Unit[] },
 ): Battle {
   const rng = createRng(seed);
-  return begin([...mercs, ...(opts.enemies ?? rollEncounter(rng))], rng, opts.depth, opts.supplies, opts.walked);
+  return begin([...mercs, ...(opts.enemies ?? rollEncounter(rng, opts.depth))], rng, opts.depth, opts.supplies, opts.walked);
 }
 
 function begin(units: Unit[], rng: Rng, depth: number, supplies: Record<SupplyKind, number>, walked = 0): Battle {

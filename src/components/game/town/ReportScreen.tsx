@@ -35,7 +35,9 @@ export function ReportScreen({ report, deaths, day, gold, onDone }: Props) {
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-8 sm:px-8">
       <TownBar place="결산" day={day} gold={gold} />
       <header className="animate-rise flex flex-col gap-1">
-        <p className="text-xs tracking-[0.3em] text-ash">{report.day}일째 원정</p>
+        <p className="text-xs tracking-[0.3em] text-ash">
+          {report.day}일째 원정 · {report.depth ?? 1}층까지
+        </p>
         <h1 className={`text-3xl font-bold ${outcome.style}`}>{outcome.title}</h1>
         <p className="text-sm text-bone/80">{outcome.line}</p>
       </header>

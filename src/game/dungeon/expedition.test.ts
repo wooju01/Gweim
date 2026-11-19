@@ -2,14 +2,18 @@ import { describe, expect, it } from "vitest";
 import { START_SUPPLIES } from "../../data/combat";
 import { EVENTS } from "../../data/events";
 import { TEST_MERCS } from "../../test/fixtures";
-import { act, currentActor, living } from "../combat/engine";
+import { act, currentActor, living, rollEncounter } from "../combat/engine";
+import { createRng } from "../random";
+import { MAX_DEPTH } from "../../data/dungeon";
 import type { Merc } from "../types";
 import {
   battleFor,
   battleSpoils,
+  canDescend,
   canMove,
   choiceProblem,
   chooseEvent,
+  descend,
   finishBattle,
   giveSupply,
   leaveRoom,
@@ -297,3 +301,36 @@ describe("전투 유실물", () => {
     expect(salvage / 100).toBeLessThan(3.2);
   });
 });
+
+describe("층", () => {
+  it("깊은 층의 적은 체력·공격·방어가 높다 (같은 시드면 같은 무리)", () => {
+    const one = rollEncounter(createRng(7), 1);
+    const three = rollEncounter(createRng(7), 3);
+    expect(three.map((u) => u.kind)).toEqual(one.map((u) => u.kind));
+    three.forEach((u, i) => {
+      expect(u.maxHp).toBeGreaterThan(one[i].maxHp);
+      expect(u.attack[0]).toBe(one[i].attack[0] + 2);
+      expect(u.defense).toBe(one[i].defense + 1);
+    });
+  });
+
+  it("목적지에서만, 가장 깊은 층 전까지만 내려간다", () => {
+    const exp = startExpedition(mercs, 1);
+    expect(canDescend(exp)).toBe(false);
+    const atGoal: Expedition = { ...exp, room: { kind: "goal" } };
+    expect(descend(atGoal, 2)!.depth).toBe(2);
+    expect(descend({ ...atGoal, depth: MAX_DEPTH }, 2)).toBeNull();
+    // 모두 쓰러졌으면 못 내려간다
+    expect(descend({ ...atGoal, members: atGoal.members.map((m) => ({ ...m, down: true })) }, 2)).toBeNull();
+  });
+
+  it("깊은 층의 전투는 금화를 더 준다", () => {
+    const { exp } = expeditionWithFirst("battle");
+    const b = fight(exp, 3);
+    if (b.outcome !== "victory") return;
+    const g1 = battleSpoils(exp, b, 9).exp.gold;
+    const g3 = battleSpoils({ ...exp, depth: 3 }, b, 9).exp.gold;
+    expect(g3).toBe(Math.round(g1 * 2));
+  });
+});
+

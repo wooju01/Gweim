@@ -294,7 +294,8 @@ describe("유실물 (상태)", () => {
 describe("성장 (상태)", () => {
   it("살아 돌아온 용병은 지나온 칸만큼 경험치를 받고, 레벨업이 결산에 남는다", () => {
     let s = inDungeon(PARTY4);
-    s = { ...s, expedition: { ...s.expedition!, visited: ["a", "b", "c", "d", "e", "f"], room: { kind: "goal" } } };
+    // xp 칸이 없는 이전 저장: 지나온 칸 수로 계산한다
+    s = { ...s, expedition: { ...s.expedition!, xp: undefined, visited: ["a", "b", "c", "d", "e", "f"], room: { kind: "goal" } } };
     const back = gameReducer(s, { type: "endExpedition", seed: 1 });
     // 5칸 + 목적지 3 = 8 → 레벨 1 (5 필요), 3 남음
     expect(back.progress["s-bran"]).toMatchObject({ lv: 1, xp: 3, trainable: 1, stats: { defense: 2, hp: 1 } });
@@ -441,3 +442,28 @@ describe("대장간 (상태)", () => {
     expect(fled.report!.lostTrinkets).toEqual(["파수병 문장 방패걸이"]);
   });
 });
+
+describe("던전 층 (상태)", () => {
+  it("목적지에서 내려가면 체력·물자·전리품을 들고 다음 층 입구로. 깊을수록 경험치가 크다", () => {
+    let s = inDungeon(PARTY4);
+    const exp = s.expedition!;
+    const tired = exp.members.map((m) => ({ ...m, hp: m.hp - 5 }));
+    s = { ...s, expedition: { ...exp, members: tired, gold: 30, xp: 10, room: { kind: "goal" } } };
+    // 목적지가 아니면 못 내려간다
+    expect(gameReducer({ ...s, expedition: { ...s.expedition!, room: null } }, { type: "descend", seed: 3 }).expedition!.depth).toBe(1);
+    const down = gameReducer(s, { type: "descend", seed: 3 });
+    const e2 = down.expedition!;
+    expect(e2.depth).toBe(2);
+    expect(e2.room).toBeNull();
+    expect(e2.visited).toEqual([e2.map.startId]);
+    expect(e2.members.map((m) => m.hp)).toEqual(tired.map((m) => m.hp));
+    expect(e2.gold).toBe(30);
+    // 2층에서 한 칸 = 경험치 2
+    const step = gameReducer(down, { type: "move", nodeId: e2.map.nodes.find((n) => n.id === e2.map.startId)!.next[0], seed: 4 });
+    expect(step.expedition!.xp).toBe(12);
+    // 결산에 도달한 층이 남는다
+    const back = gameReducer(step.screen.kind === "battle" ? { ...step, screen: { kind: "dungeon" } } : step, { type: "endExpedition", seed: 1 });
+    expect(back.report!.depth).toBe(2);
+  });
+});
+

@@ -39,3 +39,19 @@ export const REST_HEAL_RATIO = 0.3;
 /** 보물 칸에서 찾는 물자 수 [최소, 최대]와 종류 가중치 */
 export const TREASURE_COUNT = [1, 2] as const;
 export const TREASURE_WEIGHTS = { bandage: 4, potion: 3, antidote: 3 } as const;
+
+// ── 층 ──────────────────────────────────────────────────
+// 목적지에 닿으면 돌아가거나 더 내려간다. 내려가면 체력·물자·전리품을 그대로 들고 다음 층 새 지도로.
+
+/** 가장 깊은 층 (지금은 여기까지 열려 있다) */
+export const MAX_DEPTH = 5;
+
+/** 층이 하나 깊어질 때마다 적: 체력 +15%, 공격 +1, 2층마다 방어 +1 */
+export const DEPTH_ENEMY = { hpPerDepth: 0.15, attackPerDepth: 1, defenseEvery: 2 } as const;
+
+/** 층이 하나 깊어질 때마다 금화 보상 +50% (전투·보물·목적지) */
+export const DEPTH_GOLD = 0.5;
+
+export function depthGold(depth: number, gold: number): number {
+  return Math.round(gold * (1 + DEPTH_GOLD * (depth - 1)));
+}

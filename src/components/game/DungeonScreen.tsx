@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { STATUS, SUPPLY, type SupplyKind } from "@/data/combat";
-import { PATH_LENGTH, ROOM_NAME, type RoomKind } from "@/data/dungeon";
+import { MAX_DEPTH, PATH_LENGTH, ROOM_NAME, type RoomKind } from "@/data/dungeon";
 import { getEvent, type Approach } from "@/data/events";
 import { CURRENCY } from "@/data/economy";
 import { getRelic } from "@/data/relics";
 import { salvageCount } from "@/data/loot";
-import { alive, canMove, choiceProblem, helperFor, supplyProblem, type Expedition, type Member } from "@/game/dungeon/expedition";
+import { alive, canDescend, canMove, choiceProblem, helperFor, supplyProblem, type Expedition, type Member } from "@/game/dungeon/expedition";
 import { getStage } from "@/game/affinity";
 import type { MercProgress, RestTalk } from "./state";
 import { byStep, type MapNode } from "@/game/dungeon/map";
@@ -22,6 +22,8 @@ type Props = {
   onLeaveRoom: () => void;
   onGive: (item: SupplyKind, target: string) => void;
   onEnd: () => void;
+  /** 목적지에서 다음 층으로 */
+  onDescend: () => void;
   restTalk: RestTalk | null;
   progress: Record<string, MercProgress>;
   onRestTalk: (mercId: string) => void;
@@ -196,7 +198,7 @@ const APPROACH: Partial<Record<Approach, { name: string; style: string }>> = {
   risk: { name: "위험", style: "bg-blood/20 text-blood" },
 };
 
-function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, restTalk, onRestTalk, onRestReply, progress }: Props) {
+function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, onDescend, restTalk, onRestTalk, onRestReply, progress }: Props) {
   const bonds = Object.fromEntries(Object.entries(progress).map(([id, p]) => [id, getStage(p.affinity)]));
   const room = exp.room!;
   const box = "flex flex-col items-start gap-3 rounded-sm border p-4";
@@ -243,15 +245,29 @@ function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, re
     case "goal":
       return (
         <div className={`${box} border-ember/50 bg-ember/10`}>
-          <p className="text-ember">목적지에 닿았다. 살아남은 자들과 함께 지상으로 돌아간다.</p>
+          <p className="text-ember">{exp.depth}층 목적지에 닿았다. 아래로 이어지는 계단이 보인다.</p>
           <p className="text-sm">
-            가져가는 것: {CURRENCY} {exp.gold}
+            가진 것: {CURRENCY} {exp.gold}
             {exp.loot.length > 0 && ` · ${exp.loot.map((id) => getRelic(id)?.name ?? id).join(", ")}`}
+            {salvageCount(exp.salvage ?? {}) > 0 && ` · 유실물 ${salvageCount(exp.salvage ?? {})}개`}
           </p>
-          <p className="text-xs text-ash">귀환하면 모두 회복한다. 더 깊은 층은 아직 열리지 않았다.</p>
-          <Button variant="ember" onClick={onEnd}>
-            귀환한다
-          </Button>
+          <p className="text-xs text-bone/80">
+            동료: {exp.members.filter((m) => !m.dead).map((m) => `${m.name} ${m.down ? "쓰러짐" : `${m.hp}/${m.maxHp}`}`).join(" · ")}
+          </p>
+          <p className="text-xs text-ash">
+            {canDescend(exp)
+              ? `더 내려가면 지금 체력·물자 그대로 ${exp.depth + 1}층으로 간다. 적이 더 세지고 금화·경험치도 커진다. 전멸하면 이제까지 얻은 것을 모두 잃는다.`
+              : exp.depth >= MAX_DEPTH
+                ? "더 깊은 곳은 아직 무너져 막혀 있다."
+                : "일어서 있는 동료가 없어 더 내려갈 수 없다."}
+            {" "}귀환하면 모두 회복한다.
+          </p>
+          <div className="flex gap-2">
+            <Button variant="ember" onClick={onEnd}>
+              귀환한다
+            </Button>
+            {canDescend(exp) && <Button onClick={onDescend}>{exp.depth + 1}층으로 내려간다</Button>}
+          </div>
         </div>
       );
     case "defeat":
