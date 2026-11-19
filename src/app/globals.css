@@ -96,3 +96,21 @@ body {
   .anim-breathe, .anim-lunge, .anim-hit, .anim-dodge, .anim-cast { animation: none; }
   .anim-fall { animation-duration: 0.01s; }
 }
+
+/* ── 마을 무대 ── */
+@keyframes flicker {
+  0%, 100% { opacity: 1; }
+  40% { opacity: 0.75; }
+  55% { opacity: 0.95; }
+  70% { opacity: 0.6; }
+}
+@keyframes fog {
+  0%, 100% { transform: translateX(-4%); opacity: 0.6; }
+  50% { transform: translateX(4%); opacity: 1; }
+}
+.anim-flicker { animation: flicker 3.2s ease-in-out infinite; }
+.anim-fog { animation: fog 18s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-flicker, .anim-fog { animation: none; }
+}

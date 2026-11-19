@@ -1,73 +1,32 @@
 import { LEVELS, getPassive } from "@/data/passives";
-import { SUPPLY, type SupplyKind } from "@/data/combat";
-import { CURRENCY, PACK_LIMIT, PRICE } from "@/data/economy";
-import { getRelic } from "@/data/relics";
+import { CURRENCY } from "@/data/economy";
 import { wageOf } from "@/game/wages";
 import type { Merc } from "@/game/types";
 import { Button, MercStats, Portrait } from "./parts";
-import { GUIDE, MERC_SLOTS } from "@/game/party";
-import type { Fallen, MercProgress } from "./state";
+import { MERC_SLOTS } from "@/game/party";
+import type { MercProgress } from "./state";
+import { TownBar } from "./town/TownBar";
 
 type Props = {
   mercs: Merc[];
   progress: Record<string, MercProgress>;
-  party: string[];
   recruit: { pending: boolean; error: string | null };
   onRecruit: () => void;
   onTalk: (mercId: string) => void;
   onDismiss: (mercId: string) => void;
-  onEnterDungeon: () => void;
-  /** 탐험에서 돌아왔을 때 알릴 일 */
-  notices?: string[];
-  onDismissNotices?: () => void;
-  /** 저장을 지우고 처음부터 */
-  onNewGame?: () => void;
-  /** 잃은 동료 */
-  memorial?: Fallen[];
-  /** 금화·짐·유물·상점 재고 */
-  shop?: { gold: number; pack: Record<SupplyKind, number>; relics: string[]; stock: Record<SupplyKind, number> };
-  onBuy?: (item: SupplyKind) => void;
-  onSell?: (index: number) => void;
+  day: number;
+  gold: number;
+  hired: number;
+  onBack: () => void;
 };
 
-export function GuildScreen({
-  mercs,
-  progress,
-  party,
-  recruit,
-  onRecruit,
-  onTalk,
-  onDismiss,
-  onEnterDungeon,
-  notices = [],
-  onDismissNotices,
-  onNewGame,
-  memorial = [],
-  shop,
-  onBuy,
-  onSell,
-}: Props) {
-  const byId = new Map(mercs.map((m) => [m.id, m]));
+export function GuildScreen({ mercs, progress, recruit, onRecruit, onTalk, onDismiss, day, gold, hired, onBack }: Props) {
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-4 py-10 sm:px-8">
-      {notices.length > 0 && (
-        <section aria-label="알림" className="flex items-start justify-between gap-4 rounded-sm border border-ember/40 bg-ember/5 px-4 py-3 text-sm">
-          <ul className="flex flex-col gap-1">
-            {notices.map((n, i) => (
-              <li key={i} className={n.includes("떠났다") ? "text-blood" : "text-ember"}>
-                {n}
-              </li>
-            ))}
-          </ul>
-          <Button className="!px-2 !py-1 text-xs" onClick={onDismissNotices}>
-            확인
-          </Button>
-        </section>
-      )}
-      <header className="flex flex-col gap-4 border-b border-edge pb-6 sm:flex-row sm:items-end sm:justify-between">
+      <TownBar place="용병 길드" day={day} gold={gold} onBack={onBack} />
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-2">
-          <p className="text-xs tracking-[0.3em] text-ash">변경 마을 · 용병 길드</p>
           <h1 className="text-3xl font-bold text-bone">길드 홀</h1>
           <p className="text-sm text-ash">
             길안내자인 당신에게는 함께 던전으로 내려갈 용병 넷이 필요하다. 말을 걸어 동행을 청해 보라.
@@ -79,15 +38,14 @@ export function GuildScreen({
           </Button>
           <span className="text-[11px] text-ash">고용하지 않은 떠돌이 용병은 떠나고 새 얼굴이 온다</span>
           {recruit.error && <span className="text-xs text-blood">{recruit.error}</span>}
-          {onNewGame && (
-            <button onClick={onNewGame} className="mt-1 text-[11px] text-ash/70 underline-offset-2 hover:text-blood hover:underline">
-              처음부터 다시 시작 (저장 삭제)
-            </button>
-          )}
+          <span className={`text-xs ${hired >= MERC_SLOTS ? "text-ember" : "text-ash"}`}>
+            고용 {hired} / {MERC_SLOTS}
+            {hired >= MERC_SLOTS ? " · 더 고용할 수 없다" : ""}
+          </span>
         </div>
       </header>
 
-      <div className="grid gap-8 lg:grid-cols-[1fr_280px]">
+      <div>
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {mercs.length === 0 && (
             <div className="col-span-full flex flex-col items-center gap-4 rounded-sm border border-dashed border-edge px-6 py-16 text-center">
@@ -176,125 +134,7 @@ export function GuildScreen({
           })}
         </section>
 
-        <aside className="flex h-fit flex-col gap-3 rounded-sm border border-edge bg-panel p-4">
-          <h2 className="flex items-baseline justify-between text-sm tracking-widest text-ash">
-            <span>파티</span>
-            <span>
-              용병 {party.length} / {MERC_SLOTS}
-            </span>
-          </h2>
-          <PartySlot name={GUIDE.name} sub={GUIDE.role} guide />
-          {Array.from({ length: MERC_SLOTS }, (_, i) => {
-            const merc = party[i] ? byId.get(party[i]) : undefined;
-            return merc ? (
-              <PartySlot key={i} name={merc.name} sub={merc.title} />
-            ) : (
-              <div
-                key={i}
-                className="rounded-sm border border-dashed border-edge px-3 py-3 text-sm text-ash/60"
-              >
-                빈 자리
-              </div>
-            );
-          })}
-          <Button variant="ember" className="mt-2" disabled={party.length === 0} onClick={onEnterDungeon}>
-            던전으로 내려간다
-          </Button>
-          {party.length === 0 && <p className="text-[11px] text-ash">용병을 한 명 이상 고용해야 한다.</p>}
-          {shop && party.length > 0 && Object.values(shop.pack).every((n) => n === 0) && (
-            <p className="text-[11px] text-blood">짐이 비어 있다. 물자 없이 내려가면 다친 동료를 돌볼 수 없다.</p>
-          )}
-          {shop && onBuy && onSell && <Shop {...shop} onBuy={onBuy} onSell={onSell} />}
-        </aside>
       </div>
-      {memorial.length > 0 && (
-        <section aria-label="잃은 동료" className="flex flex-col gap-2 border-t border-edge pt-6">
-          <h2 className="text-sm tracking-widest text-ash">잃은 동료</h2>
-          <ul className="flex flex-col gap-1.5 text-sm">
-            {memorial.map((f) => (
-              <li key={f.id} className="text-bone/80">
-                <span className="font-bold">{f.name}</span>
-                <span className="ml-2 text-xs text-ash">
-                  {f.title} · {f.depth}층에서
-                </span>
-                {f.words && <p className="pl-3 text-xs text-ash italic">“{f.words}”</p>}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
     </main>
-  );
-}
-
-const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
-
-/** 상점: 원정 물자를 사서 짐에 넣고, 던전에서 가져온 유물을 판다 */
-function Shop({
-  gold,
-  pack,
-  relics,
-  stock,
-  onBuy,
-  onSell,
-}: NonNullable<Props["shop"]> & { onBuy: (item: SupplyKind) => void; onSell: (index: number) => void }) {
-  const packed = Object.values(pack).reduce((a, b) => a + b, 0);
-  return (
-    <div className="mt-2 flex flex-col gap-3 border-t border-edge pt-3">
-      <div className="flex items-baseline justify-between">
-        <h3 className="text-sm font-bold">상점</h3>
-        <span className="text-sm text-ember">
-          {CURRENCY} {gold}
-        </span>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        {SUPPLY_ORDER.map((k) => (
-          <div key={k} className="flex items-center justify-between gap-2 text-xs">
-            <span title={SUPPLY[k].description}>
-              {SUPPLY[k].name} <span className="text-ash">· 짐 {pack[k]} · 재고 {stock[k]}</span>
-            </span>
-            <Button
-              className="!px-2 !py-0.5 text-[11px]"
-              disabled={gold < PRICE[k] || stock[k] <= 0 || packed >= PACK_LIMIT}
-              onClick={() => onBuy(k)}
-            >
-              {PRICE[k]} 사기
-            </Button>
-          </div>
-        ))}
-        <p className="text-[11px] text-ash">
-          원정 짐 {packed} / {PACK_LIMIT} · 돌아오면 남은 물자는 짐으로 돌아온다
-        </p>
-      </div>
-      {relics.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          <h4 className="text-xs text-ash">가진 유물</h4>
-          {relics.map((id, i) => {
-            const r = getRelic(id);
-            return (
-              r && (
-                <div key={`${id}-${i}`} className="flex items-center justify-between gap-2 text-xs">
-                  <span title={r.description}>{r.name}</span>
-                  <Button className="!px-2 !py-0.5 text-[11px]" onClick={() => onSell(i)}>
-                    {r.value} 팔기
-                  </Button>
-                </div>
-              )
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PartySlot({ name, sub, guide = false }: { name: string; sub: string; guide?: boolean }) {
-  return (
-    <div
-      className={`animate-rise rounded-sm border bg-panel-hi px-3 py-2 ${guide ? "border-ember/40" : "border-edge"}`}
-    >
-      <div className="text-sm font-bold">{name}</div>
-      <div className="text-xs text-ash">{sub}</div>
-    </div>
   );
 }

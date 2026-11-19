@@ -160,3 +160,38 @@ describe("보수와 조건 제시 (상태)", () => {
     expect(s.progress[id].wage).toBeGreaterThan(wageOf(merc));
   });
 });
+
+describe("마을 (상태)", () => {
+  it("처음엔 마을에서 1일째로 시작하고, 시설로 이동한다", () => {
+    let s = initialState();
+    expect(s.screen.kind).toBe("town");
+    expect(s.day).toBe(1);
+    for (const place of ["guild", "shop", "inn", "gate", "town"] as const) {
+      s = gameReducer(s, { type: "goto", place });
+      expect(s.screen.kind).toBe(place);
+    }
+  });
+
+  it("원정을 마치면 마을로 돌아오고 하루가 지난다. 원정 중에는 마을 이동을 하지 않는다", () => {
+    const s = inDungeon(["s-bran", "s-mirel"]);
+    expect(gameReducer(s, { type: "goto", place: "shop" })).toBe(s);
+    const back = gameReducer(s, { type: "endExpedition", seed: 2 });
+    expect(back.screen.kind).toBe("town");
+    expect(back.day).toBe(2);
+  });
+
+  it("숙소: 고용한 용병만 원정 파티에 넣고 빼며, 4명을 넘지 않는다", () => {
+    let s = initialState();
+    const ids = ["s-bran", "s-mirel", "s-tob", "s-durgan", "s-kesh"];
+    s = { ...s, progress: { ...s.progress, ...Object.fromEntries(ids.map((id) => [id, { ...s.progress[id], hired: true }])) } };
+    for (const id of ids) s = gameReducer(s, { type: "toggleParty", mercId: id });
+    expect(s.party).toEqual(ids.slice(0, 4));
+    s = gameReducer(s, { type: "toggleParty", mercId: "s-bran" });
+    expect(s.party).not.toContain("s-bran");
+    s = gameReducer(s, { type: "toggleParty", mercId: "s-kesh" });
+    expect(s.party).toContain("s-kesh");
+    // 고용하지 않은 용병은 넣을 수 없다
+    const notHired = gameReducer({ ...initialState() }, { type: "toggleParty", mercId: "s-ragna" });
+    expect(notHired.party).toEqual([]);
+  });
+});

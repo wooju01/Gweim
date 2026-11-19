@@ -42,6 +42,8 @@ const BattleSave = z.looseObject({
 });
 
 const ScreenSave = z.discriminatedUnion("kind", [
+  // 마을 안 화면은 모두 마을(홈)로 저장한다. "guild"는 마을이 생기기 전 저장
+  z.object({ kind: z.literal("town") }),
   z.object({ kind: z.literal("guild") }),
   z.object({ kind: z.literal("dungeon") }),
   z.object({ kind: z.literal("battle"), battle: BattleSave }),
@@ -59,6 +61,7 @@ export const SaveFile = z.object({
     notices: z.array(z.string()).default([]),
     renown: z.number().default(0),
     reputation: z.number().default(0),
+    day: z.number().int().min(1).default(1),
     memorial: z
       .array(z.object({ id: z.string(), name: z.string(), title: z.string(), words: z.string().nullable(), depth: z.number() }))
       .default([]),
@@ -79,7 +82,7 @@ export function toSave(state: GameState, now = new Date()): SaveFile {
       ? state.screen
       : state.screen.kind === "dungeon" && state.expedition
         ? state.screen
-        : { kind: "guild" as const };
+        : { kind: "town" as const };
   return {
     version: SAVE_VERSION,
     savedAt: now.toISOString(),
@@ -92,6 +95,7 @@ export function toSave(state: GameState, now = new Date()): SaveFile {
       notices: state.notices,
       renown: state.renown,
       reputation: state.reputation,
+      day: state.day,
       memorial: state.memorial,
       gold: state.gold,
       pack: state.pack,
@@ -138,7 +142,8 @@ export function fromSave(raw: unknown): { state: GameState } | { error: string }
       roster: s.roster,
       progress: s.progress,
       party: s.party,
-      screen: s.screen as GameState["screen"],
+      screen: (s.screen.kind === "guild" ? { kind: "town" } : s.screen) as GameState["screen"],
+      day: s.day,
       expedition,
       notices: s.notices,
       renown: s.renown,

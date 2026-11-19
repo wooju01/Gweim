@@ -58,10 +58,10 @@ describe("저장", () => {
   it("대화 화면·대기 상태는 저장하지 않고 길드로 돌아온다", () => {
     let s = booted(initialState());
     s = gameReducer(s, { type: "enterTalk", mercId: "s-bran" });
-    expect(toSave(s).state.screen).toEqual({ kind: "guild" });
+    expect(toSave(s).state.screen).toEqual({ kind: "town" });
     const { state } = fromSave(JSON.parse(JSON.stringify(toSave({ ...s, recruit: { pending: true, error: null } })))) as { state: GameState };
     expect(state.recruit.pending).toBe(false);
-    expect(state.screen.kind).toBe("guild");
+    expect(state.screen.kind).toBe("town");
   });
 
   it("명성·평판 자리가 있고 저장된다", () => {

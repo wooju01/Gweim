@@ -2,6 +2,7 @@ import { MERCS, getMerc } from "@/data/mercs";
 import { USE_SAMPLE_ROSTER, sampleSeeds } from "@/data/sampleRoster";
 import type { SupplyKind } from "@/data/combat";
 import { BOND } from "@/data/bond";
+import { MERC_SLOTS } from "@/game/party";
 import { DEATH } from "@/data/death";
 import { MEMORY_MAX_CHARS } from "@/game/memory";
 import { applyTone, clampStat, getStage } from "@/game/affinity";
@@ -51,7 +52,9 @@ export type GameState = {
   progress: Record<string, MercProgress>;
   party: string[];
   recruit: { pending: boolean; error: string | null };
-  screen: { kind: "guild" } | TalkScreen | { kind: "dungeon" } | { kind: "battle"; battle: Battle };
+  screen: { kind: TownPlace } | TalkScreen | { kind: "dungeon" } | { kind: "battle"; battle: Battle };
+  /** 날짜. 원정 1번 = 하루 (상점 재고·급여가 하루에 묶인다) */
+  day: number;
   /** 던전 탐험 중이면 그 상태 */
   expedition: Expedition | null;
   /** 지금 사건 칸의 AI 묘사. 기다리는 중이면 data가 null */
@@ -81,6 +84,9 @@ export type GameState = {
 };
 
 export type Fallen = { id: string; name: string; title: string; words: string | null; depth: number };
+
+/** 마을 안의 화면: 마을(홈), 용병 길드, 상점, 숙소(파티 편성), 던전 입구 */
+export type TownPlace = "town" | "guild" | "shop" | "inn" | "gate";
 
 export type RestTalk = {
   mercId: string;
@@ -126,7 +132,11 @@ export type GameAction =
   /** 저장에서 불러온 상태로 바꾼다 */
   | { type: "load"; state: GameState }
   /** 저장을 지우고 처음부터 */
-  | { type: "newGame" };
+  | { type: "newGame" }
+  /** 마을 안에서 이동 */
+  | { type: "goto"; place: TownPlace }
+  /** 숙소: 고용한 용병을 원정 파티에 넣거나 뺀다 */
+  | { type: "toggleParty"; mercId: string };
 
 export function entryId(entry: RosterEntry): string {
   return entry.kind === "unique" ? entry.id : entry.seed.id;
@@ -206,6 +216,15 @@ function restock(seed: number): Record<SupplyKind, number> {
   return Object.fromEntries(
     (Object.keys(STOCK_RANGE) as SupplyKind[]).map((k) => [k, rollInt(rng.next, STOCK_RANGE[k][0], STOCK_RANGE[k][1])]),
   ) as Record<SupplyKind, number>;
+}
+
+export function isTown(kind: string): kind is TownPlace {
+  return kind === "town" || kind === "guild" || kind === "shop" || kind === "inn" || kind === "gate";
+}
+
+/** 고용한 용병 수 (파티에 들지 않은 사람 포함). 지금은 이 수가 MERC_SLOTS를 넘지 못한다 */
+export function hiredCount(state: GameState): number {
+  return Object.values(state.progress).filter((p) => p.hired).length;
 }
 
 /** 동행 중인 용병의 호감 단계 */
@@ -295,7 +314,8 @@ export function initialState(): GameState {
     progress: Object.fromEntries(roster.map((e) => [entryId(e), freshProgress(mercOf(e))])),
     party: [],
     recruit: { pending: false, error: null },
-    screen: { kind: "guild" },
+    screen: { kind: "town" },
+    day: 1,
     expedition: null,
     narration: null,
     reactions: [],
@@ -359,7 +379,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         ...state,
         gold: Math.max(0, state.gold - paid),
         progress: { ...state.progress, [mercId]: progress },
-        party: joined && !state.party.includes(mercId) ? [...state.party, mercId] : state.party,
+        // 고용되면 자리가 있을 때 원정 파티에도 넣는다 (숙소에서 바꿀 수 있다)
+        party: joined && !state.party.includes(mercId) && state.party.length < MERC_SLOTS ? [...state.party, mercId] : state.party,
         screen:
           // 수치·기록은 반영하되, 화면은 지금 그 용병과 대화 중일 때만 바꾼다
           state.screen.kind === "talk" && state.screen.mercId === mercId
@@ -474,13 +495,25 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case "newGame":
       return { ...initialState(), booted: true };
 
+    case "goto":
+      // 탐험 중이거나 대화 중에는 마을 이동을 하지 않는다
+      if (state.expedition || !isTown(state.screen.kind)) return state;
+      return { ...state, screen: { kind: action.place } };
+
+    case "toggleParty": {
+      if (state.expedition || !state.progress[action.mercId]?.hired) return state;
+      if (state.party.includes(action.mercId)) return { ...state, party: state.party.filter((id) => id !== action.mercId) };
+      if (state.party.length >= MERC_SLOTS) return state;
+      return { ...state, party: [...state.party, action.mercId] };
+    }
+
     case "battleAct":
       if (state.screen.kind !== "battle") return state;
       return { ...state, screen: { kind: "battle", battle: act(state.screen.battle, action.action) } };
 
     case "battleFinish": {
       if (state.screen.kind !== "battle" || !state.screen.battle.outcome) return state;
-      if (!state.expedition) return { ...state, screen: { kind: "guild" } };
+      if (!state.expedition) return { ...state, screen: { kind: "town" } };
       // 이번 전투에서 길안내자에게 물자를 받은 용병은 호감이 오른다
       const gifts = giftsReceived(state.screen.battle);
       const gained = bumpAffinity(
@@ -512,7 +545,16 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case "endExpedition": {
       const exp = state.expedition;
-      let next: GameState = { ...state, expedition: null, narration: null, reactions: [], restTalk: null, screen: { kind: "guild" } };
+      // 하루가 지난다 (원정 1번 = 하루)
+      let next: GameState = {
+        ...state,
+        expedition: null,
+        narration: null,
+        reactions: [],
+        restTalk: null,
+        screen: { kind: "town" },
+        day: state.day + 1,
+      };
       if (!exp) return next;
       const notices: string[] = [];
       // 살아 돌아왔으면 얻은 금화·유물과 남은 물자를 챙긴다. 전멸하면 모두 잃는다

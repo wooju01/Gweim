@@ -178,7 +178,7 @@ export function DialogueScreen({ merc, screen, progress, partyFull, onAct, onLea
                 >
                   동행을 제안한다 · {progress.willingness >= SURE_JOIN ? "확정" : `${progress.willingness}%`}
                 </Button>
-                {partyFull && <span className="text-xs text-ash">파티에 빈 자리가 없다.</span>}
+                {partyFull && <span className="text-xs text-ash">더 고용할 수 없다 (고용 4명).</span>}
               </div>
 
               {/* 조건 제시: 용병마다 한 번씩. 효과는 성격·배경에 따라 다르다 */}

@@ -11,7 +11,11 @@ import { getStage } from "@/game/affinity";
 import { DialogueScreen } from "./DialogueScreen";
 import { GuildScreen } from "./GuildScreen";
 import { MERC_SLOTS } from "@/game/party";
-import { entryId, gameReducer, initialState, mercOf } from "./state";
+import { entryId, gameReducer, hiredCount, initialState, mercOf, type TownPlace } from "./state";
+import { GateScreen } from "./town/GateScreen";
+import { InnScreen } from "./town/InnScreen";
+import { ShopScreen } from "./town/ShopScreen";
+import { TownScreen } from "./town/TownScreen";
 import { clearSave, loadGame, saveGame } from "./save";
 
 function playerLineFor(action: TalkAction): string | null {
@@ -204,7 +208,7 @@ export function Game() {
           merc={mercOf(entry)}
           screen={state.screen}
           progress={state.progress[state.screen.mercId]}
-          partyFull={state.party.length >= MERC_SLOTS}
+          partyFull={hiredCount(state) >= MERC_SLOTS}
           onAct={act}
           onLeave={() => dispatch({ type: "leave" })}
           gold={state.gold}
@@ -213,23 +217,81 @@ export function Game() {
     }
   }
 
-  return (
-    <GuildScreen
-      mercs={state.roster.map(mercOf)}
-      progress={state.progress}
-      party={state.party}
-      recruit={state.recruit}
-      onRecruit={recruit}
-      onTalk={startTalk}
-      onDismiss={(mercId) => dispatch({ type: "dismiss", mercId })}
-      onEnterDungeon={() => dispatch({ type: "enterDungeon", seed: roll() })}
-      notices={state.notices}
-      onDismissNotices={() => dispatch({ type: "dismissNotices" })}
-      onNewGame={newGame}
-      memorial={state.memorial}
-      shop={{ gold: state.gold, pack: state.pack, relics: state.relics, stock: state.stock }}
-      onBuy={(item) => dispatch({ type: "buy", item })}
-      onSell={(index) => dispatch({ type: "sell", index })}
-    />
-  );
+  const go = (place: TownPlace) => dispatch({ type: "goto", place });
+  const toTown = () => go("town");
+  const mercs = state.roster.map(mercOf);
+  const hired = mercs.filter((m) => state.progress[m.id]?.hired);
+  const partyMercs = state.party.flatMap((id) => mercs.filter((m) => m.id === id));
+
+  switch (state.screen.kind) {
+    case "guild":
+      return (
+        <GuildScreen
+          mercs={mercs}
+          progress={state.progress}
+          recruit={state.recruit}
+          onRecruit={recruit}
+          onTalk={startTalk}
+          onDismiss={(mercId) => dispatch({ type: "dismiss", mercId })}
+          day={state.day}
+          gold={state.gold}
+          hired={hired.length}
+          onBack={toTown}
+        />
+      );
+    case "shop":
+      return (
+        <ShopScreen
+          day={state.day}
+          gold={state.gold}
+          pack={state.pack}
+          stock={state.stock}
+          relics={state.relics}
+          onBuy={(item) => dispatch({ type: "buy", item })}
+          onSell={(index) => dispatch({ type: "sell", index })}
+          onBack={toTown}
+        />
+      );
+    case "inn":
+      return (
+        <InnScreen
+          day={state.day}
+          gold={state.gold}
+          hired={hired}
+          progress={state.progress}
+          party={state.party}
+          onToggle={(mercId) => dispatch({ type: "toggleParty", mercId })}
+          onBack={toTown}
+        />
+      );
+    case "gate":
+      return (
+        <GateScreen
+          day={state.day}
+          gold={state.gold}
+          party={partyMercs}
+          progress={state.progress}
+          pack={state.pack}
+          onDepart={() => dispatch({ type: "enterDungeon", seed: roll() })}
+          onGo={go}
+        />
+      );
+    default:
+      return (
+        <TownScreen
+          day={state.day}
+          gold={state.gold}
+          hired={hired.length}
+          party={partyMercs}
+          visitors={mercs.length - hired.length}
+          pack={state.pack}
+          relics={state.relics.length}
+          notices={state.notices}
+          memorial={state.memorial}
+          onGo={go}
+          onDismissNotices={() => dispatch({ type: "dismissNotices" })}
+          onNewGame={newGame}
+        />
+      );
+  }
 }
