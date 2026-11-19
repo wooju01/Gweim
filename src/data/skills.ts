@@ -211,6 +211,7 @@ const STATUS_TEXT: Record<StatusKind, string> = {
   awaken: "각성(공격 +4)",
   brace: "버팀(방어 +2)",
   haste: "선제(다음 라운드에 먼저 행동)",
+  bind: "속박(다음 차례 한 번 쉰다)",
 };
 
 export function describeSkill(def: SkillDef): string {

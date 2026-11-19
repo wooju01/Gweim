@@ -162,8 +162,8 @@ export type GameAction =
   | { type: "narrated"; eventId: string; data: EventResponse | null }
   | { type: "chooseEvent"; choiceId: string; seed: number }
   | { type: "leaveRoom" }
-  /** 목적지에서 다음 층으로 내려간다. seed: 새 지도 */
-  | { type: "descend"; seed: number }
+  /** 목적지에서 고른 갈래(다음 지역)로 내려간다. seed: 새 지도 */
+  | { type: "descend"; seed: number; region: string }
   | { type: "giveSupply"; item: SupplyKind; target: string }
   | { type: "battleAct"; action: BattleAction }
   /** 전투 중 후퇴: 전투를 버리고 원정을 끝낸다 (동료들의 호감이 떨어진다) */
@@ -532,7 +532,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case "descend": {
-      const next = state.expedition && descend(state.expedition, action.seed);
+      const next = state.expedition && descend(state.expedition, action.seed, action.region);
       return next ? { ...state, expedition: next, reactions: [], narration: null, restTalk: null } : state;
     }
 

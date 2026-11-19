@@ -4,6 +4,7 @@
 import { createRng, rollInt } from "../game/random";
 import { COMBO_PREFIX, comboSkill, earlyCombo } from "./combo";
 import { CRAFT_PREFIX, craftSkill } from "./craft";
+import { MONSTER_SKILLS } from "./monsters";
 import type { StatusKind } from "./combat";
 import { DEFAULT_SKILL, JOB_SKILL, SKILLS, SKILL_SLOTS, describeSkill, skillsFrom, type Skill, type SkillEffect, type SkillTarget } from "./skills";
 
@@ -17,6 +18,7 @@ const STATUS_WORD: Record<StatusKind, string> = {
   awaken: "깨어나는",
   brace: "버티는",
   haste: "앞서는",
+  bind: "옭아매는",
 };
 
 /** 위력 점수 → 대기 턴 (강할수록 오래 기다린다) */
@@ -136,6 +138,7 @@ const cache = new Map<string, Skill>();
 /** 스킬 조회. 직접 만든 스킬(SKILLS), 조합 스킬("combo:"), 전수관 스킬("craft:"), 무작위 조합 스킬("gen:번호"). 없으면 undefined */
 export function getSkill(id: string): Skill | undefined {
   if (SKILLS[id]) return SKILLS[id];
+  if (MONSTER_SKILLS[id]) return MONSTER_SKILLS[id];
   if (id.startsWith(COMBO_PREFIX) || id.startsWith(CRAFT_PREFIX)) {
     if (!cache.has(id)) {
       const def = id.startsWith(CRAFT_PREFIX) ? craftSkill(id) : comboSkill(id);

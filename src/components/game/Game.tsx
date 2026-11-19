@@ -198,7 +198,7 @@ export function Game() {
         onLeaveRoom={() => dispatch({ type: "leaveRoom" })}
         onGive={(item, target) => dispatch({ type: "giveSupply", item, target })}
         onEnd={() => dispatch({ type: "endExpedition", seed: roll() })}
-        onDescend={() => dispatch({ type: "descend", seed: roll() })}
+        onDescend={(region) => dispatch({ type: "descend", seed: roll(), region })}
         restTalk={state.restTalk}
         progress={state.progress}
         onRestTalk={(mercId) => {

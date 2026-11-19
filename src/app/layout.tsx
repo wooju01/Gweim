@@ -10,7 +10,7 @@ const notoSerifKr = Noto_Serif_KR({
 
 export const metadata: Metadata = {
   title: "Ashen Company",
-  description: "AI 용병 다크 판타지 던전 RPG",
+  description: "AI 용병 모험 판타지 던전 RPG",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

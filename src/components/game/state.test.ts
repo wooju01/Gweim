@@ -450,8 +450,8 @@ describe("던전 층 (상태)", () => {
     const tired = exp.members.map((m) => ({ ...m, hp: m.hp - 5 }));
     s = { ...s, expedition: { ...exp, members: tired, gold: 30, xp: 10, room: { kind: "goal" } } };
     // 목적지가 아니면 못 내려간다
-    expect(gameReducer({ ...s, expedition: { ...s.expedition!, room: null } }, { type: "descend", seed: 3 }).expedition!.depth).toBe(1);
-    const down = gameReducer(s, { type: "descend", seed: 3 });
+    expect(gameReducer({ ...s, expedition: { ...s.expedition!, room: null } }, { type: "descend", seed: 3, region: "uf_deep_forest" }).expedition!.depth).toBe(1);
+    const down = gameReducer(s, { type: "descend", seed: 3, region: "uf_deep_forest" });
     const e2 = down.expedition!;
     expect(e2.depth).toBe(2);
     expect(e2.room).toBeNull();

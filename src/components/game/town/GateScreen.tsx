@@ -1,3 +1,4 @@
+import { FIRST_DUNGEON, getDungeon } from "@/data/regions";
 import { SUPPLY, type SupplyKind } from "@/data/combat";
 import { CURRENCY } from "@/data/economy";
 import { getStage } from "@/game/affinity";
@@ -30,7 +31,8 @@ export function GateScreen({ day, gold, party, progress, pack, onDepart, onGo }:
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-8 sm:px-8">
       <TownBar place="던전 입구" day={day} gold={gold} onBack={() => onGo("town")} />
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold">무너진 던전 입구</h1>
+        <h1 className="text-2xl font-bold">던전 입구 · {getDungeon(FIRST_DUNGEON)!.name}</h1>
+        <p className="text-sm text-ash">{getDungeon(FIRST_DUNGEON)!.description}</p>
         <p className="text-sm text-ash">한번 내려가면 목적지에 닿거나 후퇴할 때까지 마을로 돌아올 수 없다.</p>
       </header>
 

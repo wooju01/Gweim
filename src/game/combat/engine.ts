@@ -32,7 +32,8 @@ import type { SkillEffect } from "../../data/skills";
 import { BOND } from "../../data/bond";
 import { JOB_STAT, PER_POINT, type PowerStat, type StatKey } from "../../data/growth";
 import { DEATH, survivalChance } from "../../data/death";
-import { DEPTH_ENEMY } from "../../data/dungeon";
+import { ELITE_TRAITS, MAX_ENEMIES, getMonster, type Ability, type EliteTrait, type Monster, type MonsterRank, type MonsterTag } from "../../data/monsters";
+import type { Region } from "../../data/regions";
 import type { MercLevel, Stage } from "../../lib/schemas";
 import { createRng, rollInt, type Rng } from "../random";
 import type { Merc } from "../types";
@@ -82,8 +83,14 @@ export type Unit = {
   /** 성장 스탯에서 오는 치명타·회피 확률 추가 */
   critBonus?: number;
   evadeBonus?: number;
-  /** 적만: 종류 id (data/combat.ts의 ENEMIES). 유실물 드롭표에 쓴다 */
+  /** 적만: 종류 id (data/combat.ts의 ENEMIES 또는 data/monsters.ts). 유실물 드롭표에 쓴다 */
   kind?: string;
+  /** 적만: 몬스터 태그와 등급, 특수 능력 (data/monsters.ts) */
+  tags?: MonsterTag[];
+  rank?: MonsterRank;
+  abilities?: Ability[];
+  /** 적만: 정예 특성 id */
+  elite?: string;
   /** 용병만: 화면에 그릴 때 쓰는 직업·종족 id (규칙에는 쓰지 않는다) */
   job?: string;
   race?: string;
@@ -92,6 +99,10 @@ export type Unit = {
 };
 
 export type PassiveState = {
+  /** 몬스터 능력: 자기 차례 수(부화·낳기), 떼어 낸 단계(분열), 부른 횟수(소환·다시 부르기) */
+  age?: number;
+  splitStage?: number;
+  summoned?: number;
   /** 흥이 오른다: 맞은 횟수 */
   cheer?: number;
   /** 사냥꾼의 집념: 마지막으로 때린 적과 연속 횟수 */
@@ -144,6 +155,10 @@ export type BattleEvent =
   /** 스킬이 실패했다 (정령이 답하지 않음 등) */
   | { type: "fizzle"; actor: string; skill: SkillId }
   | { type: "down"; target: string }
+  /** 속박돼 차례를 쉬었다 */
+  | { type: "bound"; target: string }
+  /** 몬스터가 늘었다 (분열·부화·낳기·부르기). by: 원인이 된 유닛 */
+  | { type: "spawn"; unit: string; by: string; how: "split" | "hatch" | "brood" | "summon" }
   | { type: "end"; outcome: Outcome };
 
 export type Battle = {
@@ -156,6 +171,8 @@ export type Battle = {
   supplies: Record<SupplyKind, number>;
   /** 던전 층 (1부터). 깊은 곳의 피 패시브가 쓴다 */
   depth: number;
+  /** 지역 이름 (화면 표시용) */
+  place?: string;
   /** 이번 탐험에서 지나온 칸 수. 층 구조가 생기기 전까지 깊은 곳의 피가 쓴다 */
   walked: number;
   /** 이번 라운드에 길안내자가 이미 물자를 건넸나 */
@@ -328,42 +345,93 @@ function pickEnemy(rng: Rng): EnemyKind {
   return ENEMIES[ENEMIES.length - 1];
 }
 
-/** 적 무리를 뽑는다. 같은 종류가 여럿이면 이름 뒤에 A, B…를 붙인다 */
-/** 적 무리. 깊은 층일수록 체력·공격·방어가 오른다 (data/dungeon.ts의 DEPTH_ENEMY) */
-export function rollEncounter(rng: Rng, depth = 1): Unit[] {
-  const d = Math.max(0, depth - 1);
-  const hpOf = (hp: number) => Math.round(hp * (1 + DEPTH_ENEMY.hpPerDepth * d));
-  const up = d * DEPTH_ENEMY.attackPerDepth;
-  const count = rollInt(rng.next, ENCOUNTER_SIZE[0], ENCOUNTER_SIZE[1]);
-  const kinds = Array.from({ length: count }, () => pickEnemy(rng));
+/** 적 종류(기존 적 또는 지역 몬스터) 하나를 유닛으로 */
+export function enemyUnit(k: EnemyKind | Monster, id: string, name = k.name): Unit {
+  const m = "tags" in k ? k : undefined;
+  return {
+    id,
+    side: "enemy",
+    name,
+    title: "",
+    hp: k.hp,
+    maxHp: k.hp,
+    attack: k.attack,
+    defense: k.defense,
+    speed: k.speed,
+    onHit: k.onHit,
+    note: k.note,
+    kind: k.id,
+    tags: m?.tags,
+    rank: m?.rank,
+    abilities: m?.abilities,
+    statuses: [],
+    skills: m?.skills ?? [],
+    cooldowns: {},
+    guarding: false,
+  };
+}
+
+/** 일반 몬스터 유닛에 정예 특성을 붙인다 (이름 앞에 특성, 특징 줄에 효과) */
+export function makeElite(u: Unit, trait: EliteTrait): Unit {
+  return {
+    ...u,
+    name: `${trait.prefix} ${u.name}`,
+    rank: "elite",
+    elite: trait.id,
+    note: `${u.note ?? ""} 정예: ${trait.description}`.trim(),
+    attack: [u.attack[0] + (trait.attack ?? 0), u.attack[1] + (trait.attack ?? 0)],
+    defense: Math.max(0, u.defense + (trait.defense ?? 0)),
+    speed: u.speed + (trait.speed ?? 0),
+    evadeBonus: (u.evadeBonus ?? 0) + (trait.evade ?? 0),
+    onHit: trait.onHit ?? u.onHit,
+    abilities: trait.ability ? [...(u.abilities ?? []), trait.ability] : u.abilities,
+  };
+}
+
+/** 같은 종류가 여럿이면 이름 뒤에 A, B…를 붙여 유닛으로 만든다 */
+function nameUnits(kinds: (EnemyKind | Monster)[]): Unit[] {
   return kinds.map((k, i) => {
     const same = kinds.filter((o) => o.id === k.id);
     const suffix = same.length > 1 ? ` ${String.fromCharCode(65 + kinds.slice(0, i).filter((o) => o.id === k.id).length)}` : "";
-    return {
-      id: `e${i}`,
-      side: "enemy" as const,
-      name: k.name + suffix,
-      title: "",
-      hp: hpOf(k.hp),
-      maxHp: hpOf(k.hp),
-      attack: [k.attack[0] + up, k.attack[1] + up] as const,
-      defense: k.defense + Math.floor(d / DEPTH_ENEMY.defenseEvery),
-      speed: k.speed,
-      onHit: k.onHit,
-      note: k.note,
-      kind: k.id,
-      statuses: [],
-      skills: [],
-      cooldowns: {},
-      guarding: false,
-    };
+    return enemyUnit(k, `e${i}`, k.name + suffix);
   });
+}
+
+/**
+ * 적 무리를 뽑는다. 지역이 있으면 그 지역 몬스터 목록(가중치)과 마릿수로, 없으면 기존 적 목록으로.
+ * 깊은 층의 난이도는 수치가 아니라 지역의 적 구성으로 올린다
+ */
+export function rollEncounter(rng: Rng, region?: Region): Unit[] {
+  if (!region) {
+    const count = rollInt(rng.next, ENCOUNTER_SIZE[0], ENCOUNTER_SIZE[1]);
+    return nameUnits(Array.from({ length: count }, () => pickEnemy(rng)));
+  }
+  const count = rollInt(rng.next, region.size[0], region.size[1]);
+  const total = region.monsters.reduce((s, m) => s + m.weight, 0);
+  const pick = () => {
+    let roll = rng.next() * total;
+    const hit = region.monsters.find((m) => (roll -= m.weight) < 0) ?? region.monsters[region.monsters.length - 1];
+    return getMonster(hit.id)!;
+  };
+  // 일반 몬스터는 지역의 정예 확률로 정예가 된다 (특성 하나 무작위)
+  return nameUnits(Array.from({ length: count }, pick)).map((u) =>
+    u.rank === "normal" && region.eliteChance > 0 && rng.next() < region.eliteChance
+      ? makeElite(u, ELITE_TRAITS[Math.floor(rng.next() * ELITE_TRAITS.length)])
+      : u,
+  );
+}
+
+/** 보스 전투: 보스와 호위 */
+export function bossEncounter(bossId: string): Unit[] {
+  const boss = getMonster(bossId);
+  if (!boss) return [];
+  return nameUnits([boss, ...(boss.escort ?? []).flatMap((id) => getMonster(id) ?? [])]);
 }
 
 /** 전투를 시작한다. 첫 용병의 차례까지 진행된 상태로 돌려준다 */
 export function startBattle(mercs: Merc[], seed: number, enemies?: Unit[], depth = 1): Battle {
   const rng = createRng(seed);
-  return begin([...mercs.map(mercUnit), ...(enemies ?? rollEncounter(rng, depth))], rng, depth, START_SUPPLIES);
+  return begin([...mercs.map(mercUnit), ...(enemies ?? rollEncounter(rng))], rng, depth, START_SUPPLIES);
 }
 
 /** 이미 만든 유닛으로 전투를 시작한다 (테스트에서 능력치를 고정할 때 쓴다) */
@@ -378,10 +446,13 @@ export function startBattleWithUnits(units: Unit[], seed: number, depth = 1): Ba
 export function startBattleFrom(
   mercs: Unit[],
   seed: number,
-  opts: { depth: number; supplies: Record<SupplyKind, number>; walked?: number; enemies?: Unit[] },
+  opts: { depth: number; supplies: Record<SupplyKind, number>; walked?: number; enemies?: Unit[]; region?: Region; boss?: string },
 ): Battle {
   const rng = createRng(seed);
-  return begin([...mercs, ...(opts.enemies ?? rollEncounter(rng, opts.depth))], rng, opts.depth, opts.supplies, opts.walked);
+  const enemies = opts.enemies ?? (opts.boss ? bossEncounter(opts.boss) : rollEncounter(rng, opts.region));
+  const b = begin([...mercs, ...enemies], rng, opts.depth, opts.supplies, opts.walked);
+  if (opts.region) b.place = opts.region.name;
+  return b;
 }
 
 function begin(units: Unit[], rng: Rng, depth: number, supplies: Record<SupplyKind, number>, walked = 0): Battle {
@@ -505,8 +576,101 @@ function damage(b: Battle, target: Unit, amount: number) {
       target.dying = DEATH.dyingRounds;
       b.log.push({ type: "dying", target: target.id, rounds: DEATH.dyingRounds });
     }
+    // 몬스터: 쓰러지면 갈라지거나, 부리는 쪽이 다시 부른다 (승패 판정 전에)
+    if (target.side === "enemy") onMonsterDown(b, target);
     checkOutcome(b);
+  } else if (target.side === "enemy") {
+    onMonsterHurt(b, target);
   }
+}
+
+// ── 몬스터 특수 능력 ───────────────────────────────────
+
+function ability<K extends Ability["kind"]>(u: Unit, kind: K): Extract<Ability, { kind: K }> | undefined {
+  return u.abilities?.find((a): a is Extract<Ability, { kind: K }> => a.kind === kind);
+}
+
+/** 몬스터를 새로 세운다 (source 바로 뒤 자리). 살아 있는 적이 MAX_ENEMIES면 더 늘지 않는다 */
+function spawn(b: Battle, kind: string, count: number, source: Unit, how: "split" | "hatch" | "brood" | "summon") {
+  const m = getMonster(kind);
+  if (!m) return;
+  for (let n = 0; n < count && living(b, "enemy").length < MAX_ENEMIES; n++) {
+    const unit = enemyUnit(m, `e${b.units.length}`);
+    b.units.splice(b.units.indexOf(source) + 1 + n, 0, unit);
+    b.log.push({ type: "spawn", unit: unit.id, by: source.id, how });
+  }
+}
+
+function onMonsterDown(b: Battle, target: Unit) {
+  const split = ability(target, "split");
+  if (split) spawn(b, split.into, split.count, target, "split");
+  // 늑대 조련사 등: 같은 종류 아군이 쓰러지면 다시 부른다
+  for (const u of living(b, "enemy")) {
+    const re = ability(u, "resummon");
+    if (!re || re.into !== target.kind || (u.fx?.summoned ?? 0) >= re.times) continue;
+    u.fx = { ...u.fx, summoned: (u.fx?.summoned ?? 0) + 1 };
+    spawn(b, re.into, 1, u, "summon");
+    break;
+  }
+}
+
+function onMonsterHurt(b: Battle, target: Unit) {
+  const ratio = target.hp / target.maxHp;
+  const at = ability(target, "splitAt");
+  if (at) {
+    target.fx ??= {};
+    while ((target.fx.splitStage ?? 0) < at.at.length && ratio <= at.at[target.fx.splitStage ?? 0]) {
+      target.fx.splitStage = (target.fx.splitStage ?? 0) + 1;
+      spawn(b, at.into, at.count, target, "split");
+    }
+  }
+  const call = ability(target, "summon");
+  if (call && ratio <= call.below && (target.fx?.summoned ?? 0) < call.times) {
+    target.fx = { ...target.fx, summoned: (target.fx?.summoned ?? 0) + 1 };
+    spawn(b, call.into, call.count, target, "summon");
+  }
+}
+
+/** 몬스터 능력에서 오는 공격 보정 (무리, 광폭) */
+function monsterBonus(b: Battle, u: Unit): number {
+  let bonus = 0;
+  const pack = ability(u, "pack");
+  if (pack) bonus += pack.bonus * friends(b, u).filter((f) => f !== u && f.tags?.includes(pack.tag)).length;
+  const rage = ability(u, "enrage");
+  if (rage && u.hp <= u.maxHp * rage.below) bonus += rage.bonus;
+  return bonus;
+}
+
+/** 우두머리(정예) 곁의 같은 종류 아군이 받는 공격 보정 */
+function leaderBonus(b: Battle, u: Unit): number {
+  return friends(b, u)
+    .filter((f) => f !== u && f.kind === u.kind)
+    .reduce((s, f) => s + (ability(f, "lead")?.bonus ?? 0), 0);
+}
+
+/**
+ * 차례가 온 몬스터의 능력 행동 (부화, 낳기). 행동을 써 버렸으면 true (공격하지 않는다)
+ */
+function monsterTurn(b: Battle, unit: Unit): boolean {
+  unit.fx ??= {};
+  unit.fx.age = (unit.fx.age ?? 0) + 1;
+  const hatch = ability(unit, "hatch");
+  if (hatch) {
+    if (unit.fx.age >= hatch.turns) {
+      spawn(b, hatch.into, hatch.count, unit, "hatch");
+      unit.hp = 0;
+      unit.statuses = [];
+      b.log.push({ type: "down", target: unit.id });
+      checkOutcome(b);
+    }
+    return true; // 알은 공격하지 않는다
+  }
+  const brood = ability(unit, "brood");
+  if (brood && unit.fx.age % brood.every === 0 && living(b, "enemy").length < MAX_ENEMIES) {
+    spawn(b, brood.into, brood.count, unit, "brood");
+    return true;
+  }
+  return false;
 }
 
 /** 빈사인가 (아직 구할 수 있다) */
@@ -608,6 +772,8 @@ export function strikeFactors(b: Battle, actor: Unit, target: Unit, opts: Strike
   // 성장 스탯: 이 공격이 따르는 스탯(힘·마법·신성)만큼 피해 +
   if (opts.stat) bonus += actor.power?.[opts.stat] ?? 0;
   if (hasStatus(actor, "awaken")) bonus += PASSIVE.awakenBonus;
+  if (actor.abilities) bonus += monsterBonus(b, actor);
+  if (actor.side === "enemy") bonus += leaderBonus(b, actor);
   if (hasStatus(actor, "weaken")) bonus -= PASSIVE.weakenAmount;
   if (actor.bond === "trusted") bonus += BOND.trustAttack;
   if (has(actor, "chase_instinct") && target.hp <= target.maxHp * PASSIVE.chaseRatio) bonus += PASSIVE.chaseBonus;
@@ -1170,9 +1336,16 @@ function advance(b: Battle, rng: Rng) {
 
     tick(b, unit);
     if (b.outcome || unit.hp <= 0) continue;
+    // 속박: 이번 차례를 쉬고 풀린다
+    if (hasStatus(unit, "bind")) {
+      unit.statuses = unit.statuses.filter((s) => s.kind !== "bind");
+      b.log.push({ type: "bound", target: unit.id });
+      endTurn(unit);
+      continue;
+    }
     if (unit.side === "merc") return; // 플레이어 입력을 기다린다
 
-    enemyTurn(b, rng, unit);
+    if (!monsterTurn(b, unit)) enemyTurn(b, rng, unit);
     endTurn(unit);
   }
   throw new Error("전투가 끝나지 않는다 (무한 루프 방지)");

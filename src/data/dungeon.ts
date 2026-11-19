@@ -41,13 +41,8 @@ export const TREASURE_COUNT = [1, 2] as const;
 export const TREASURE_WEIGHTS = { bandage: 4, potion: 3, antidote: 3 } as const;
 
 // ── 층 ──────────────────────────────────────────────────
-// 목적지에 닿으면 돌아가거나 더 내려간다. 내려가면 체력·물자·전리품을 그대로 들고 다음 층 새 지도로.
-
-/** 가장 깊은 층 (지금은 여기까지 열려 있다) */
-export const MAX_DEPTH = 5;
-
-/** 층이 하나 깊어질 때마다 적: 체력 +15%, 공격 +1, 2층마다 방어 +1 */
-export const DEPTH_ENEMY = { hpPerDepth: 0.15, attackPerDepth: 1, defenseEvery: 2 } as const;
+// 목적지에 닿으면 돌아가거나 다음 갈래(data/regions.ts)로 내려간다. 체력·물자·전리품을 그대로 들고 다음 층 새 지도로.
+// 깊은 층의 난이도는 지역의 적 구성으로 올리고, 보상은 층마다 커진다.
 
 /** 층이 하나 깊어질 때마다 금화 보상 +50% (전투·보물·목적지) */
 export const DEPTH_GOLD = 0.5;

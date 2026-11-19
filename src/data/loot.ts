@@ -24,6 +24,8 @@ export const SALVAGE: Salvage[] = [
 ];
 
 /** 적 종류(data/combat.ts의 ENEMIES id)별 드롭표: 쓰러뜨린 적마다 항목별로 굴린다 */
+const c = (id: string, chance: number) => ({ id, chance });
+
 export const DROPS: Record<string, { id: string; chance: number }[]> = {
   ash_rat: [
     { id: "rat_fang", chance: 0.5 },
@@ -45,7 +47,42 @@ export const DROPS: Record<string, { id: string; chance: number }[]> = {
     { id: "spore_sac", chance: 0.5 },
     { id: "husk_shell", chance: 0.15 },
   ],
+  // 미지의 숲 몬스터 (지금은 기존 유실물을 나눠 쓴다. 숲 전용 재료는 나중에)
+  goblin_grunt: [c("rat_fang", 0.3), c("rust_plate", 0.2)],
+  green_slime: [c("spore_sac", 0.5)],
+  forest_rat: [c("rat_fang", 0.5), c("ash_hide", 0.1)],
+  goblin_slinger: [c("rust_plate", 0.3)],
+  blue_slime: [c("spore_sac", 0.5), c("husk_shell", 0.1)],
+  goblin_shaman: [c("rotten_bone", 0.5), c("hollow_heart", 0.1)],
+  cave_spider: [c("husk_shell", 0.3), c("wretch_nail", 0.15)],
+  vampire_bat: [c("rotten_bone", 0.4), c("ash_hide", 0.1)],
+  cave_wolf: [c("hound_fang", 0.5), c("ash_hide", 0.15)],
+  goblin_warrior: [c("rust_plate", 0.5), c("warden_crest", 0.1)],
+  hobgoblin: [c("rust_plate", 0.6), c("warden_crest", 0.2)],
+  hungry_wolf: [c("hound_fang", 0.5), c("ash_hide", 0.2)],
+  venom_spider: [c("wretch_nail", 0.4), c("husk_shell", 0.2)],
+  egg_sac: [c("husk_shell", 0.5)],
+  spiderling: [c("husk_shell", 0.2)],
+  poison_slime: [c("spore_sac", 0.5), c("wretch_nail", 0.15)],
+  acid_slime: [c("spore_sac", 0.5), c("husk_shell", 0.15)],
+  split_slime: [c("spore_sac", 0.5)],
+  slimelet: [c("spore_sac", 0.2)],
+  orc_warrior: [c("rust_plate", 0.5), c("warden_crest", 0.15)],
+  orc_archer: [c("ash_hide", 0.4), c("hound_fang", 0.2)],
+  orc_berserker: [c("rust_plate", 0.4), c("hollow_heart", 0.15)],
+  orc_shaman: [c("rotten_bone", 0.5), c("hollow_heart", 0.2)],
+  // 보스: 드문 재료를 많이
+  goblin_glutton: [c("hollow_heart", 1), c("warden_crest", 0.5)],
+  goblin_marksman: [c("warden_crest", 1), c("ash_hide", 0.5)],
+  wolf_tamer: [c("hound_fang", 1), c("ash_hide", 1)],
+  hobgoblin_chief: [c("warden_crest", 1), c("rust_plate", 1)],
+  goblin_king: [c("warden_crest", 1), c("hollow_heart", 1), c("rust_plate", 1)],
+  slime_king: [c("hollow_heart", 1), c("spore_sac", 1), c("husk_shell", 1)],
+  orc_king: [c("warden_crest", 1), c("hollow_heart", 1), c("hollow_heart", 0.5)],
+  spider_queen: [c("wretch_nail", 1), c("husk_shell", 1), c("hollow_heart", 1)],
+  alpha_wolf: [c("hound_fang", 1), c("ash_hide", 1), c("hollow_heart", 1)],
 };
+
 
 export function getSalvage(id: string): Salvage | undefined {
   return SALVAGE.find((s) => s.id === id);

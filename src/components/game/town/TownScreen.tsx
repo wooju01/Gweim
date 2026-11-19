@@ -62,7 +62,7 @@ export function TownScreen(props: Props) {
       key: "gate",
       place: "gate",
       name: "던전 입구",
-      description: "파티와 짐을 확인하고 무너진 던전으로 내려간다.",
+      description: "파티와 짐을 확인하고 미지의 숲으로 떠난다.",
       status: partySize === 0 ? "파티가 비어 있다" : packed === 0 ? "짐이 비어 있다" : "출발할 수 있다",
     },
     {

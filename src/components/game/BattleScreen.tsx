@@ -64,6 +64,7 @@ const STATUS_STYLE: Record<StatusKind, string> = {
   awaken: "bg-ember/30 text-ember",
   brace: "bg-frost/20 text-frost",
   haste: "bg-frost/20 text-frost",
+  bind: "bg-edge/70 text-bone",
 };
 
 /**
@@ -76,7 +77,30 @@ const SLOTS = [
   { x: 30, y: 68, s: 0.82 },
   { x: 15, y: 72, s: 0.86 },
   { x: 8, y: 92, s: 1.05 },
+  { x: 20, y: 62, s: 0.78 },
 ];
+
+/**
+ * 적 자리 배치. 처음 적은 제자리, 전투 중에 생긴 적(분열·부화·소환)은 등장 장면이 재생된 뒤에
+ * 쓰러진 적의 자리를 물려받는다 (자리가 모자라지 않게). 자리를 넘긴 쓰러진 적은 그리지 않는다
+ */
+function enemyLayout(enemies: Unit[], hp: Record<string, number>, log: BattleEvent[], shown: number): { u: Unit; i: number }[] {
+  const spawnedAt = new Map<string, number>();
+  log.forEach((e, n) => e.type === "spawn" && spawnedAt.set(e.unit, n));
+  const slots: Unit[] = [];
+  for (const u of enemies) {
+    const at = spawnedAt.get(u.id);
+    if (at === undefined) {
+      slots.push(u);
+      continue;
+    }
+    if (at >= shown) continue; // 아직 등장하지 않았다
+    const free = slots.findIndex((o) => hp[o.id] <= 0);
+    if (free >= 0 && slots.length >= SLOTS.length) slots[free] = u;
+    else slots.push(u);
+  }
+  return slots.map((u, i) => ({ u, i }));
+}
 
 /** 떠오르는 글자 (피해 숫자, 회복, 상태이상 등) */
 type Float = { id: number; unit: string; text: string; tone: "damage" | "crit" | "heal" | "info" | "gold" | "frost" };
@@ -114,6 +138,10 @@ function floatsFor(e: BattleEvent): Omit<Float, "id">[] {
       return [{ unit: e.target, text: "회피", tone: "frost" }];
     case "disobey":
       return [{ unit: e.unit, text: "명령 무시", tone: "info" }];
+    case "bound":
+      return [{ unit: e.target, text: "묶여 있다", tone: "info" }];
+    case "spawn":
+      return [{ unit: e.unit, text: e.how === "hatch" ? "부화" : e.how === "split" ? "분열" : "등장", tone: "gold" }];
     case "dying":
       return [{ unit: e.target, text: "빈사", tone: "crit" }];
     case "rescue":
@@ -257,7 +285,7 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 px-4 py-6 sm:px-8">
       <header className="flex items-end justify-between border-b border-edge pb-3">
         <div>
-          <p className="text-xs tracking-[0.3em] text-ash">무너진 던전 · {battle.depth}층</p>
+          <p className="text-xs tracking-[0.3em] text-ash">{battle.place ?? "던전"} · {battle.depth}층</p>
           <h1 className="text-2xl font-bold">전투 · {round?.type === "round" ? round.round : 1}라운드</h1>
         </div>
         <div className="flex items-center gap-2">
@@ -302,7 +330,7 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
         {mercs.map((u, i) => (
           <Figure key={u.id} {...figureProps(u)} slot={SLOTS[i % SLOTS.length]} active={actor?.id === u.id} />
         ))}
-        {enemies.map((u, i) => (
+        {enemyLayout(enemies, hp, battle.log, play.shown).map(({ u, i }) => (
           <Figure
             key={u.id}
             {...figureProps(u)}

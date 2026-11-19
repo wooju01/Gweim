@@ -36,6 +36,7 @@ export function describe(event: BattleEvent, b: Battle): string {
       if (event.kind === "weaken") return `${josa(name(event.target), "이", "가")} 움츠러들었다. (위축)`;
       if (event.kind === "brace") return `${josa(name(event.target), "이", "가")} 자세를 단단히 굳혔다. (버팀)`;
       if (event.kind === "haste") return `${josa(name(event.target), "이", "가")} 다음 수를 노린다. (선제)`;
+      if (event.kind === "bind") return `${josa(name(event.target), "이", "가")} 거미줄에 묶였다. 다음 차례를 쉰다.`;
       if (event.kind === "crack") return `${name(event.target)}의 몸에 균열이 갔다. 받는 피해가 늘어난다.`;
       return `${josa(name(event.target), "이", "가")} ${STATUS_NAME(event.kind)}에 걸렸다.`;
     case "tick":
@@ -106,6 +107,20 @@ export function describe(event: BattleEvent, b: Battle): string {
     }
     case "down":
       return `${josa(name(event.target), "이", "가")} 쓰러졌다.`;
+    case "bound":
+      return `${josa(name(event.target), "은", "는")} 묶여서 움직이지 못한다.`;
+    case "spawn":
+      switch (event.how) {
+        case "split":
+          return `${name(event.by)}에게서 ${josa(name(event.unit), "이", "가")} 떨어져 나왔다.`;
+        case "hatch":
+          return `${josa(name(event.by), "이", "가")} 터지고 ${josa(name(event.unit), "이", "가")} 기어 나왔다.`;
+        case "brood":
+          return `${josa(name(event.by), "이", "가")} ${josa(name(event.unit), "을", "를")} 낳았다.`;
+        case "summon":
+          return `${josa(name(event.by), "이", "가")} ${josa(name(event.unit), "을", "를")} 불렀다.`;
+      }
+      break;
     case "end":
       return event.outcome === "victory" ? "적을 모두 물리쳤다." : "파티가 전멸했다.";
   }

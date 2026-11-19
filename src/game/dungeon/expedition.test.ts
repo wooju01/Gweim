@@ -4,7 +4,8 @@ import { EVENTS } from "../../data/events";
 import { TEST_MERCS } from "../../test/fixtures";
 import { act, currentActor, living, rollEncounter } from "../combat/engine";
 import { createRng } from "../random";
-import { MAX_DEPTH } from "../../data/dungeon";
+import { REGIONS, getRegion } from "../../data/regions";
+import { getMonster } from "../../data/monsters";
 import type { Merc } from "../types";
 import {
   battleFor,
@@ -19,6 +20,8 @@ import {
   leaveRoom,
   markRestTalk,
   moveTo,
+  nextRegions,
+  regionOf,
   rescueBonds,
   startExpedition,
   supplyProblem,
@@ -302,26 +305,67 @@ describe("전투 유실물", () => {
   });
 });
 
-describe("층", () => {
-  it("깊은 층의 적은 체력·공격·방어가 높다 (같은 시드면 같은 무리)", () => {
-    const one = rollEncounter(createRng(7), 1);
-    const three = rollEncounter(createRng(7), 3);
-    expect(three.map((u) => u.kind)).toEqual(one.map((u) => u.kind));
-    three.forEach((u, i) => {
-      expect(u.maxHp).toBeGreaterThan(one[i].maxHp);
-      expect(u.attack[0]).toBe(one[i].attack[0] + 2);
-      expect(u.defense).toBe(one[i].defense + 1);
-    });
+describe("층과 갈래", () => {
+  it("지역이 있으면 그 지역 몬스터로만, 정해진 마릿수로 나온다 (같은 시드면 같은 무리)", () => {
+    const region = getRegion("uf_forest")!;
+    const ids = region.monsters.map((m) => m.id);
+    for (let seed = 0; seed < 50; seed++) {
+      const units = rollEncounter(createRng(seed), region);
+      expect(units.length).toBeGreaterThanOrEqual(region.size[0]);
+      expect(units.length).toBeLessThanOrEqual(region.size[1]);
+      for (const u of units) expect(ids).toContain(u.kind);
+      expect(rollEncounter(createRng(seed), region)).toEqual(units);
+    }
   });
 
-  it("목적지에서만, 가장 깊은 층 전까지만 내려간다", () => {
+  it("모든 지역의 몬스터·보스·갈래는 있는 것을 가리키고, 갈래는 한 층씩 내려간다", () => {
+    for (const r of REGIONS) {
+      for (const m of [...r.monsters.map((x) => x.id), ...r.floorBosses, ...(r.dungeonBoss ? [r.dungeonBoss] : [])]) {
+        expect(getMonster(m), `${r.id}: ${m}`).toBeDefined();
+        for (const e of getMonster(m)!.escort ?? []) expect(getMonster(e), e).toBeDefined();
+      }
+      for (const n of r.next) expect(getRegion(n)!.depth).toBe(r.depth + 1);
+      // 던전 보스가 있는 지역은 끝이다
+      if (r.dungeonBoss) expect(r.next).toEqual([]);
+    }
+  });
+
+  it("목적지에서 고른 갈래로 내려간다. 갈래에 없는 지역이나 목적지가 아니면 안 된다", () => {
     const exp = startExpedition(mercs, 1);
+    expect(regionOf(exp).id).toBe("uf_forest");
     expect(canDescend(exp)).toBe(false);
     const atGoal: Expedition = { ...exp, room: { kind: "goal" } };
-    expect(descend(atGoal, 2)!.depth).toBe(2);
-    expect(descend({ ...atGoal, depth: MAX_DEPTH }, 2)).toBeNull();
-    // 모두 쓰러졌으면 못 내려간다
-    expect(descend({ ...atGoal, members: atGoal.members.map((m) => ({ ...m, down: true })) }, 2)).toBeNull();
+    expect(nextRegions(atGoal).map((r) => r.id)).toEqual(["uf_deep_forest", "uf_cave"]);
+    const down = descend(atGoal, 2, "uf_cave")!;
+    expect(down).toMatchObject({ depth: 2, region: "uf_cave", room: null });
+    expect(descend(atGoal, 2, "uf_swamp")).toBeNull();
+    expect(descend({ ...atGoal, members: atGoal.members.map((m) => ({ ...m, down: true })) }, 2, "uf_cave")).toBeNull();
+  });
+
+  it("던전 보스 지역은 목적지가 보스 전투이고, 이기면 그 갈래는 끝 (귀환만)", () => {
+    let exp: Expedition = { ...startExpedition(mercs, 1), region: "uf_wolf_den", depth: 3 };
+    const goal = exp.map.goalId;
+    const before = exp.map.nodes.find((n) => n.next.includes(goal))!;
+    exp = { ...exp, at: before.id };
+    const moved = moveTo(exp, mercs, goal, 5)!;
+    expect(moved.battle).not.toBeNull();
+    const boss = moved.battle!.units.find((u) => u.side === "enemy" && u.rank === "dungeonBoss")!;
+    expect(boss.kind).toBe("alpha_wolf");
+    // 이긴 것으로 친다
+    const won = { ...moved.battle!, outcome: "victory" as const, units: moved.battle!.units.map((u) => (u.side === "enemy" ? { ...u, hp: 0 } : u)) };
+    const after = finishBattle(moved.exp, won);
+    expect(after.room).toEqual({ kind: "goal" });
+    expect(after.cleared).toBe(true);
+    expect(canDescend(after)).toBe(false);
+  });
+
+  it("강한 기척 칸에 들어가면 층 보스와 호위가 나온다", () => {
+    const { exp, target } = expeditionWithFirst("battle");
+    const withBoss: Expedition = { ...exp, floorBoss: { node: target, id: "goblin_glutton" } };
+    const { battle } = moveTo(withBoss, mercs, target, 4)!;
+    const enemies = battle!.units.filter((u) => u.side === "enemy");
+    expect(enemies.map((u) => u.kind)).toEqual(["goblin_glutton", "goblin_grunt", "goblin_grunt"]);
+    expect(enemies[0].rank).toBe("floorBoss");
   });
 
   it("깊은 층의 전투는 금화를 더 준다", () => {
@@ -333,4 +377,3 @@ describe("층", () => {
     expect(g3).toBe(Math.round(g1 * 2));
   });
 });
-

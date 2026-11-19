@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { STATUS, SUPPLY, type SupplyKind } from "@/data/combat";
-import { MAX_DEPTH, PATH_LENGTH, ROOM_NAME, type RoomKind } from "@/data/dungeon";
+import { PATH_LENGTH, ROOM_NAME, type RoomKind } from "@/data/dungeon";
 import { getEvent, type Approach } from "@/data/events";
 import { CURRENCY } from "@/data/economy";
 import { getRelic } from "@/data/relics";
 import { salvageCount } from "@/data/loot";
-import { alive, canDescend, canMove, choiceProblem, helperFor, supplyProblem, type Expedition, type Member } from "@/game/dungeon/expedition";
+import { alive, canDescend, canMove, nextRegions, regionOf, choiceProblem, helperFor, supplyProblem, type Expedition, type Member } from "@/game/dungeon/expedition";
 import { getStage } from "@/game/affinity";
 import type { MercProgress, RestTalk } from "./state";
 import { byStep, type MapNode } from "@/game/dungeon/map";
@@ -22,8 +22,8 @@ type Props = {
   onLeaveRoom: () => void;
   onGive: (item: SupplyKind, target: string) => void;
   onEnd: () => void;
-  /** 목적지에서 다음 층으로 */
-  onDescend: () => void;
+  /** 목적지에서 고른 갈래로 */
+  onDescend: (region: string) => void;
   restTalk: RestTalk | null;
   progress: Record<string, MercProgress>;
   onRestTalk: (mercId: string) => void;
@@ -50,7 +50,9 @@ export function DungeonScreen(props: Props) {
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 px-4 py-8 sm:px-8">
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-edge pb-4">
         <div>
-          <p className="text-xs tracking-[0.3em] text-ash">무너진 던전 · {exp.depth}층</p>
+          <p className="text-xs tracking-[0.3em] text-ash">
+            {regionOf(exp).name} · {exp.depth}층
+          </p>
           <h1 className="text-2xl font-bold">
             {Math.max(0, exp.visited.length - 1)} / {PATH_LENGTH} 칸
           </h1>
@@ -167,13 +169,18 @@ function DungeonMap({ exp, onMove }: { exp: Expedition; onMove: (id: string) => 
         const { x, y } = pos(n);
         const here = n.id === exp.at;
         const reachable = canMove(exp, n.id);
+        // 층 보스가 기다리는 칸 (아직 들어가지 않았으면)
+        const strong = exp.floorBoss?.node === n.id && !visited.has(n.id);
+        // 던전 보스가 기다리는 목적지
+        const lair = n.kind === "goal" && !!regionOf(exp).dungeonBoss && !exp.cleared;
         return (
           <button
             key={n.id}
             disabled={!reachable}
             onClick={() => onMove(n.id)}
             style={{ left: `${x}%`, top: `${y}%` }}
-            className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-sm border bg-panel px-1.5 py-1 text-[11px] transition-all sm:px-2 sm:text-xs ${KIND_STYLE[n.kind]} ${
+            title={strong ? "강한 적의 기척이 느껴진다 (층 보스)" : lair ? "이 지역의 주인이 기다린다 (던전 보스)" : undefined}
+            className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-sm border bg-panel px-1.5 py-1 text-[11px] transition-all sm:px-2 sm:text-xs ${strong || lair ? "border-blood text-blood font-bold" : KIND_STYLE[n.kind]} ${
               here
                 ? "ring-2 ring-ember"
                 : reachable
@@ -183,7 +190,7 @@ function DungeonMap({ exp, onMove }: { exp: Expedition; onMove: (id: string) => 
                     : "opacity-35"
             }`}
           >
-            {ROOM_NAME[n.kind]}
+            {strong ? "강한 기척" : lair ? "우두머리" : ROOM_NAME[n.kind]}
           </button>
         );
       })}
@@ -212,7 +219,7 @@ function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, on
     case "rest":
       return (
         <div className={`${box} border-moss/50 bg-moss/10`}>
-          <p className="text-moss">무너진 기둥 아래 숨을 곳을 찾았다. 잠시 상처를 돌보며 쉬었다.</p>
+          <p className="text-moss">큰 나무 그늘 아래 숨을 곳을 찾았다. 잠시 상처를 돌보며 쉬었다.</p>
           <Lines lines={room.lines} />
           {reactions.length > 0 && <Lines lines={reactions} tone="ember" />}
           {restTalk ? (
@@ -242,10 +249,18 @@ function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, on
           {next}
         </div>
       );
-    case "goal":
+    case "goal": {
+      const branches = nextRegions(exp);
+      const ok = canDescend(exp);
       return (
         <div className={`${box} border-ember/50 bg-ember/10`}>
-          <p className="text-ember">{exp.depth}층 목적지에 닿았다. 아래로 이어지는 계단이 보인다.</p>
+          <p className="text-ember">
+            {exp.cleared
+              ? `${regionOf(exp).name}의 주인을 쓰러뜨렸다. 이 갈래는 여기서 끝이다.`
+              : branches.length
+                ? `${regionOf(exp).name} 끝에 닿았다. 길이 ${branches.length}갈래로 나뉜다.`
+                : `${regionOf(exp).name} 끝에 닿았다. 더 나아갈 길은 없다.`}
+          </p>
           <p className="text-sm">
             가진 것: {CURRENCY} {exp.gold}
             {exp.loot.length > 0 && ` · ${exp.loot.map((id) => getRelic(id)?.name ?? id).join(", ")}`}
@@ -254,22 +269,38 @@ function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, on
           <p className="text-xs text-bone/80">
             동료: {exp.members.filter((m) => !m.dead).map((m) => `${m.name} ${m.down ? "쓰러짐" : `${m.hp}/${m.maxHp}`}`).join(" · ")}
           </p>
-          <p className="text-xs text-ash">
-            {canDescend(exp)
-              ? `더 내려가면 지금 체력·물자 그대로 ${exp.depth + 1}층으로 간다. 적이 더 세지고 금화·경험치도 커진다. 전멸하면 이제까지 얻은 것을 모두 잃는다.`
-              : exp.depth >= MAX_DEPTH
-                ? "더 깊은 곳은 아직 무너져 막혀 있다."
-                : "일어서 있는 동료가 없어 더 내려갈 수 없다."}
-            {" "}귀환하면 모두 회복한다.
-          </p>
-          <div className="flex gap-2">
-            <Button variant="ember" onClick={onEnd}>
-              귀환한다
-            </Button>
-            {canDescend(exp) && <Button onClick={onDescend}>{exp.depth + 1}층으로 내려간다</Button>}
-          </div>
+          {branches.length > 0 && (
+            <>
+              <p className="text-xs text-ash">
+                {ok
+                  ? "내려가면 지금 체력·물자 그대로 다음 층으로 간다. 깊을수록 금화·경험치가 커진다. 전멸하면 이제까지 얻은 것을 모두 잃는다."
+                  : "일어서 있는 동료가 없어 더 내려갈 수 없다."}
+              </p>
+              <div className="grid w-full gap-2 sm:grid-cols-2">
+                {branches.map((r) => (
+                  <button
+                    key={r.id}
+                    disabled={!ok}
+                    onClick={() => onDescend(r.id)}
+                    className="flex flex-col gap-1 rounded-sm border border-edge bg-panel px-3 py-2 text-left text-xs transition-colors enabled:hover:border-ember/60 disabled:opacity-50"
+                  >
+                    <span className="text-sm font-bold">
+                      {r.depth}층 {r.name}
+                      <span className="ml-2 text-xs font-normal text-ember">{r.difficulty}</span>
+                      {r.dungeonBoss && <span className="ml-2 text-xs font-normal text-blood">우두머리가 있다</span>}
+                    </span>
+                    <span className="text-bone/70">{r.description}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          <Button variant="ember" onClick={onEnd}>
+            귀환한다 (모두 회복)
+          </Button>
         </div>
       );
+    }
     case "defeat":
       return (
         <div className={`${box} border-blood/50 bg-blood/10`}>
