@@ -12,12 +12,13 @@ export type Rand = () => number;
 /** 두 번째 성격이 붙을 확률 */
 export const SECOND_PERSONALITY_CHANCE = 0.3;
 
-export const BASE_AFFINITY = 20;
+/** 시작 호감: 대부분 중립(35~54)에서 시작한다. 종족·성격이 겹쳐야 경계로 (2026-11-19 사용자 결정 30~60) */
+export const BASE_AFFINITY = 45;
 export const BASE_WILLINGNESS = 40;
 const AFFINITY_JITTER = 5;
 const WILLINGNESS_JITTER = 10;
 /** 시작 수치 범위 */
-export const START_AFFINITY_RANGE = [5, 40] as const;
+export const START_AFFINITY_RANGE = [30, 60] as const;
 export const START_WILLINGNESS_RANGE = [30, 70] as const;
 
 /** 한 번 모집할 때 오는 인원 (최소, 최대) */
