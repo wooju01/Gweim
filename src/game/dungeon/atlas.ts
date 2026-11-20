@@ -1,7 +1,7 @@
 // 던전 갈래 지도 배치 (순수 함수). 지역 데이터(data/regions.ts)만 보고 나무 모양으로 자리를 정한다.
 // 새 던전을 더해도 이 함수가 그대로 그린다.
 // 세로: 층 (위가 1층). 가로: 잎(끝 지역) 순서대로 칸을 나누고, 갈래가 있는 지역은 자식들의 가운데.
-import { REGIONS, getDungeon, getRegion, type Region } from "../../data/regions";
+import { REGIONS, getDungeon, getRegion, type Region } from "@/data/regions";
 
 export type AtlasNode = { region: Region; x: number; y: number };
 export type AtlasLayout = { nodes: AtlasNode[]; edges: [string, string][]; depth: number };

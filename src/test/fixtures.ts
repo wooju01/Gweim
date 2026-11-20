@@ -1,6 +1,6 @@
 // 테스트용 예시 용병. 게임에는 나오지 않는다.
 // 규칙(반응표, 확률 등)을 구체적인 인물로 검증할 때 쓴다.
-import type { Merc } from "../game/types";
+import type { Merc } from "@/game/types";
 
 // reactions: 태도별 (호감도, 고용 의향) 반응. -2~+2. 1칸 = 호감 5점, 고용 의향 10점.
 export const TEST_MERCS: Merc[] = [

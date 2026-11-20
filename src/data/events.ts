@@ -4,7 +4,7 @@
 //
 // 해결 방법은 기본 세 갈래: 아이템을 쓴다(item) / 맞는 사람이 나선다(person) / 위험을 감수한다(risk).
 // 그 밖에 태도가 드러나는 선택(묻어 준다, 비웃는다 등)과 지나치기(other)를 더할 수 있다.
-import type { ChoiceTone, Stage } from "../lib/schemas";
+import type { ChoiceTone, Stage } from "@/lib/schemas";
 import type { StatusKind, SupplyKind } from "./combat";
 
 export type EventEffect = {

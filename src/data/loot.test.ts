@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createRng } from "../game/random";
+import { createRng } from "@/game/random";
 import { ENEMIES } from "./combat";
 import { DROPS, SALVAGE, addSalvage, getSalvage, rollDrops } from "./loot";
 

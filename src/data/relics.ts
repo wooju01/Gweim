@@ -1,5 +1,5 @@
 // 유물. 던전에서 얻어 마을에서 판다. (나중: 유물에서 직업 전용 장비가 나온다)
-import type { Rng } from "../game/random";
+import type { Rng } from "@/game/random";
 
 export type Relic = {
   id: string;

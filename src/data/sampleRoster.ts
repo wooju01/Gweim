@@ -2,9 +2,9 @@
 // 직업 8개와 종족 5개가 모두 한 번 이상 나오고, 패시브도 골고루 들어 있다.
 // 프로필은 AI 없이 직접 쓴 것이다. 실제 모집(모집 공고)은 그대로 AI로 만든다.
 // 끄려면 USE_SAMPLE_ROSTER를 false로 바꾼다.
-import { resolveTraits, rollStart, seededRandom } from "../game/generate";
+import { resolveTraits, rollStart, seededRandom } from "@/game/merc/generate";
 import { rollSkills } from "./skillgen";
-import type { MercProfile, MercSeed, MercTraits } from "../lib/schemas";
+import type { MercProfile, MercSeed, MercTraits } from "@/lib/schemas";
 
 export const USE_SAMPLE_ROSTER = true;
 

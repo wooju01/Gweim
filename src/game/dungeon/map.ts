@@ -12,8 +12,8 @@ import {
   ROOM_WEIGHTS,
   SPLIT_CHANCE,
   type RoomKind,
-} from "../../data/dungeon";
-import { createRng, rollInt, type Rng } from "../random";
+} from "@/data/dungeon";
+import { createRng, rollInt, type Rng } from "@/game/random";
 
 export type MapNode = {
   id: string;

@@ -1,4 +1,4 @@
-import type { Merc } from "../game/types";
+import type { Merc } from "@/game/types";
 
 /**
  * 스토리가 있는 고유 용병. 랜덤 용병과 달리 직접 설계한다.

@@ -1,10 +1,10 @@
-import { TALK_LIMIT, applyTone, clampStat, getResolve, getStage, proposeJoin, reactionTo, usesTalk } from "@/game/affinity";
-import { offerEffect } from "@/game/wages";
+import { TALK_LIMIT, applyTone, clampStat, getResolve, getStage, proposeJoin, reactionTo, usesTalk } from "@/game/merc/affinity";
+import { offerEffect } from "@/game/merc/wages";
 
 /** 돈 얘기 반응의 호감 1점 = 호감도 1 (PAY_TEMPER의 affinity는 호감도 수치 그대로) */
 const AFFINITY_STEP_PER_POINT = 1;
-import { MEMORY_MAX_CHARS, planFold } from "@/game/memory";
-import { mercFromRef } from "@/game/roster";
+import { MEMORY_MAX_CHARS, planFold } from "@/game/merc/memory";
+import { mercFromRef } from "@/game/merc/roster";
 import type { Merc } from "@/game/types";
 import { MercReply, TalkRequest, type TalkResponse, type Tone } from "@/lib/schemas";
 import { getMercAI, getMockAI, type ReplyContext, type TurnEvent } from "@/server/ai";

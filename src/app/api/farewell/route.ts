@@ -1,4 +1,4 @@
-import { mercFromRef } from "@/game/roster";
+import { mercFromRef } from "@/game/merc/roster";
 import { FarewellRequest, type FarewellResponse } from "@/lib/schemas";
 import { getMercAI, getMockAI } from "@/server/ai";
 

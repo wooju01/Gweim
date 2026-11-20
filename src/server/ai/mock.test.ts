@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { TEST_MERCS as MERCS } from "../../test/fixtures";
-import { dislikedTones, likedTones } from "../../game/affinity";
-import { MercReply, type Stage } from "../../lib/schemas";
+import { TEST_MERCS as MERCS } from "@/test/fixtures";
+import { dislikedTones, likedTones } from "@/game/merc/affinity";
+import { MercReply, type Stage } from "@/lib/schemas";
 import { createMockAI, mockChoices, mockClassify } from "./mock";
 
 describe("mockClassify", () => {
@@ -81,8 +81,8 @@ describe("createMockAI", () => {
 describe("mockProfile", () => {
   it("모든 특성 조합에서 스키마를 통과하고 피할 이름을 피한다", async () => {
     const { rollTraits, resolveTraits, seededRandom } =
-      await import("../../game/generate");
-    const { MercProfile } = await import("../../lib/schemas");
+      await import("@/game/merc/generate");
+    const { MercProfile } = await import("@/lib/schemas");
     const { mockProfile } = await import("./mock");
     const rand = seededRandom(1);
     for (let i = 0; i < 300; i++) {
@@ -97,7 +97,7 @@ describe("mockProfile", () => {
 describe("mockSummary", () => {
   it("기존 기억을 이어 가고 길이 제한을 지킨다", async () => {
     const { mockSummary } = await import("./mock");
-    const { MEMORY_MAX_CHARS } = await import("../../game/memory");
+    const { MEMORY_MAX_CHARS } = await import("@/game/merc/memory");
     const merc = MERCS[0];
     const once = mockSummary({ merc, memory: "", lines: [{ speaker: "player", text: "내가 너의 아빠다" }] });
     expect(once).toContain("내가 너의 아빠다");

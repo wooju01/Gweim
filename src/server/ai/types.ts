@@ -5,11 +5,11 @@ import type {
   Stage,
   Tone,
   EventNarration,
-} from "../../lib/schemas";
-import type { Resolve } from "../../game/affinity";
-import type { Merc, Trait } from "../../game/types";
-import type { Passive } from "../../data/passives";
-import type { EventTemplate } from "../../data/events";
+} from "@/lib/schemas";
+import type { Resolve } from "@/game/merc/affinity";
+import type { Merc, Trait } from "@/game/types";
+import type { Passive } from "@/data/passives";
+import type { EventTemplate } from "@/data/events";
 
 export type Direction = "up" | "down" | "none";
 

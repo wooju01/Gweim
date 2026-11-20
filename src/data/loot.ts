@@ -1,6 +1,6 @@
 // 유실물: 쓰러뜨린 적에게서 떨어지는 것. 상점에 팔거나 대장간·전수관 재료로 쓴다. 던전마다 재료가 다르다.
 // (유물은 사건·보물 칸에서만 나온다. data/relics.ts)
-import type { Rng } from "../game/random";
+import type { Rng } from "@/game/random";
 
 export type Salvage = {
   id: string;

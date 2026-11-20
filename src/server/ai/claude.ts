@@ -2,7 +2,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import { EventNarration, Farewell, MercProfile, MercReply, Tone } from "../../lib/schemas";
+import { EventNarration, Farewell, MercProfile, MercReply, Tone } from "@/lib/schemas";
 import {
   classifyPrompt,
   eventPrompt,

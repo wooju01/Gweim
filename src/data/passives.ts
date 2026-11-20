@@ -2,7 +2,7 @@
 // 모집 시 뽑고, 카드와 AI 프롬프트에 보여 주고, 전투 엔진(combat/engine.ts)이 효과를 낸다.
 // 수치는 data/combat.ts의 PASSIVE에 있다. 초안이고 시드 시뮬레이션으로 조정한다.
 
-import type { MercLevel } from "../lib/schemas";
+import type { MercLevel } from "@/lib/schemas";
 
 export const LEVELS: Record<MercLevel, { name: string; maxPassives: number }> = {
   apprentice: { name: "견습", maxPassives: 1 },

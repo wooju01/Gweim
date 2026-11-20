@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { START_SUPPLIES } from "../../data/combat";
-import { EVENTS } from "../../data/events";
-import { TEST_MERCS } from "../../test/fixtures";
-import { act, currentActor, living, rollEncounter } from "../combat/engine";
-import { createRng } from "../random";
-import { REGIONS, getRegion } from "../../data/regions";
-import { getMonster } from "../../data/monsters";
-import type { Merc } from "../types";
+import { START_SUPPLIES } from "@/data/combat";
+import { EVENTS } from "@/data/events";
+import { TEST_MERCS } from "@/test/fixtures";
+import { act, currentActor, living, rollEncounter } from "@/game/combat/engine";
+import { createRng } from "@/game/random";
+import { REGIONS, getRegion } from "@/data/regions";
+import { getMonster } from "@/data/monsters";
+import type { Merc } from "@/game/types";
 import {
   battleFor,
   battleSpoils,

@@ -27,16 +27,16 @@ import {
   type OnHit,
   type StatusKind,
   type SupplyKind,
-} from "../../data/combat";
-import type { SkillEffect } from "../../data/skills";
-import { BOND } from "../../data/bond";
-import { JOB_STAT, PER_POINT, type PowerStat, type StatKey } from "../../data/growth";
-import { DEATH, survivalChance } from "../../data/death";
-import { ELITE_TRAITS, MAX_ENEMIES, getMonster, type Ability, type EliteTrait, type Monster, type MonsterRank, type MonsterTag } from "../../data/monsters";
-import type { Region } from "../../data/regions";
-import type { MercLevel, Stage } from "../../lib/schemas";
-import { createRng, rollInt, type Rng } from "../random";
-import type { Merc } from "../types";
+} from "@/data/combat";
+import type { SkillEffect } from "@/data/skills";
+import { BOND } from "@/data/bond";
+import { JOB_STAT, PER_POINT, type PowerStat, type StatKey } from "@/data/growth";
+import { DEATH, survivalChance } from "@/data/death";
+import { ELITE_TRAITS, MAX_ENEMIES, getMonster, type Ability, type EliteTrait, type Monster, type MonsterRank, type MonsterTag } from "@/data/monsters";
+import type { Region } from "@/data/regions";
+import type { MercLevel, Stage } from "@/lib/schemas";
+import { createRng, rollInt, type Rng } from "@/game/random";
+import type { Merc } from "@/game/types";
 
 export type Side = "merc" | "enemy";
 export type Status = { kind: StatusKind; turns: number };

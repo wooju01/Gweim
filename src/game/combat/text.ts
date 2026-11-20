@@ -1,6 +1,6 @@
 // 전투 이벤트를 한국어 문장으로. 나중에 애니메이션을 붙여도 이 텍스트는 전투 기록으로 남긴다.
-import { STATUS, getSkill, type StatusKind } from "../../data/combat";
-import { getPassive } from "../../data/passives";
+import { STATUS, getSkill, type StatusKind } from "@/data/combat";
+import { getPassive } from "@/data/passives";
 import type { Battle, BattleEvent } from "./engine";
 
 /** 마지막 글자에 받침이 있나. 한글이 아니면 없다고 본다 */

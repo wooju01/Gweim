@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DUNGEONS, REGIONS } from "../../data/regions";
+import { DUNGEONS, REGIONS } from "@/data/regions";
 import { dungeonStats, layoutDungeon } from "./atlas";
 
 describe("던전 지도 배치", () => {

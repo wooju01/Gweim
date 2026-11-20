@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TEST_MERCS as MERCS } from "../../test/fixtures";
+import { TEST_MERCS as MERCS } from "@/test/fixtures";
 import { summaryPrompt, systemPrompt, turnPrompt } from "./prompts";
 import type { ReplyContext } from "./types";
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMerc } from "../game/generate";
+import { buildMerc } from "@/game/merc/generate";
 import { sampleSeeds } from "./sampleRoster";
 import { generateSkill, getSkill, rollSkills, validSkills, validSkillsFor } from "./skillgen";
 import { JOB_SKILL, SKILLS, skillsFrom } from "./skills";

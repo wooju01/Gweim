@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildMerc } from "../game/generate";
-import { MercSeed } from "../lib/schemas";
+import { buildMerc } from "@/game/merc/generate";
+import { MercSeed } from "@/lib/schemas";
 import { JOBS, RACES } from "./traits";
 import { sampleSeeds } from "./sampleRoster";
 

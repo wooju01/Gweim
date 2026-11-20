@@ -1,7 +1,7 @@
 // 효과 조각을 무작위로 조합해 스킬을 만든다. 직접 만든 종족·직업 스킬이 다 채워지기 전까지
 // 빈 슬롯을 채우는 임시(목) 스킬이다. id는 "gen:번호"이고, 같은 번호면 언제나 같은 스킬이 나온다.
 // 그래서 용병 시드에는 id만 저장하고, 내용은 필요할 때 다시 만든다.
-import { createRng, rollInt } from "../game/random";
+import { createRng, rollInt } from "@/game/random";
 import { COMBO_PREFIX, comboSkill, earlyCombo } from "./combo";
 import { CRAFT_PREFIX, craftSkill } from "./craft";
 import { MONSTER_SKILLS } from "./monsters";

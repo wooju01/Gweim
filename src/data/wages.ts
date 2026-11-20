@@ -2,7 +2,7 @@
 // 보수: 원정이 끝날 때마다 살아 있는 동행 용병에게 준다. 모자라면 체불 (호감이 떨어진다).
 // 조건 제시: 길드 대화에서 용병마다 한 번씩. 선금(지금 금화를 낸다)과 몫 약속(앞으로 보수를 더 준다).
 // 돈 얘기를 어떻게 받아들이는지는 성격·배경이 정한다.
-import type { MercLevel } from "../lib/schemas";
+import type { MercLevel } from "@/lib/schemas";
 
 export const WAGE = {
   /**

@@ -1,6 +1,6 @@
 import { RECRUIT_LEVEL, getPassive } from "@/data/passives";
 import { rollSkills } from "@/data/skillgen";
-import { resolveTraits, rollPassives, rollRecruitCount, rollStart, rollTraits } from "@/game/generate";
+import { resolveTraits, rollPassives, rollRecruitCount, rollStart, rollTraits } from "@/game/merc/generate";
 import {
   MercProfile,
   RecruitRequest,

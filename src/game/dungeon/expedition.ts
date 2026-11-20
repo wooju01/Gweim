@@ -6,7 +6,7 @@ import {
   POTION_HEAL,
   START_SUPPLIES,
   type SupplyKind,
-} from "../../data/combat";
+} from "@/data/combat";
 import {
   PATH_LENGTH,
   depthGold,
@@ -14,20 +14,20 @@ import {
   TREASURE_COUNT,
   TREASURE_WEIGHTS,
   type RoomKind,
-} from "../../data/dungeon";
+} from "@/data/dungeon";
 import {
   BATTLE_GOLD,
   CURRENCY,
   GOAL_GOLD,
   TREASURE_GOLD,
   TREASURE_RELIC_CHANCE,
-} from "../../data/economy";
-import { rollRelic } from "../../data/relics";
-import { XP_GOAL_BONUS, XP_PER_SQUARE } from "../../data/growth";
-import { FIRST_DUNGEON, getDungeon, getRegion, type Region } from "../../data/regions";
-import { ELITE_DROP_ROLLS, FLOOR_BOSS_TRINKET_CHANCE } from "../../data/monsters";
-import { TREASURE_TRINKET_CHANCE, rollTrinket } from "../../data/trinkets";
-import { addSalvage, getSalvage, rollDrops } from "../../data/loot";
+} from "@/data/economy";
+import { rollRelic } from "@/data/relics";
+import { XP_GOAL_BONUS, XP_PER_SQUARE } from "@/data/growth";
+import { FIRST_DUNGEON, getDungeon, getRegion, type Region } from "@/data/regions";
+import { ELITE_DROP_ROLLS, FLOOR_BOSS_TRINKET_CHANCE } from "@/data/monsters";
+import { TREASURE_TRINKET_CHANCE, rollTrinket } from "@/data/trinkets";
+import { addSalvage, getSalvage, rollDrops } from "@/data/loot";
 import {
   EVENTS,
   getEvent,
@@ -35,19 +35,19 @@ import {
   type EventOutcome,
   type EventRequirement,
   type EventUnlock,
-} from "../../data/events";
-import type { ChoiceTone, Stage } from "../../lib/schemas";
-import { BOND } from "../../data/bond";
+} from "@/data/events";
+import type { ChoiceTone, Stage } from "@/lib/schemas";
+import { BOND } from "@/data/bond";
 import {
   mercUnit,
   startBattleFrom,
   type Battle,
   type Status,
   type Unit,
-} from "../combat/engine";
-import { josa } from "../combat/text";
-import { createRng, rollInt, type Rng } from "../random";
-import type { Merc } from "../types";
+} from "@/game/combat/engine";
+import { josa } from "@/game/combat/text";
+import { createRng, rollInt, type Rng } from "@/game/random";
+import type { Merc } from "@/game/types";
 import { generateMap, nodeById, type DungeonMap } from "./map";
 
 export type Member = {

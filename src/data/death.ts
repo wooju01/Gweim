@@ -1,7 +1,7 @@
 // 죽음 저항. 체력이 0이 된 용병은 바로 죽지 않고 "빈사"로 쓰러진다.
 // 정해진 라운드 안에 길안내자가 물약·붕대로 구하거나 전투를 이기면 산다.
 // 못 구하면 생존 판정. 확률은 호감·종족·등급이 정한다 (믿는 사람일수록 끝까지 버틴다).
-import type { MercLevel, Stage } from "../lib/schemas";
+import type { MercLevel, Stage } from "@/lib/schemas";
 
 export const DEATH = {
   /** 쓰러진 뒤 이만큼의 라운드가 시작되면 생존 판정 */

@@ -2,7 +2,7 @@
 // 강화는 무조건 성공한다 (최대 3단계). 보물 칸에서 낮은 확률로 1단계짜리가 나온다.
 // 용병이 죽으면 그 전투를 이겼을 때만 돌려받는다 (지거나 도망치면 잃는다).
 // 수치는 초안이다. 밸런스는 나중에 시뮬레이션으로 조정한다.
-import type { Rng } from "../game/random";
+import type { Rng } from "@/game/random";
 import type { StatBlock } from "./growth";
 
 export type Trinket = {

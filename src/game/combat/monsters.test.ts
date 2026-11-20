@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { TEST_MERCS } from "../../test/fixtures";
-import { ELITE_TRAITS, MAX_ENEMIES, MONSTERS, getMonster } from "../../data/monsters";
-import { getRegion } from "../../data/regions";
-import { createRng } from "../random";
-import { generateMap } from "../dungeon/map";
-import { placeFloorBoss } from "../dungeon/expedition";
-import { getSkill } from "../../data/skillgen";
+import { TEST_MERCS } from "@/test/fixtures";
+import { ELITE_TRAITS, MAX_ENEMIES, MONSTERS, getMonster } from "@/data/monsters";
+import { getRegion } from "@/data/regions";
+import { createRng } from "@/game/random";
+import { generateMap } from "@/game/dungeon/map";
+import { placeFloorBoss } from "@/game/dungeon/expedition";
+import { getSkill } from "@/data/skillgen";
 import { act, bossEncounter, currentActor, enemyUnit, living, makeElite, mercUnit, rollEncounter, startBattleWithUnits, strikeFactors, type Battle, type Unit } from "./engine";
 import { describe as describeEvent } from "./text";
 

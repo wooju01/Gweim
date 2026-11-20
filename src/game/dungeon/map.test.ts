@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_BATTLE_RUN, MAX_QUIET_RUN, PATH_LENGTH } from "../../data/dungeon";
+import { MAX_BATTLE_RUN, MAX_QUIET_RUN, PATH_LENGTH } from "@/data/dungeon";
 import { allPaths, byStep, generateMap, nodeById, type DungeonMap } from "./map";
 
 const MAPS = Array.from({ length: 400 }, (_, seed) => generateMap(seed));

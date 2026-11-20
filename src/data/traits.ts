@@ -1,4 +1,4 @@
-import type { Trait } from "../game/types";
+import type { Trait } from "@/game/types";
 
 // 랜덤 용병의 재료. 여기 표만 늘리면 조합이 늘어난다.
 // reactions: 태도별 (호감도, 고용 의향) 반응 -2~+2. 여러 특성의 반응은 더해진 뒤 -2~+2로 잘린다.

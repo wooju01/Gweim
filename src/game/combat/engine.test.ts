@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { POTION_HEAL, START_SUPPLIES, STATUS } from "../../data/combat";
-import { TEST_MERCS } from "../../test/fixtures";
-import { PASSIVES } from "../../data/passives";
-import { survivalChance } from "../../data/death";
-import { createRng } from "../random";
-import type { Merc } from "../types";
+import { POTION_HEAL, START_SUPPLIES, STATUS } from "@/data/combat";
+import { TEST_MERCS } from "@/test/fixtures";
+import { PASSIVES } from "@/data/passives";
+import { survivalChance } from "@/data/death";
+import { createRng } from "@/game/random";
+import type { Merc } from "@/game/types";
 import {
   act,
   currentActor,
@@ -25,9 +25,9 @@ import {
   type BattleEvent,
   type Unit,
 } from "./engine";
-import { SKILLS, getSkill } from "../../data/combat";
-import { comboId } from "../../data/combo";
-import { JOB_SKILL, skillsFrom } from "../../data/skills";
+import { SKILLS, getSkill } from "@/data/combat";
+import { comboId } from "@/data/combo";
+import { JOB_SKILL, skillsFrom } from "@/data/skills";
 import { describe as describeEvent, josa } from "./text";
 
 /** 밸런스 측정용 단순 정책: 출혈이면 붕대, 스킬이 준비되면 스킬, 아니면 가장 약한 적 공격 */

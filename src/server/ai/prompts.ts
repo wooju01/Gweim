@@ -1,12 +1,12 @@
 // 프롬프트 문구. 숫자(호감도·고용 의향 값)는 절대 넣지 않는다. 단계와 반응 방향만 넣는다.
-import { ChoiceTone, type HistoryLine, type Stage } from "../../lib/schemas";
-import type { Resolve } from "../../game/affinity";
-import type { Level, Merc } from "../../game/types";
-import { MEMORY_MAX_CHARS } from "../../game/memory";
-import { getTrait } from "../../data/traits";
-import { LEVELS, getPassive, type Passive } from "../../data/passives";
-import { getSkill } from "../../data/skillgen";
-import type { Trait } from "../../game/types";
+import { ChoiceTone, type HistoryLine, type Stage } from "@/lib/schemas";
+import type { Resolve } from "@/game/merc/affinity";
+import type { Level, Merc } from "@/game/types";
+import { MEMORY_MAX_CHARS } from "@/game/merc/memory";
+import { getTrait } from "@/data/traits";
+import { LEVELS, getPassive, type Passive } from "@/data/passives";
+import { getSkill } from "@/data/skillgen";
+import type { Trait } from "@/game/types";
 import type {
   Direction,
   EventInput,

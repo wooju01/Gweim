@@ -7,10 +7,10 @@ import {
   type MercProfile,
   type Stage,
   type Tone,
-} from "../../lib/schemas";
-import { dislikedTones, likedTones } from "../../game/affinity";
-import type { Merc } from "../../game/types";
-import { MEMORY_MAX_CHARS } from "../../game/memory";
+} from "@/lib/schemas";
+import { dislikedTones, likedTones } from "@/game/merc/affinity";
+import type { Merc } from "@/game/types";
+import { MEMORY_MAX_CHARS } from "@/game/merc/memory";
 import type { EventInput, FarewellInput, MercAI, ProfileInput, ReplyContext, SummaryInput } from "./types";
 
 type MercLines = {

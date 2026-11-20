@@ -1,5 +1,5 @@
-import type { StatBlock } from "../data/growth";
-import type { ChoiceTone, MercLevel } from "../lib/schemas";
+import type { StatBlock } from "@/data/growth";
+import type { ChoiceTone, MercLevel } from "@/lib/schemas";
 
 /** 반응 세기. 1칸당 변화량은 affinity.ts의 STEP */
 export type Level = -2 | -1 | 0 | 1 | 2;
