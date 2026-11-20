@@ -1,33 +1,17 @@
 // 자동 저장. 브라우저(localStorage)에 한 칸만 두고, 상태가 바뀔 때마다 덮어쓴다 (되돌리기 없음).
-// 저장 데이터는 Zod 스키마로 검사하고 버전 번호를 붙인다. 형식이 바뀌면 MIGRATIONS에 변환을 더한다.
+// 저장 데이터는 Zod 스키마로 검사하고 버전 번호를 붙인다. 버전이 다르면 읽지 않고 새 게임으로 시작한다
+// (형식이 크게 바뀔 때 변환하지 않고 초기화하기로 했다. 2026-11-20: 직업·등급·스킬 조각 개편 → 버전 3).
 // 대화 화면·AI 응답 대기처럼 잠깐 거치는 상태는 저장하지 않는다.
 // 전투 중이면 전투 그대로 저장한다 (새로고침으로 도망칠 수 없게).
 import { z } from "zod";
-import { MercRef, TalkState } from "@/lib/schemas";
+import { MercRef, SkillBuild, TalkState } from "@/lib/schemas";
 import { START_GOLD, START_PACK, START_STOCK } from "@/data/economy";
 import { entryId, initialState, mercOf, type GameState } from "./state";
 
 export const SAVE_KEY = "ashen-save";
 /** 읽지 못한 저장을 지우기 전에 옮겨 두는 곳 (직접 살펴볼 수 있게) */
 export const BROKEN_KEY = "ashen-save-broken";
-export const SAVE_VERSION = 2;
-
-/** 1 → 2: 직업 이름 변경 (창병 → 기사, 단검수 → 암살자). 직업·스킬·조합 스킬 id를 새 id로 */
-const RENAMED_IDS: [RegExp, string][] = [
-  [/"spearman"/g, '"knight"'],
-  [/"dagger"/g, '"assassin"'],
-  [/"spear_whirl"/g, '"knight_sweep"'],
-  [/"spear_(pin|shove)"/g, '"knight_$1"'],
-  [/"dagger_(throat|smoke|ambush)"/g, '"assassin_$1"'],
-  [/combo:spearman:/g, "combo:knight:"],
-  [/combo:dagger:/g, "combo:assassin:"],
-];
-
-/** 버전 n의 데이터를 n+1로 바꾸는 함수들. 형식을 바꿀 때 여기에 더한다 */
-const MIGRATIONS: Record<number, (data: Record<string, unknown>) => Record<string, unknown>> = {
-  // 명단·탐험·전투 어디에 있든 id 문자열만 바꾼다 (값과 키 모두. 키는 스킬 대기 시간 등)
-  1: (data) => JSON.parse(RENAMED_IDS.reduce((json, [from, to]) => json.replace(from, to), JSON.stringify(data))),
-};
+export const SAVE_VERSION = 3;
 
 const MercProgressSave = TalkState.extend({
   hired: z.boolean(),
@@ -37,8 +21,9 @@ const MercProgressSave = TalkState.extend({
   lv: z.number().int().min(0).default(0),
   stats: z.record(z.string(), z.number().int().min(0)).default({}),
   trainable: z.number().int().min(0).default(0),
-  learned: z.array(z.string().max(40)).default([]),
-  pieces: z.array(z.string().max(20)).default([]),
+  learned: z.array(SkillBuild).max(40).default([]),
+  pieces: z.array(z.string().max(40)).default([]),
+  levels: z.record(z.string().max(40), z.number().int().min(1).max(3)).default({}),
   trinket: z.object({ id: z.string().max(40), lv: z.number().int().min(1).max(3) }).optional(),
 });
 const Supplies = z.object({ bandage: z.number().int().min(0), antidote: z.number().int().min(0), potion: z.number().int().min(0) });
@@ -142,15 +127,11 @@ export function toSave(state: GameState, now = new Date()): SaveFile {
 
 /** 저장 데이터 → 게임 상태. 읽을 수 없으면 null과 이유 */
 export function fromSave(raw: unknown): { state: GameState } | { error: string } {
-  let data = raw as Record<string, unknown> | null;
+  const data = raw as Record<string, unknown> | null;
   if (!data || typeof data !== "object") return { error: "저장 데이터가 비어 있다" };
   const version = typeof data.version === "number" ? data.version : 0;
   if (version > SAVE_VERSION) return { error: `더 새로운 버전(${version})의 저장이다` };
-  for (let v = version; v < SAVE_VERSION; v++) {
-    const migrate = MIGRATIONS[v];
-    if (!migrate) return { error: `버전 ${v} 저장은 읽을 수 없다` };
-    data = { ...migrate(data), version: v + 1 };
-  }
+  if (version < SAVE_VERSION) return { error: `예전 버전(${version})의 저장이라 새 게임으로 시작한다` };
 
   const parsed = SaveFile.safeParse(data);
   if (!parsed.success) return { error: "저장 형식이 맞지 않는다" };

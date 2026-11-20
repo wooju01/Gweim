@@ -11,12 +11,16 @@ const WEAPON: Record<string, React.ReactNode> = {
     </>
   ),
   assassin: <path d="M46 46 L58 40" strokeWidth={3} />,
-  nun: <path d="M50 30 v18 M45 35 h10" strokeWidth={2.5} />,
+  priest: <path d="M50 30 v18 M45 35 h10" strokeWidth={2.5} />,
+  // 큰 방패
+  guardian: <path d="M48 32 h16 v18 q-8 10 -16 0 z" strokeWidth={2} />,
+  // 주먹
+  monk: <circle cx={56} cy={42} r={4} strokeWidth={2} />,
+  // 류트
+  minstrel: <path d="M46 52 q-4 -8 4 -10 q6 2 4 10 z M52 42 L62 22" strokeWidth={2} />,
   archer: <path d="M52 22 q12 18 0 36 M52 22 v36" strokeWidth={2} fill="none" />,
   greatsword: <path d="M44 50 L70 12" strokeWidth={5} />,
-  herbalist: <path d="M48 44 h10 v10 h-10 z" strokeWidth={2} />,
   mage: <path d="M48 58 L56 14 M56 14 m-3 0 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0" strokeWidth={2.5} />,
-  spiritcaller: <circle cx={56} cy={30} r={6} strokeWidth={2} fill="none" />,
 };
 
 /** 용병 실루엣. 종족에 따라 키와 체격이 조금 다르다 */

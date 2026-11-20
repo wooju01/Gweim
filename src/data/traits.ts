@@ -35,7 +35,7 @@ export const RACES: Trait[] = [
       honesty: { affinity: 1, willingness: 0, note: "드워프는 돌려 말하지 않는 자를 믿는다." },
       greed: { affinity: -1, willingness: 0, note: "무너진 고향을 돈으로 보는 소리 같다." },
     },
-    jobWeights: { greatsword: 1.5, knight: 1.5, mage: 0.3, spiritcaller: 0.3 },
+    jobWeights: { greatsword: 1.5, knight: 1.5, guardian: 1.5, mage: 0.3 },
   },
   {
     id: "elf",
@@ -51,7 +51,7 @@ export const RACES: Trait[] = [
       respect: { affinity: 1, willingness: 0, note: "예를 아는 인간은 드물다." },
       mockery: { affinity: -1, willingness: 0, note: "짧은 생에 걸맞은 가벼운 입이다." },
     },
-    jobWeights: { spiritcaller: 3, archer: 1.5, mage: 1.2, greatsword: 0.5 },
+    jobWeights: { archer: 1.5, mage: 1.5, minstrel: 1.2 },
   },
   {
     id: "beastfolk",
@@ -67,7 +67,7 @@ export const RACES: Trait[] = [
       mercy: { affinity: 1, willingness: 0, note: "인간에게서 이런 말을 들을 줄은 몰랐다." },
       threat: { affinity: -1, willingness: 0, note: "사냥꾼들이 늘 이렇게 말했다." },
     },
-    jobWeights: { assassin: 1.5, archer: 1.5, mage: 0.5 },
+    jobWeights: { assassin: 1.5, archer: 1.5, monk: 1.2 },
   },
   {
     id: "barbarian",
@@ -83,31 +83,27 @@ export const RACES: Trait[] = [
     reactions: {
       honesty: { affinity: 1, willingness: 0, note: "말한 대로 하는 자인지 지켜본다." },
     },
-    jobWeights: { greatsword: 2, knight: 1.5, nun: 0.5, mage: 0.1, spiritcaller: 0.2 },
+    jobWeights: { greatsword: 2, guardian: 1.5, priest: 0.5 },
   },
 ];
 
+/** 직업. 종족마다 가질 수 있는 직업은 data/jobs.ts의 RACE_JOBS가 정한다 */
 export const JOBS: Trait[] = [
   { id: "knight", kind: "job", name: "기사", description: "검과 방패를 들고 맨 앞에 서서 동료를 지키는 전사", rarity: 10 },
-  { id: "assassin", kind: "job", name: "암살자", description: "그림자에 숨어 급소를 노리는 암살 전문가", rarity: 10 },
-  { id: "nun", kind: "job", name: "수녀", description: "기도와 약초로 상처를 돌보는 떠돌이 성직자", rarity: 8 },
-  { id: "archer", kind: "job", name: "궁수", description: "사냥꾼 출신으로 먼 거리에서 활을 쏘는 사수", rarity: 10 },
+  { id: "guardian", kind: "job", name: "가디언", description: "큰 방패로 동료 대신 맞아 주는 수호자", rarity: 7 },
   { id: "greatsword", kind: "job", name: "대검사", description: "몸만 한 대검을 휘두르며 앞장서는 돌격병", rarity: 7 },
-  { id: "herbalist", kind: "job", name: "약초꾼", description: "독과 약을 함께 다루는 떠돌이 약사", rarity: 5 },
+  { id: "assassin", kind: "job", name: "암살자", description: "그림자에 숨어 급소를 노리는 암살 전문가", rarity: 10 },
+  { id: "monk", kind: "job", name: "무투가", description: "맨주먹과 호흡으로 싸우는 격투가", rarity: 7 },
+  { id: "archer", kind: "job", name: "궁수", description: "사냥꾼 출신으로 먼 거리에서 활을 쏘는 사수", rarity: 10 },
+  { id: "priest", kind: "job", name: "사제", description: "기도와 약초로 상처를 돌보는 떠돌이 성직자", rarity: 8 },
   {
     id: "mage",
     kind: "job",
     name: "마법사",
-    description: "불꽃을 부리는 술사. 마법이 세상을 망친 재앙의 원인이라는 의심을 받아 어디서나 곁눈질을 당한다",
+    description: "원소를 부리는 술사. 마법이 세상을 망친 재앙의 원인이라는 의심을 받아 어디서나 곁눈질을 당한다",
     rarity: 4,
   },
-  {
-    id: "spiritcaller",
-    kind: "job",
-    name: "정령사",
-    description: "정령과 말을 나누고 그 힘을 빌려 동료를 지키는 자. 부름에 정령이 늘 답하지는 않는다",
-    rarity: 4,
-  },
+  { id: "minstrel", kind: "job", name: "바드", description: "노래와 악기로 동료의 기운을 북돋는 떠돌이 악사", rarity: 6 },
 ];
 
 export const PERSONALITIES: Trait[] = [
@@ -527,7 +523,7 @@ export const BACKGROUNDS: Trait[] = [
     name: "파문",
     description: "교단에서 쫓겨났다. 성호를 그을 때마다 손이 떨린다.",
     rarity: 2,
-    requires: ["nun"],
+    requires: ["priest"],
     affinityMod: -5,
     secretHint: "파문당한 이유는 금지된 의식을 행했기 때문이다.",
   },

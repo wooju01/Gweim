@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { getSkill, SKILL_SLOTS, STATUS, SUPPLY, type StatusKind, type SupplyKind } from "@/data/combat";
+import { STATUS, SUPPLY, type StatusKind, type SupplyKind } from "@/data/combat";
+import { SKILL_SLOTS } from "@/data/skills";
+import { getSkill } from "@/game/skills";
 import { getPassive } from "@/data/passives";
 import {
   currentActor,
   passiveNote,
   previewAction,
+  skillDef,
   statOf,
   unitStats,
   validate,
@@ -58,16 +61,21 @@ const BOND_EFFECT: Partial<Record<Stage, string>> = {
 
 const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
 
-const STATUS_STYLE: Record<StatusKind, string> = {
+/** 상태 표시 색. 따로 정하지 않은 상태는 약화면 회색, 강화면 푸른색 */
+const STATUS_COLOR: Partial<Record<StatusKind, string>> = {
   bleed: "bg-blood/30 text-blood",
   poison: "bg-moss/30 text-moss",
   crack: "bg-ember/20 text-ember",
-  weaken: "bg-edge/70 text-ash",
   awaken: "bg-ember/30 text-ember",
-  brace: "bg-frost/20 text-frost",
-  haste: "bg-frost/20 text-frost",
+  attackUp: "bg-ember/30 text-ember",
+  charge: "bg-ember/30 text-ember",
+  stun: "bg-blood/20 text-bone",
   bind: "bg-edge/70 text-bone",
+  regen: "bg-moss/30 text-moss",
 };
+const STATUS_STYLE = Object.fromEntries(
+  (Object.keys(STATUS) as StatusKind[]).map((k) => [k, STATUS_COLOR[k] ?? (STATUS[k].debuff ? "bg-edge/70 text-ash" : "bg-frost/20 text-frost")]),
+) as Record<StatusKind, string>;
 
 /**
  * 무대 위 자리. x: 가로 위치(%), y: 발 위치(%), s: 크기. 앞줄이 아래쪽에 크게, 뒷줄이 위쪽에 작게 선다.
@@ -218,7 +226,9 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
 
   const can = (action: BattleAction) => !play.playing && validate(battle, action) === null;
   /** 겨누고 있는 스킬 */
-  const skill = aiming ? getSkill(aiming)! : null;
+  /** 지금 차례 용병의 스킬 (부 조각 레벨 반영) */
+  const def = (id: string) => (actor ? skillDef(actor, id) : getSkill(id));
+  const skill = aiming ? def(aiming)! : null;
   const round = [...battle.log.slice(0, play.shown)].reverse().find((e) => e.type === "round");
   const outcome = play.playing ? null : battle.outcome;
 
@@ -234,7 +244,7 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
   }
 
   function onSkillButton(id: string) {
-    if (getSkill(id)?.target === "none") cast(id);
+    if (def(id)?.target === "none") cast(id);
     else {
       setAiming(aiming === id ? null : id);
       setItem(null);
@@ -262,7 +272,7 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
     ? null
     : aiming && hover
       ? { type: "skill", skill: aiming, target: hover }
-      : skillHover && getSkill(skillHover)?.target === "none"
+      : skillHover && def(skillHover)?.target === "none"
         ? { type: "skill", skill: skillHover }
         : !aiming && !item && hover
           ? { type: "attack", target: hover }
@@ -433,7 +443,7 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
                         </div>
                       );
                     }
-                    const s = getSkill(id)!;
+                    const s = def(id)!;
                     const wait = actor.cooldowns[id] ?? 0;
                     // 대기 중인(비활성) 버튼에는 마우스 이벤트가 오지 않아서, 감싼 칸이 마우스와 설명을 맡는다
                     return (
@@ -473,7 +483,7 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
                     );
                   })}
                 </div>
-                {actor.ultimate && getSkill(actor.ultimate) && (
+                {actor.ultimate && def(actor.ultimate) && (
                   <div
                     className="group relative"
                     onMouseEnter={() => setSkillHover(actor.ultimate!)}
@@ -485,16 +495,16 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
                       onClick={() => onSkillButton(actor.ultimate!)}
                       className="w-full !border-ember/60 text-left !px-3"
                     >
-                      <span className="block font-bold text-ember">★ {getSkill(actor.ultimate)!.name}</span>
+                      <span className="block font-bold text-ember">★ {def(actor.ultimate)!.name}</span>
                       <span className="block text-[11px] text-ash">{actor.fx?.ultimateUsed ? "이번 전투에서 이미 썼다" : "궁극기 · 전투당 1번"}</span>
                     </Button>
                     <div
                       role="tooltip"
                       className="pointer-events-none absolute bottom-full left-0 z-30 mb-1.5 hidden w-64 rounded-sm border border-ember/50 bg-ink/95 p-2.5 text-xs leading-relaxed text-bone shadow-lg group-hover:block"
                     >
-                      <p className="font-bold text-ember">★ {getSkill(actor.ultimate)!.name}</p>
-                      <p>{getSkill(actor.ultimate)!.description}</p>
-                      <p className="mt-1 text-ash">대상: {TARGET_LABEL[getSkill(actor.ultimate)!.target]} · 전투당 1번</p>
+                      <p className="font-bold text-ember">★ {def(actor.ultimate)!.name}</p>
+                      <p>{def(actor.ultimate)!.description}</p>
+                      <p className="mt-1 text-ash">대상: {TARGET_LABEL[def(actor.ultimate)!.target]} · 전투당 1번</p>
                     </div>
                   </div>
                 )}
@@ -728,7 +738,7 @@ function InfoCard({
               {p.statuses.length > 0 && <p className="text-ash">{p.statuses.map((s) => `${STATUS[s.kind].name} ${pct(s.chance)}`).join(" · ")}</p>}
             </>
           )}
-          {applies.length > 0 && <p className="text-ash">{applies.map((a) => `${STATUS[a.kind].name} 확정`).join(" · ")}</p>}
+          {applies.length > 0 && <p className="text-ash">{applies.map((a) => `${STATUS[a.kind].name} ${a.chance >= 1 ? "확정" : pct(a.chance)}`).join(" · ")}</p>}
           {preview.heal?.target === unit.id && <p className="text-moss">체력 +{preview.heal.amount}</p>}
           {preview.shield?.target === unit.id && <p className="text-frost">보호막 {preview.shield.amount}</p>}
           {preview.cures?.target === unit.id && preview.cures.kinds.length > 0 && (

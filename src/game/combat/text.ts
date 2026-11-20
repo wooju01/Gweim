@@ -1,5 +1,6 @@
 // 전투 이벤트를 한국어 문장으로. 나중에 애니메이션을 붙여도 이 텍스트는 전투 기록으로 남긴다.
-import { STATUS, getSkill, type StatusKind } from "@/data/combat";
+import { STATUS, type StatusKind } from "@/data/combat";
+import { getSkill } from "@/game/skills";
 import { getPassive } from "@/data/passives";
 import type { Battle, BattleEvent } from "./engine";
 
@@ -25,6 +26,8 @@ const STATUS_NAME = (kind: StatusKind) => STATUS[kind].name;
 
 export function describe(event: BattleEvent, b: Battle): string {
   const name = (id: string) => (id === "guide" ? "당신" : (b.units.find((u) => u.id === id)?.name ?? "누군가"));
+  /** 쓴 유닛의 스킬 책에서 찾고, 없으면 id로 (몬스터 스킬) */
+  const skillName = (unit: string, id: string) => b.units.find((u) => u.id === unit)?.book?.[id]?.name ?? getSkill(id)?.name ?? "스킬";
 
   switch (event.type) {
     case "round":
@@ -38,6 +41,10 @@ export function describe(event: BattleEvent, b: Battle): string {
       if (event.kind === "haste") return `${josa(name(event.target), "이", "가")} 다음 수를 노린다. (선제)`;
       if (event.kind === "bind") return `${josa(name(event.target), "이", "가")} 거미줄에 묶였다. 다음 차례를 쉰다.`;
       if (event.kind === "crack") return `${name(event.target)}의 몸에 균열이 갔다. 받는 피해가 늘어난다.`;
+      if (event.kind === "stun") return `${josa(name(event.target), "이", "가")} 기절했다. 다음 차례를 쉰다.`;
+      if (event.kind === "charge") return `${josa(name(event.target), "이", "가")} 힘을 모은다. 다음 공격이 강해진다.`;
+      if (event.kind === "regen") return `${name(event.target)}의 상처가 조금씩 아물기 시작한다. (재생)`;
+      if (!STATUS[event.kind].debuff) return `${josa(name(event.target), "이", "가")} ${STATUS_NAME(event.kind)} 효과를 받았다.`;
       return `${josa(name(event.target), "이", "가")} ${STATUS_NAME(event.kind)}에 걸렸다.`;
     case "tick":
       return `${josa(name(event.target), "이", "가")} ${euro(STATUS_NAME(event.kind))} ${event.damage} 피해를 입었다.`;
@@ -55,19 +62,18 @@ export function describe(event: BattleEvent, b: Battle): string {
         ? `당신이 ${name(event.target)}에게 물약을 건넸다. 체력 ${event.amount} 회복.`
         : `${name(event.target)}의 체력이 ${event.amount} 회복되었다.`;
     case "skill": {
-      const skill = getSkill(event.skill)?.name ?? "스킬";
+      const skill = skillName(event.actor, event.skill);
       const who = josa(name(event.actor), "이", "가");
-      if (event.skill === "guard") return `${who} ${josa(skill, "을", "를")} 펼쳤다. 적의 공격이 그에게 몰린다.`;
       return event.target
         ? `${who} ${event.target === event.actor ? "자신" : name(event.target)}에게 ${josa(skill, "을", "를")} 썼다.`
         : `${who} ${josa(skill, "을", "를")} 썼다.`;
     }
     case "recoil": {
-      const by = event.skill === "firelance" ? "불꽃에 몸이 타" : "반동으로";
+      const by = "반동으로";
       return `${josa(name(event.target), "이", "가")} ${by} ${event.damage} 피해를 입었다.`;
     }
     case "shield":
-      return `${name(event.target)}의 몸을 정령의 보호막(${event.amount})이 감쌌다.`;
+      return `${name(event.target)}의 몸을 보호막(${event.amount})이 감쌌다.`;
     case "fizzle":
       return `${name(event.actor)}의 부름에 정령이 답하지 않았다.`;
     case "dying":
@@ -79,7 +85,7 @@ export function describe(event: BattleEvent, b: Battle): string {
     case "death":
       return `${josa(name(event.target), "이", "가")} 숨을 거두었다.`;
     case "refresh":
-      return `${name(event.actor)}의 ${josa(getSkill(event.skill)?.name ?? "스킬", "을", "를")} 바로 다시 쓸 수 있다.`;
+      return `${name(event.actor)}의 ${josa(skillName(event.actor, event.skill), "을", "를")} 바로 다시 쓸 수 있다.`;
     case "disobey":
       return `${josa(name(event.unit), "은", "는")} 명령을 듣지 않고 제멋대로 움직인다.`;
     case "evade":
@@ -109,6 +115,10 @@ export function describe(event: BattleEvent, b: Battle): string {
       return `${josa(name(event.target), "이", "가")} 쓰러졌다.`;
     case "bound":
       return `${josa(name(event.target), "은", "는")} 묶여서 움직이지 못한다.`;
+    case "stunned":
+      return `${josa(name(event.target), "은", "는")} 정신을 잃고 차례를 넘겼다.`;
+    case "resist":
+      return `${josa(name(event.target), "이", "가")} ${STATUS_NAME(event.kind)}을(를) 버텨 냈다.`;
     case "spawn":
       switch (event.how) {
         case "split":

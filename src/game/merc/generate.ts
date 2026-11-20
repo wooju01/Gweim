@@ -1,9 +1,11 @@
 // 랜덤 용병 생성 규칙. 특성 뽑기, 반응표 합치기, 시작 수치 계산.
 // React/Next/AI에 의존하지 않는 순수 함수만 둔다. 난수는 주입받는다.
 import { BACKGROUNDS, JOBS, PERSONALITIES, RACES, getTrait } from "@/data/traits";
-import { APPRENTICE_PASSIVE_CHANCE, LEVELS, getPassive, passivesOf } from "@/data/passives";
-import { getSkill, validSkillsFor } from "@/data/skillgen";
-import { ChoiceTone, type MercLevel, type MercSeed, type MercTraits } from "@/lib/schemas";
+import { getPassive, passivesOf } from "@/data/passives";
+import { canBe, getBranch, jobTitle } from "@/data/jobs";
+import { RANKS, RECRUIT_LEVEL, RECRUIT_PASSIVE_CHANCE } from "@/data/ranks";
+import { validateLoadout, validateUltimate } from "@/game/skills";
+import { ChoiceTone, type Gender, type MercLevel, type MercSeed, type MercTraits } from "@/lib/schemas";
 import { clampStat } from "./affinity";
 import type { Level, Merc, Reaction, Trait } from "@/game/types";
 
@@ -66,12 +68,12 @@ export function weightedPick(items: Trait[], rand: Rand): Trait | undefined {
   return items[items.length - 1];
 }
 
-/** 종족에 따라 직업 등장 가중치를 바꾼 직업 목록 */
+/** 이 종족이 가질 수 있는 직업 (종족×직업 표), 종족의 직업 가중치를 반영해서 */
 export function jobsFor(race: Trait): Trait[] {
-  return JOBS.map((job) => ({ ...job, rarity: job.rarity * (race.jobWeights?.[job.id] ?? 1) }));
+  return JOBS.filter((job) => canBe(race.id, job.id)).map((job) => ({ ...job, rarity: job.rarity * (race.jobWeights?.[job.id] ?? 1) }));
 }
 
-/** 종족 1, 직업 1, 성격 1~2, 배경 1을 이 순서로 뽑는다 */
+/** 종족 1, 직업 1(종족×직업 표 안에서), 성격 1~2, 배경 1, 성별을 이 순서로 뽑는다 */
 export function rollTraits(rand: Rand): MercTraits {
   const race = weightedPick(RACES, rand)!;
   const job = weightedPick(jobsFor(race), rand)!;
@@ -91,7 +93,8 @@ export function rollTraits(rand: Rand): MercTraits {
 
   // 모든 배경을 제외하는 조합은 없도록 데이터를 짜 두었다 (떠돌이는 제외 규칙이 없다)
   const background = weightedPick(BACKGROUNDS.filter((b) => fits(b, chosen)), rand)!;
-  return { race: race.id, job: job.id, personalities, background: background.id };
+  const gender: Gender = rand() < 0.5 ? "female" : "male";
+  return { race: race.id, job: job.id, personalities, background: background.id, gender };
 }
 
 /** id를 실제 특성으로 바꾸고, 종류와 조합 규칙까지 검사한다. 잘못됐으면 null */
@@ -101,6 +104,7 @@ export function resolveTraits(traits: MercTraits): Trait[] | null {
   const personalities = traits.personalities.map(getTrait);
   const background = getTrait(traits.background);
   if (race?.kind !== "race" || job?.kind !== "job" || background?.kind !== "background") return null;
+  if (!canBe(race.id, job.id)) return null;
   if (personalities.some((p) => p?.kind !== "personality")) return null;
 
   const all = [race, job, ...(personalities as Trait[]), background];
@@ -162,17 +166,17 @@ export function pickImpression(id: string, traits: Trait[]): string | undefined 
   return options[hash % options.length];
 }
 
-/** 모집 시 패시브를 뽑는다. 지금은 견습만: 50% 확률로 종족 패시브 하나 */
+/** 모집 시 패시브를 뽑는다. 지금은 모집 등급(동)만: 50% 확률로 종족 패시브 하나 */
 export function rollPassives(race: string, level: MercLevel, rand: Rand): string[] {
   const pool = passivesOf(race);
-  if (level !== "apprentice" || pool.length === 0) return [];
-  if (rand() >= APPRENTICE_PASSIVE_CHANCE) return [];
+  if (level !== RECRUIT_LEVEL || pool.length === 0) return [];
+  if (rand() >= RECRUIT_PASSIVE_CHANCE) return [];
   return [pool[Math.floor(rand() * pool.length)].id];
 }
 
 /** 패시브가 존재하고, 그 종족 것이고, 겹치지 않고, 등급 한도 안인가 */
 export function validPassives(race: string, level: MercLevel, passives: string[]): boolean {
-  if (passives.length > LEVELS[level].maxPassives) return false;
+  if (passives.length > RANKS[level].maxPassives) return false;
   if (new Set(passives).size !== passives.length) return false;
   return passives.every((id) => getPassive(id)?.race === race);
 }
@@ -190,16 +194,20 @@ export function buildMerc(seed: MercSeed): Merc | null {
   const traits = resolveTraits(seed.traits);
   if (!traits) return null;
   if (!validPassives(seed.traits.race, seed.level, seed.passives)) return null;
-  if (!validSkillsFor(seed.skills, seed.traits.job, seed.traits.race)) return null;
-  // 궁극기: 숙련부터, 그 직업의 궁극기만
-  if (seed.ultimate) {
-    const ult = getSkill(seed.ultimate);
-    if (!ult?.ultimate || ult.source.job !== seed.traits.job || seed.level === "apprentice") return null;
-  }
+  const owner = { job: seed.traits.job, race: seed.traits.race, level: seed.level, branch: seed.branch, elements: seed.elements };
+  // 스킬: 조각 규칙 (직업·종족 조각만, 등급별 부 조각 수, 원소 규칙)
+  if (validateLoadout(owner, seed.skills)) return null;
+  // 궁극기: 금 등급부터, 그 직업의 궁극기만
+  if (seed.ultimate && validateUltimate(owner, seed.ultimate)) return null;
+  // 전직 갈래는 금 등급부터
+  if (seed.branch && (RANKS[seed.level].tier < 2 || !getBranch(seed.traits.job, seed.branch))) return null;
   const { profile } = seed;
+  // 카드의 직업 이름은 지금 등급의 직업 (2차 전직부터 갈래 이름)
+  const job = traits[1];
+  const tags = traitTags(traits).map((t, i) => (i === 1 ? jobTitle({ ...seed.traits, level: seed.level, branch: seed.branch }, job.name) : t));
   return {
     id: seed.id,
-    tags: traitTags(traits),
+    tags,
     race: seed.traits.race,
     job: seed.traits.job,
     traitIds: { personalities: seed.traits.personalities, background: seed.traits.background },
@@ -207,6 +215,9 @@ export function buildMerc(seed: MercSeed): Merc | null {
     passives: seed.passives,
     skills: seed.skills,
     ultimate: seed.ultimate,
+    branch: seed.branch,
+    elements: seed.elements,
+    gender: seed.traits.gender,
     name: profile.name,
     title: profile.title,
     impression: pickImpression(seed.id, traits),

@@ -1,21 +1,8 @@
-// 용병 등급과 종족 패시브.
+// 종족 패시브.
 // 모집 시 뽑고, 카드와 AI 프롬프트에 보여 주고, 전투 엔진(combat/engine.ts)이 효과를 낸다.
 // 수치는 data/combat.ts의 PASSIVE에 있다. 초안이고 시드 시뮬레이션으로 조정한다.
 
-import type { MercLevel } from "@/lib/schemas";
-
-export const LEVELS: Record<MercLevel, { name: string; maxPassives: number }> = {
-  apprentice: { name: "견습", maxPassives: 1 },
-  skilled: { name: "숙련", maxPassives: 2 },
-  veteran: { name: "노련", maxPassives: 3 },
-  legend: { name: "전설", maxPassives: 4 },
-};
-
-/** 지금 모집에는 견습만 나온다. 명성(renown)이 생기면 좋은 등급 확률이 오른다 */
-export const RECRUIT_LEVEL: MercLevel = "apprentice";
-
-/** 견습이 패시브 하나를 갖고 시작할 확률 (아니면 0개) */
-export const APPRENTICE_PASSIVE_CHANCE = 0.5;
+// 등급표와 모집 확률은 data/ranks.ts에 있다.
 
 export type Passive = {
   id: string;

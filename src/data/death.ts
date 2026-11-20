@@ -9,7 +9,7 @@ export const DEATH = {
   baseSurvival: 0.5,
   bond: { trusted: 0.25, warm: 0.1, neutral: 0, wary: -0.1, hostile: -0.25 } as Record<Stage, number>,
   race: { barbarian: 0.1, dwarf: 0.05, beastfolk: 0.05, human: 0, elf: -0.05 } as Record<string, number>,
-  level: { apprentice: 0, skilled: 0.05, veteran: 0.1, legend: 0.15 } as Record<MercLevel, number>,
+  level: { bronze: 0, silver: 0.03, gold: 0.06, mithril: 0.09, diamond: 0.12, radiant: 0.15 } as Record<MercLevel, number>,
   minSurvival: 0.05,
   maxSurvival: 0.95,
   /** 빈사인 용병에게 붕대를 감아 일으키면 이 체력으로 (물약은 원래 회복량) */

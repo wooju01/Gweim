@@ -1,45 +1,72 @@
-// 스킬 데이터. 스킬마다 코드를 짜지 않고 "효과 조각"을 조합해서 정의한다.
-// 엔진(combat/engine.ts)은 조각 종류별로 한 번씩만 처리하고, 미리보기와 설명 문장도 조각에서 만든다.
-import type { StatusKind } from "./combat";
+// 스킬의 효과 조각 타입과 설명 문장.
+// 용병 스킬은 data/fragments.ts의 조각(메인 1 + 부 0~2)을 game/skills.ts가 합쳐 SkillDef로 만들고,
+// 몬스터 스킬은 data/monsters.ts에 SkillDef로 바로 쓴다.
+// 엔진(combat/engine.ts)은 효과 종류별로 한 번씩만 처리하고, 미리보기와 설명 문장도 효과에서 만든다.
+import { STATUS, type StatusKind } from "./combat";
 import type { PowerStat } from "./growth";
 
 export type SkillTarget = "enemy" | "ally" | "none";
 
+/** 피해가 따르는 스탯과 배율. 여럿이면 합친다 (예: 힘 1.0배 + 마법 0.3배) */
+export type Scaling = { stat: PowerStat; mult: number };
+
+/** 상태이상을 거는 방법 */
+export type StatusRoll = {
+  status: StatusKind;
+  /** 거는 확률 (기본 1). 기절·출혈·중독은 대상의 저항을 뺀다 */
+  chance?: number;
+  /** 수치 (없으면 STATUS의 기본값) */
+  value?: number;
+  /** 지속 (없으면 STATUS의 기본값) */
+  turns?: number;
+  /** 저항을 무시한다 (확정 기절 등) */
+  sure?: boolean;
+};
+
+export type DamageEffect = {
+  kind: "damage";
+  /** 배율 (scaling이 없을 때). 따르는 스탯은 stat → 스킬의 stat → 쓰는 용병의 직업 스탯 */
+  multiplier?: number;
+  /** 두 스탯 이상을 섞는 피해. 있으면 multiplier·stat 대신 쓴다 */
+  scaling?: Scaling[];
+  /** 고정 피해 (배율과 상관없이 더한다) */
+  bonus?: number;
+  /** 공격력 대신 이 범위 (몬스터 스킬) */
+  fixed?: readonly [number, number];
+  /** one: 대상 하나 / all: 적 전체 / two: 대상 + 무작위 적 하나 / random: 타격마다 무작위 적 */
+  area?: "one" | "all" | "two" | "random";
+  /** 공격자의 상태이상 부여(암살자 출혈 등)를 굴리나 (기본 true) */
+  onHit?: boolean;
+  /** 같은 대상을 몇 번 치나 (기본 1). 대상이 쓰러지면 멈춘다 */
+  hits?: number;
+  /** 이 공격의 치명타 확률 추가 */
+  critBonus?: number;
+  stat?: PowerStat;
+  /** 대상 방어를 이 비율만큼 무시 (0~1) */
+  pierce?: number;
+  /** 준 피해의 이 비율만큼 회복 */
+  lifesteal?: number;
+  /** 타격마다 거는 상태이상 */
+  perHit?: StatusRoll;
+};
+
 export type SkillEffect =
+  | DamageEffect
   /**
-   * 피해. 기본은 공격력 굴림 × multiplier + bonus.
-   * fixed가 있으면 공격력 대신 그 범위를 쓴다. area "all"이면 살아 있는 적 전체.
-   * onHit: 공격자의 상태이상 부여(암살자 출혈 등)를 굴리나 (기본 true)
+   * 상태이상. 대상에게, area "all"이면 적 전체, who "self"면 자신, "allies"면 아군 전체.
+   * 대상이 살아 있을 때만
    */
-  | {
-      kind: "damage";
-      multiplier?: number;
-      bonus?: number;
-      fixed?: readonly [number, number];
-      area?: "one" | "all";
-      onHit?: boolean;
-      /** 같은 대상을 몇 번 치나 (기본 1). 대상이 쓰러지면 멈춘다 */
-      hits?: number;
-      /** 이 공격의 치명타 확률 추가 */
-      critBonus?: number;
-      /** 따르는 스탯 (없으면 스킬의 stat, 그것도 없으면 쓰는 용병의 직업 스탯) */
-      stat?: PowerStat;
-    }
-  /**
-   * 대상(또는 area "all"이면 적 전체)에게 상태이상. 대상이 살아 있을 때만.
-   * who "self"면 대상 대신 자신 (heal, cure, shield도 같다)
-   */
-  | { kind: "applyStatus"; status: StatusKind; area?: "one" | "all"; who?: "self" }
-  /** 회복량에는 쓰는 용병의 신성이 더해진다 */
-  | { kind: "heal"; amount: number; who?: "self" }
-  /** 대상의 출혈·중독을 씻는다 */
-  | { kind: "cure"; who?: "self" }
+  | ({ kind: "applyStatus"; area?: "one" | "all"; who?: "self" | "allies" } & StatusRoll)
+  /** 회복. 회복량에는 쓰는 용병의 신성이 더해진다 */
+  | { kind: "heal"; amount: number; who?: "self" | "allies" }
+  /** 해제. kinds가 없으면 출혈·중독. count가 있으면 약화를 그 수만큼 */
+  | { kind: "cure"; who?: "self"; kinds?: StatusKind[]; count?: number }
   /** 보호막. 겹쳐 쌓지 않고 큰 쪽으로 채운다 */
-  | { kind: "shield"; amount: number; who?: "self"; stat?: PowerStat }
+  | { kind: "shield"; amount: number; who?: "self" | "allies"; stat?: PowerStat }
   /** 다음 자기 차례까지 적의 공격을 끌어오고 받는 피해 절반 */
   | { kind: "taunt" }
-  /** 자기 체력 소모 (체력 1 아래로는 깎지 않는다) */
-  | { kind: "selfCost"; hp: number }
+  /** 자기 체력 소모 (hp 또는 최대 체력 비율). 체력 1 아래로는 깎지 않는다 */
+  | { kind: "selfCost"; hp?: number; pctMaxHp?: number }
   /** 이 확률로 스킬 전체가 실패한다 (대기 시간은 그대로 든다) */
   | { kind: "fail"; chance: number }
   /** 앞의 피해로 대상을 쓰러뜨리면 이 스킬의 대기 시간을 없앤다 */
@@ -48,240 +75,93 @@ export type SkillEffect =
    * 옆 아군에게도. 아군 스킬이면 대상의 옆 아군이 회복·보호막을 절반 받고,
    * 아니면 자신의 옆 아군이 보호막 shield를 받는다
    */
-  | { kind: "support"; shield: number };
-
-export type SkillSource = { job?: string; race?: string };
+  | { kind: "support"; shield: number }
+  /** 아직 엔진이 처리하지 않는 효과 (2단계). 설명에만 나오고 전투에서는 무시한다 */
+  | { kind: "later"; text: string };
 
 export type SkillDef = {
   id: string;
   name: string;
-  source: SkillSource;
-  /** 쓰고 나서 다시 쓸 수 있을 때까지 기다리는 자기 턴 수 */
+  /** 대기: 쓰고 나서 쓸 수 없는 자기 차례 수 (0이면 매 차례) */
   cooldown: number;
   target: SkillTarget;
   effects: SkillEffect[];
   /** 따르는 스탯 (힘·마법·신성). 없으면 쓰는 용병의 직업 스탯 */
   stat?: PowerStat;
-  /** 궁극기: 숙련부터, 한 번에 1개만 장착, 전투당 1번 (대기 시간 대신) */
+  /** 궁극기: 금 등급부터, 한 번에 1개만 장착, 전투당 1번 (대기 시간 대신) */
   ultimate?: boolean;
 };
 
 export type Skill = SkillDef & { description: string };
 
-const DEFS: SkillDef[] = [
-  { id: "guard", name: "막아서기", source: { job: "knight" }, cooldown: 2, target: "none", effects: [{ kind: "taunt" }] },
-  {
-    id: "pierce",
-    name: "급소 찌르기",
-    source: { job: "assassin" },
-    cooldown: 2,
-    target: "enemy",
-    effects: [
-      { kind: "damage", bonus: 3, onHit: false },
-      { kind: "applyStatus", status: "bleed" },
-    ],
-  },
-  {
-    id: "pray",
-    name: "기도",
-    source: { job: "nun" },
-    cooldown: 3,
-    target: "ally",
-    effects: [{ kind: "heal", amount: 8 }, { kind: "cure" }],
-  },
-  {
-    id: "volley",
-    name: "화살비",
-    source: { job: "archer" },
-    cooldown: 3,
-    target: "none",
-    effects: [{ kind: "damage", fixed: [3, 5], area: "all", onHit: false }],
-  },
-  {
-    id: "cleave",
-    name: "내려찍기",
-    source: { job: "greatsword" },
-    cooldown: 2,
-    target: "enemy",
-    effects: [
-      { kind: "damage", multiplier: 1.8 },
-      { kind: "selfCost", hp: 3 },
-    ],
-  },
-  {
-    id: "miasma",
-    name: "독안개",
-    source: { job: "herbalist" },
-    cooldown: 3,
-    target: "none",
-    effects: [{ kind: "applyStatus", status: "poison", area: "all" }],
-  },
-  {
-    id: "firelance",
-    name: "불꽃 창",
-    source: { job: "mage" },
-    cooldown: 3,
-    target: "enemy",
-    effects: [
-      { kind: "damage", multiplier: 2.5, onHit: false },
-      { kind: "selfCost", hp: 4 },
-    ],
-  },
-  {
-    id: "ward",
-    name: "정령의 가호",
-    source: { job: "spiritcaller" },
-    cooldown: 2,
-    target: "ally",
-    effects: [
-      { kind: "fail", chance: 0.2 },
-      { kind: "shield", amount: 6 },
-    ],
-  },
-  // ── 직업 스킬 (대표 스킬 외 3개씩) ──
-  { id: "knight_pin", name: "꿰뚫기", source: { job: "knight" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.4 }, { kind: "applyStatus", status: "crack" }] },
-  { id: "knight_shove", name: "밀쳐내기", source: { job: "knight" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage" }, { kind: "applyStatus", status: "weaken" }] },
-  { id: "assassin_throat", name: "목 긋기", source: { job: "assassin" }, cooldown: 3, target: "enemy", effects: [{ kind: "damage", multiplier: 1.6 }] },
-  { id: "assassin_smoke", name: "연막", source: { job: "assassin" }, cooldown: 2, target: "none", effects: [{ kind: "shield", amount: 5, who: "self" }] },
-  { id: "nun_bless", name: "축복", source: { job: "nun" }, cooldown: 3, target: "ally", effects: [{ kind: "applyStatus", status: "awaken" }] },
-  { id: "nun_ward", name: "보호의 기도", source: { job: "nun" }, cooldown: 2, target: "ally", effects: [{ kind: "shield", amount: 5 }] },
-  { id: "archer_aim", name: "조준 사격", source: { job: "archer" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.6 }] },
-  { id: "archer_pin", name: "발 묶기", source: { job: "archer" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage" }, { kind: "applyStatus", status: "weaken" }] },
-  { id: "gs_sweep", name: "휩쓸어 베기", source: { job: "greatsword" }, cooldown: 3, target: "none", effects: [{ kind: "damage", multiplier: 0.6, area: "all" }] },
-  { id: "gs_grit", name: "투지", source: { job: "greatsword" }, cooldown: 3, target: "none", effects: [{ kind: "applyStatus", status: "awaken", who: "self" }, { kind: "selfCost", hp: 2 }] },
-  { id: "herb_aid", name: "응급 처치", source: { job: "herbalist" }, cooldown: 2, target: "ally", effects: [{ kind: "heal", amount: 6 }, { kind: "cure" }] },
-  { id: "herb_needle", name: "독침", source: { job: "herbalist" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", bonus: 1, onHit: false }, { kind: "applyStatus", status: "poison" }] },
-  { id: "mage_embers", name: "불씨 흩뿌리기", source: { job: "mage" }, cooldown: 3, target: "none", effects: [{ kind: "damage", fixed: [2, 4], area: "all", onHit: false }, { kind: "applyStatus", status: "crack", area: "all" }] },
-  { id: "mage_heatwall", name: "열기 방벽", source: { job: "mage" }, cooldown: 3, target: "ally", effects: [{ kind: "shield", amount: 7 }, { kind: "selfCost", hp: 2 }] },
-  { id: "spirit_breath", name: "정령의 숨결", source: { job: "spiritcaller" }, cooldown: 2, target: "ally", effects: [{ kind: "fail", chance: 0.2 }, { kind: "heal", amount: 7 }] },
-  { id: "spirit_quake", name: "땅 정령의 분노", source: { job: "spiritcaller" }, cooldown: 3, target: "enemy", effects: [{ kind: "damage", fixed: [4, 7], onHit: false }, { kind: "applyStatus", status: "weaken" }] },
+export type SkillId = string;
 
-  { id: "knight_sweep", name: "방패 휘두르기", source: { job: "knight" }, cooldown: 3, target: "none", effects: [{ kind: "damage", multiplier: 0.5, area: "all" }] },
-  { id: "assassin_ambush", name: "기습", source: { job: "assassin" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.3 }, { kind: "applyStatus", status: "weaken" }] },
-  { id: "nun_judge", name: "정죄", source: { job: "nun" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.3 }, { kind: "applyStatus", status: "crack" }] },
-  { id: "archer_poison", name: "독화살", source: { job: "archer" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", onHit: false }, { kind: "applyStatus", status: "poison" }] },
-  { id: "gs_dread", name: "위압", source: { job: "greatsword" }, cooldown: 3, target: "none", effects: [{ kind: "taunt" }, { kind: "applyStatus", status: "weaken", area: "all" }] },
-  { id: "herb_tonic", name: "각성 약초", source: { job: "herbalist" }, cooldown: 3, target: "ally", effects: [{ kind: "applyStatus", status: "awaken" }, { kind: "heal", amount: 2 }] },
-  { id: "mage_blast", name: "불꽃 폭발", source: { job: "mage" }, cooldown: 4, target: "none", effects: [{ kind: "damage", multiplier: 0.8, area: "all", onHit: false }, { kind: "selfCost", hp: 3 }] },
-  { id: "spirit_veil", name: "바람 정령의 장막", source: { job: "spiritcaller" }, cooldown: 2, target: "ally", effects: [{ kind: "fail", chance: 0.2 }, { kind: "shield", amount: 4 }, { kind: "cure" }] },
+/** 일반 스킬 장착 칸 (궁극기 칸은 따로). 공격과 붕대는 칸을 차지하지 않는다 */
+export const SKILL_SLOTS = 4;
 
-  // ── 종족 스킬 (4개씩) ──
-  { id: "human_resolve", name: "결의", source: { race: "human" }, cooldown: 4, target: "none", effects: [{ kind: "applyStatus", status: "awaken", who: "self" }] },
-  { id: "human_patch", name: "응급 손질", source: { race: "human" }, cooldown: 3, target: "none", effects: [{ kind: "heal", amount: 5, who: "self" }, { kind: "cure", who: "self" }] },
-  { id: "dwarf_anvil", name: "모루 버티기", source: { race: "dwarf" }, cooldown: 3, target: "none", effects: [{ kind: "taunt" }, { kind: "shield", amount: 4, who: "self" }] },
-  { id: "dwarf_hammer", name: "망치질", source: { race: "dwarf" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.3 }, { kind: "applyStatus", status: "crack" }] },
-  { id: "elf_spiritshot", name: "정령의 화살", source: { race: "elf" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", fixed: [4, 6], onHit: false }] },
-  { id: "elf_song", name: "숲의 노래", source: { race: "elf" }, cooldown: 3, target: "ally", effects: [{ kind: "heal", amount: 4 }, { kind: "cure" }] },
-  { id: "beast_maul", name: "물어뜯기", source: { race: "beastfolk" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", bonus: 2, onHit: false }, { kind: "applyStatus", status: "bleed" }] },
-  { id: "beast_howl", name: "야성의 포효", source: { race: "beastfolk" }, cooldown: 3, target: "none", effects: [{ kind: "applyStatus", status: "weaken", area: "all" }] },
-  { id: "barb_frenzy", name: "광폭", source: { race: "barbarian" }, cooldown: 3, target: "none", effects: [{ kind: "applyStatus", status: "awaken", who: "self" }, { kind: "selfCost", hp: 3 }] },
-  { id: "barb_oath", name: "맹세의 일격", source: { race: "barbarian" }, cooldown: 3, target: "enemy", effects: [{ kind: "damage", multiplier: 1.7 }] },
-  { id: "human_rally", name: "격려", source: { race: "human" }, cooldown: 4, target: "ally", effects: [{ kind: "applyStatus", status: "awaken" }] },
-  { id: "human_improv", name: "임기응변 일격", source: { race: "human" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", bonus: 3 }] },
-  { id: "dwarf_steel", name: "강철 피부", source: { race: "dwarf" }, cooldown: 3, target: "none", effects: [{ kind: "shield", amount: 6, who: "self" }] },
-  { id: "dwarf_quake", name: "대지 울리기", source: { race: "dwarf" }, cooldown: 3, target: "none", effects: [{ kind: "damage", fixed: [2, 4], area: "all", onHit: false }] },
-  { id: "elf_windblade", name: "바람의 칼날", source: { race: "elf" }, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.2 }, { kind: "applyStatus", status: "crack" }] },
-  { id: "elf_blessing", name: "정령의 축복", source: { race: "elf" }, cooldown: 3, target: "ally", effects: [{ kind: "shield", amount: 4 }, { kind: "heal", amount: 3 }] },
-  { id: "beast_instinct", name: "사냥 본능", source: { race: "beastfolk" }, cooldown: 3, target: "none", effects: [{ kind: "applyStatus", status: "awaken", who: "self" }] },
-  { id: "beast_claw", name: "할퀴기", source: { race: "beastfolk" }, cooldown: 3, target: "enemy", effects: [{ kind: "damage", multiplier: 1.2 }, { kind: "applyStatus", status: "bleed" }] },
-  { id: "barb_warcry", name: "전쟁 함성", source: { race: "barbarian" }, cooldown: 4, target: "none", effects: [{ kind: "taunt" }, { kind: "applyStatus", status: "awaken", who: "self" }] },
-  { id: "barb_tattoo", name: "문신의 맹세", source: { race: "barbarian" }, cooldown: 3, target: "none", effects: [{ kind: "shield", amount: 5, who: "self" }, { kind: "cure", who: "self" }] },
+const pct = (n: number) => `${Math.round(n * 100)}%`;
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
-  // ── 궁극기 (직업마다 하나, 숙련부터, 전투당 1번) ──
-  { id: "ult_knight", name: "불굴의 맹세", source: { job: "knight" }, cooldown: 0, target: "none", ultimate: true, effects: [{ kind: "taunt" }, { kind: "shield", amount: 10, who: "self" }, { kind: "support", shield: 4 }] },
-  { id: "ult_greatsword", name: "대지 가르기", source: { job: "greatsword" }, cooldown: 0, target: "none", ultimate: true, effects: [{ kind: "damage", multiplier: 1.3, area: "all" }] },
-  { id: "ult_assassin", name: "그림자 처형", source: { job: "assassin" }, cooldown: 0, target: "enemy", ultimate: true, effects: [{ kind: "damage", multiplier: 2.8, onHit: false }, { kind: "applyStatus", status: "bleed" }] },
-  { id: "ult_archer", name: "천 개의 화살", source: { job: "archer" }, cooldown: 0, target: "none", ultimate: true, effects: [{ kind: "damage", multiplier: 1, area: "all", onHit: false }, { kind: "applyStatus", status: "weaken", area: "all" }] },
-  { id: "ult_nun", name: "기적", source: { job: "nun" }, cooldown: 0, target: "ally", ultimate: true, effects: [{ kind: "heal", amount: 20 }, { kind: "cure" }, { kind: "support", shield: 0 }] },
-  { id: "ult_herbalist", name: "독포자 구름", source: { job: "herbalist" }, cooldown: 0, target: "none", ultimate: true, effects: [{ kind: "damage", fixed: [3, 5], area: "all", onHit: false }, { kind: "applyStatus", status: "poison", area: "all" }, { kind: "applyStatus", status: "crack", area: "all" }] },
-  { id: "ult_mage", name: "업화", source: { job: "mage" }, cooldown: 0, target: "none", ultimate: true, effects: [{ kind: "damage", multiplier: 1.6, area: "all", onHit: false }, { kind: "selfCost", hp: 6 }] },
-  { id: "ult_spiritcaller", name: "정령 강림", source: { job: "spiritcaller" }, cooldown: 0, target: "ally", ultimate: true, effects: [{ kind: "shield", amount: 12 }, { kind: "heal", amount: 6 }, { kind: "support", shield: 0 }] },
-
-  /** 직업 정보가 없는 용병의 기본 스킬 */
-  { id: "power", name: "전력 공격", source: {}, cooldown: 3, target: "enemy", effects: [{ kind: "damage", multiplier: 1.5 }] },
-];
+/** 상태이상 하나의 설명 ("균열(받는 피해 +2, 3턴)") */
+export function statusText(roll: StatusRoll): string {
+  const info = STATUS[roll.status];
+  const v = roll.value ?? info.value;
+  const effect = v === undefined ? info.text : info.text.replace("{v}", info.pct ? pct(v) : String(v));
+  const extra = [effect, roll.turns ? `${roll.turns}턴` : ""].filter(Boolean).join(", ");
+  const chance = roll.chance !== undefined && roll.chance < 1 ? `${pct(roll.chance)} 확률로 ` : "";
+  const sure = roll.sure ? "확정 " : "";
+  return `${chance}${sure}${info.name}(${extra})`;
+}
 
 /** 효과 조각에서 설명 문장을 만든다. 스킬 수가 많아져도 설명을 따로 쓰지 않는다 */
-/** 상태이상 설명 (효과를 괄호로) */
-const STATUS_TEXT: Record<StatusKind, string> = {
-  bleed: "출혈",
-  poison: "중독",
-  crack: "균열(받는 피해 +2)",
-  weaken: "위축(공격 -2)",
-  awaken: "각성(공격 +4)",
-  brace: "버팀(방어 +2)",
-  haste: "선제(다음 라운드에 먼저 행동)",
-  bind: "속박(다음 차례 한 번 쉰다)",
-};
-
 export function describeSkill(def: SkillDef): string {
   const one = def.target === "ally" ? "아군 하나" : "적 하나";
-  const to = (e: { who?: "self" }) => (e.who === "self" ? "자신" : one);
+  const to = (e: { who?: "self" | "allies" }) => (e.who === "self" ? "자신" : e.who === "allies" ? "아군 전체" : one);
   const parts = def.effects.flatMap((e): string[] => {
     switch (e.kind) {
       case "damage": {
-        const who = e.area === "all" ? "모든 적에게" : `${one}에게`;
+        const who =
+          e.area === "all" ? "모든 적에게" : e.area === "two" ? `${one}와 다른 적 하나에게` : e.area === "random" ? "무작위 적에게" : `${one}에게`;
         if (e.fixed) return [`${who} ${e.fixed[0]}~${e.fixed[1]} 피해`];
-        const power = e.multiplier && e.multiplier !== 1 ? `${Math.round(e.multiplier * 100) / 100}배` : "공격력";
+        const STAT = { str: "힘", mag: "마법", faith: "신성" } as const;
+        const power = e.scaling
+          ? e.scaling.map((s) => `${STAT[s.stat]} ${round2(s.mult)}배`).join(" + ")
+          : `${e.stat ? `${STAT[e.stat]} ` : ""}${round2(e.multiplier ?? 1)}배`;
         const times = e.hits && e.hits > 1 ? ` ${e.hits}번` : "";
-        const crit = e.critBonus ? ` (치명타 +${Math.round(e.critBonus * 100)}%)` : "";
-        return [`${who} ${power}${e.bonus ? ` +${e.bonus}` : ""} 피해${times}${crit}`];
+        const extras = [
+          e.critBonus ? `치명 +${pct(e.critBonus)}` : "",
+          e.pierce ? `방어 ${pct(e.pierce)} 무시` : "",
+          e.lifesteal ? `준 피해 ${pct(e.lifesteal)} 회복` : "",
+          e.perHit ? `타격마다 ${statusText(e.perHit)}` : "",
+        ].filter(Boolean);
+        return [`${who} ${power}${e.bonus ? ` +${e.bonus}` : ""} 피해${times}${extras.length ? ` (${extras.join(", ")})` : ""}`];
       }
       case "applyStatus":
-        return [`${e.area === "all" ? "모든 적" : to(e)}에게 ${STATUS_TEXT[e.status]}`];
+        return [`${e.area === "all" ? "모든 적" : to(e)}에게 ${statusText(e)}`];
       case "heal":
         return [`${to(e)}의 체력 ${e.amount} 회복`];
-      case "cure":
-        return [`${e.who === "self" ? "자신의 " : ""}출혈과 중독을 씻어 낸다`];
+      case "cure": {
+        const who = e.who === "self" ? "자신의 " : "";
+        if (e.count) return [`${who}약화 ${e.count}개 해제`];
+        return [`${who}${(e.kinds ?? HARMFUL_TEXT).map((k) => STATUS[k].name).join("·")} 해제`];
+      }
       case "shield":
         return [`${to(e)}에게 피해를 먼저 막는 보호막 ${e.amount}`];
       case "taunt":
         return ["다음 차례까지 적의 공격을 끌어오고, 받는 피해가 절반"];
       case "selfCost":
-        return [`자기 체력 ${e.hp} 소모 (쓰러지지는 않는다)`];
+        return [`자기 체력 ${e.pctMaxHp ? `최대치의 ${pct(e.pctMaxHp)}` : e.hp} 소모 (쓰러지지는 않는다)`];
       case "fail":
-        return [`${Math.round(e.chance * 100)}% 확률로 실패`];
+        return [`${pct(e.chance)} 확률로 실패`];
       case "resetOnKill":
         return ["처치하면 대기 시간 초기화"];
       case "support":
         return [def.target === "ally" ? "옆 아군에게도 회복·보호막 절반" : `옆 아군에게 보호막 ${e.shield}`];
+      case "later":
+        return [`${e.text} (준비 중)`];
     }
   });
   return parts.join(". ");
 }
 
-export const SKILLS: Record<string, Skill> = Object.fromEntries(DEFS.map((d) => [d.id, { ...d, description: describeSkill(d) }]));
-
-export type SkillId = string;
-
-/** 장착 슬롯 수. 공격과 붕대는 슬롯을 차지하지 않는다 */
-export const SKILL_SLOTS = 4;
-
-/** 직업의 궁극기 (숙련으로 승급하면 열린다) */
-export const JOB_ULTIMATE: Record<string, SkillId> = Object.fromEntries(
-  DEFS.filter((d) => d.ultimate && d.source.job).map((d) => [d.source.job!, d.id]),
-);
-
-/** 직업의 대표 스킬. 시작 스킬에 언제나 들어간다 */
-export const JOB_SKILL: Record<string, SkillId> = {
-  knight: "guard",
-  assassin: "pierce",
-  nun: "pray",
-  archer: "volley",
-  greatsword: "cleave",
-  herbalist: "miasma",
-  mage: "firelance",
-  spiritcaller: "ward",
-};
-
-/** 이 직업·종족에게서 나오는 스킬 (조합 스킬은 아직 없다) */
-export function skillsFrom(source: SkillSource): SkillId[] {
-  return DEFS.filter((d) => !d.ultimate).filter((d) =>
-    source.job && source.race
-      ? d.source.job === source.job && d.source.race === source.race
-      : source.job
-        ? d.source.job === source.job && !d.source.race
-        : d.source.race === source.race && !d.source.job,
-  ).map((d) => d.id);
-}
-export const DEFAULT_SKILL: SkillId = "power";
+const HARMFUL_TEXT: StatusKind[] = ["bleed", "poison"];

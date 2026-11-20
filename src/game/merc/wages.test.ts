@@ -4,7 +4,7 @@ import type { Merc } from "@/game/types";
 import { advanceCost, offerEffect, wageOf } from "./wages";
 
 const [base] = TEST_MERCS;
-const merc = (personalities: string[], background = "wanderer", level: Merc["level"] = "apprentice"): Merc => ({
+const merc = (personalities: string[], background = "wanderer", level: Merc["level"] = "bronze"): Merc => ({
   ...base,
   level,
   traitIds: { personalities, background },
@@ -15,7 +15,7 @@ describe("보수", () => {
     expect(wageOf(merc(["kind"]))).toBe(3);
     expect(wageOf(merc(["greedy"]))).toBe(4);
     expect(wageOf(merc(["greedy"], "debtor"))).toBe(5);
-    expect(wageOf(merc(["kind"], "wanderer", "veteran"))).toBe(8);
+    expect(wageOf(merc(["kind"], "wanderer", "gold"))).toBe(8);
     expect(wageOf(merc(["kind"]), true)).toBe(5);
     expect(advanceCost(merc(["kind"]))).toBe(6);
   });

@@ -1,100 +1,94 @@
 import { describe, expect, it } from "vitest";
-import { PIECES, craftCooldown, craftId, craftSkill, piecesIn, validCraft } from "@/data/craft";
+import { CRAFT_COST, getFragment } from "@/data/fragments";
 import { sampleSeeds } from "@/data/sampleRoster";
-import { getSkill } from "@/data/skillgen";
+import { fragmentsFor, fragmentsIn, skillKey } from "@/game/skills";
 import { buildMerc } from "./generate";
-import { craft, knownPieces, paySalvage, swapSkills, unlockBlock } from "./skillhall";
+import { craft, craftBlock, knownFragments, ownerOf, paySalvage, swapSkills, unlockBlock, upgradeBlock } from "./skillhall";
 
-const seed = sampleSeeds().find((s) => s.id === "s-durgan")!; // 드워프 대검사, 장착 4칸
-
-describe("조각과 조립", () => {
-  it("모든 올바른 조합은 스킬이 되고, 효과에서 조각을 다시 읽으면 쓴 조각이 다 나온다", () => {
-    const cores = PIECES.filter((p) => p.kind === "core");
-    const mods = PIECES.filter((p) => p.kind === "mod");
-    let count = 0;
-    for (const c of cores)
-      for (const a of [undefined, ...mods])
-        for (const b of [undefined, ...mods]) {
-          const ms = [a, b].flatMap((m) => (m ? [m.id] : []));
-          if (!validCraft(c.id, ms)) continue;
-          const sk = getSkill(craftId(c.id, ms));
-          expect(sk, craftId(c.id, ms)).toBeDefined();
-          expect(sk!.cooldown).toBeGreaterThanOrEqual(2);
-          expect(sk!.cooldown).toBeLessThanOrEqual(5);
-          for (const p of [c.id, ...ms]) expect(piecesIn(sk!)).toContain(p);
-          count++;
-        }
-    expect(count).toBeGreaterThan(50);
-  });
-
-  it("맞지 않는 조합·겹친 조각·순서가 다른 id는 거부한다", () => {
-    expect(validCraft("mend", ["bleed"])).toBe(false); // 아군 회복에 출혈
-    expect(validCraft("fog", ["weaken"])).toBe(false); // 위축 안개에 위축
-    expect(validCraft("strike", ["bleed", "bleed"])).toBe(false);
-    expect(validCraft("bleed", [])).toBe(false); // 덧붙임은 몸체가 될 수 없다
-    expect(craftSkill("craft:strike.blood.bleed")).toBeUndefined(); // 정렬 순서가 아니다
-    expect(craftSkill(craftId("strike", ["blood", "bleed"]))).toBeDefined();
-  });
-
-  it("실패 조각은 맨 앞, 이름은 첫 덧붙임 + 몸체, 강할수록 오래 기다린다", () => {
-    const sk = craftSkill(craftId("heavy", ["crack", "gamble"]))!;
-    expect(sk.effects[0].kind).toBe("fail");
-    expect(sk.name).toBe("갑옷을 깨는 강타");
-    expect(craftSkill(craftId("heavy", ["crack"]))!.cooldown).toBeGreaterThan(craftSkill(craftId("strike", []))!.cooldown);
-    expect(craftCooldown(0)).toBe(2);
-    expect(craftCooldown(99)).toBe(5);
-  });
-});
+const base = sampleSeeds().find((s) => s.id === "s-durgan")!; // 드워프 대검사
+const pool = fragmentsFor(ownerOf(base));
 
 describe("용병별 조각", () => {
-  it("가진 스킬 안에 든 조각은 처음부터 안다", () => {
-    const known = knownPieces(seed, [], []);
-    for (const id of seed.skills) for (const p of piecesIn(getSkill(id)!)) expect(known).toContain(p);
-    expect(knownPieces(seed, [], ["mend"])).toContain("mend");
+  it("가진 스킬 안에 든 조각은 처음부터 알고, 가르친 조각도 안다. 쓸 수 없는 조각은 빠진다", () => {
+    const known = knownFragments(base, [], []);
+    for (const b of base.skills) for (const id of fragmentsIn(b)) expect(known).toContain(id);
+    const extra = pool.find((f) => !known.includes(f.id))!;
+    expect(knownFragments(base, [], [extra.id])).toContain(extra.id);
+    expect(knownFragments(base, [], ["knight_slash"])).not.toContain("knight_slash");
   });
 
-  it("해금: 이미 알거나 금화·유실물이 모자라면 막는다", () => {
-    const known = knownPieces(seed, [], []);
-    const unknown = PIECES.find((p) => !known.includes(p.id))!;
-    const enough = { ...unknown.cost.salvage };
-    expect(unlockBlock(unknown.id, known, 999, enough)).toBeNull();
-    expect(unlockBlock(unknown.id, known, 0, enough)).toBe("gold");
-    expect(unlockBlock(unknown.id, known, 999, {})).toBe("salvage");
-    expect(unlockBlock(known[0], known, 999, enough)).toBe("known");
+  it("해금: 다른 직업 조각·궁극기·이미 아는 조각·모자란 금화와 유실물은 막는다", () => {
+    const known = knownFragments(base, [], []);
+    const unknown = pool.find((f) => !known.includes(f.id))!;
+    const enough = { ...unknown.cost!.salvage };
+    expect(unlockBlock(unknown.id, base, known, 999, enough)).toBeNull();
+    expect(unlockBlock(unknown.id, base, known, 0, enough)).toBe("gold");
+    expect(unlockBlock(unknown.id, base, known, 999, {})).toBe("salvage");
+    expect(unlockBlock(known[0], base, known, 999, enough)).toBe("known");
+    expect(unlockBlock("knight_slash", base, known, 999, { crude_iron: 9 })).toBe("forbidden");
+    expect(unlockBlock("ult_greatsword", base, known, 999, {})).toBe("unknown");
     expect(paySalvage({ a: 2, b: 1 }, { a: 2 })).toEqual({ b: 1 });
   });
 
-  it("조립: 모르는 조각, 등급 한도를 넘는 덧붙임, 이미 가진 스킬은 안 된다. 꽉 차면 보관", () => {
-    const known = knownPieces(seed, [], []);
-    const core = PIECES.find((p) => p.kind === "core" && known.includes(p.id))!.id;
-    expect(craft(seed, [], [], 999, core, [])).not.toBeNull();
-    expect(craft(seed, [], [], 0, core, [])).toBeNull();
-    const unknownCore = PIECES.find((p) => p.kind === "core" && !known.includes(p.id))!.id;
-    expect(craft(seed, [], [], 999, unknownCore, [])).toBeNull();
-    // 견습은 덧붙임 1개
-    expect(craft(seed, [], ["strike", "bleed", "blood"], 999, "strike", ["bleed", "blood"])).toBeNull();
-    const done = craft(seed, [], ["strike", "bleed"], 999, "strike", ["bleed"])!;
-    expect(done.seed.skills).toEqual(seed.skills);
-    expect(done.learned).toEqual([craftId("strike", ["bleed"])]);
-    expect(craft(seed, done.learned, ["strike", "bleed"], 999, "strike", ["bleed"])).toBeNull();
-    // 숙련이면 2개
-    expect(craft({ ...seed, level: "skilled" }, [], ["strike", "bleed", "blood"], 999, "strike", ["bleed", "blood"])).not.toBeNull();
+  it("강화: 아는 부 조각만, Lv3까지", () => {
+    const sub = pool.find((f) => f.kind === "sub")!;
+    const material = { wolf_fang: 99 };
+    expect(upgradeBlock(sub.id, [], {}, 999, material)).toBe("unknown");
+    expect(upgradeBlock(sub.id, [sub.id], {}, 999, material)).toBeNull();
+    expect(upgradeBlock(sub.id, [sub.id], { [sub.id]: 3 }, 999, material)).toBe("max");
+    expect(upgradeBlock(sub.id, [sub.id], {}, 0, material)).toBe("gold");
+  });
+});
+
+describe("조립과 장착", () => {
+  const main = pool.find((f) => f.kind === "main" && !f.race)!.id;
+  const subs = pool.filter((f) => f.kind === "sub" && !f.race).map((f) => f.id);
+  // 장착 4칸이 꽉 찬 용병
+  const full = {
+    ...base,
+    skills: pool
+      .filter((f) => f.kind === "main")
+      .slice(0, 4)
+      .map((f) => ({ main: f.id, subs: [] })),
+  };
+
+  it("모르는 조각, 등급 한도를 넘는 부 조각, 이미 가진 스킬, 금화 부족은 안 된다", () => {
+    const unlocked = [main, ...subs];
+    expect(craftBlock(base, [], [], 999, { main, subs: [subs[0]] })).toBe("모르는 조각이 있다");
+    expect(craftBlock(base, [], unlocked, 999, { main, subs: subs.slice(0, 2) })).toBe("부 조각은 1개까지");
+    expect(craftBlock({ ...base, level: "silver" }, [], unlocked, 999, { main, subs: subs.slice(0, 2) })).toBeNull();
+    expect(craftBlock(base, [], unlocked, CRAFT_COST - 1, { main, subs: [subs[0]] })).toBe("금화가 모자란다");
+    expect(craftBlock(base, [{ main, subs: [subs[0]] }], unlocked, 999, { main, subs: [subs[0]] })).toBe("이미 가진 스킬");
   });
 
-  it("장착 바꾸기: 맞바꾸기, 빼기, 빈 칸에 끼우기. 조립한 스킬을 낀 용병도 만들 수 있다", () => {
-    const sk = craftId("strike", ["bleed"]);
-    const swapped = swapSkills(seed, [sk], { equip: sk, unequip: seed.skills[1] })!;
-    expect(swapped.seed.skills[1]).toBe(sk);
-    expect(swapped.learned).toEqual([seed.skills[1]]);
+  it("자리가 있으면 바로 장착, 꽉 찼으면 보관", () => {
+    const unlocked = [main, subs[0]];
+    const equipped = craft(base, [], unlocked, 999, { main, subs: [subs[0]] })!;
+    expect(equipped.seed.skills.map(skillKey)).toContain(skillKey({ main, subs: [subs[0]] }));
+    expect(equipped.learned).toEqual([]);
+    const kept = craft(full, [], unlocked, 999, { main, subs: [subs[0]] })!;
+    expect(kept.seed.skills).toEqual(full.skills);
+    expect(kept.learned.map(skillKey)).toEqual([skillKey({ main, subs: [subs[0]] })]);
+    expect(buildMerc(equipped.seed)).not.toBeNull();
+  });
+
+  it("장착 바꾸기: 맞바꾸기, 빼기, 빈 칸에 끼우기", () => {
+    const learned = [{ main, subs: [subs[0]] }];
+    const key = skillKey(learned[0]);
+    const first = skillKey(full.skills[1]);
+    const swapped = swapSkills(full, learned, { equip: key, unequip: first })!;
+    expect(skillKey(swapped.seed.skills[1])).toBe(key);
+    expect(swapped.learned.map(skillKey)).toEqual([first]);
     expect(buildMerc(swapped.seed)).not.toBeNull();
     // 꽉 찬 칸에 그냥 끼울 수는 없다
-    expect(swapSkills(seed, [sk], { equip: sk })).toBeNull();
-    const out = swapSkills(seed, [], { unequip: seed.skills[0] })!;
+    expect(swapSkills(full, learned, { equip: key })).toBeNull();
+    const out = swapSkills(full, [], { unequip: first })!;
     expect(out.seed.skills).toHaveLength(3);
-    expect(swapSkills(out.seed, out.learned, { equip: seed.skills[0] })!.seed.skills).toHaveLength(4);
+    expect(swapSkills(out.seed, out.learned, { equip: first })!.seed.skills).toHaveLength(4);
     // 마지막 하나는 뺄 수 없다
-    expect(swapSkills({ ...seed, skills: [seed.skills[0]] }, [], { unequip: seed.skills[0] })).toBeNull();
+    expect(swapSkills({ ...base, skills: [full.skills[0]] }, [], { unequip: skillKey(full.skills[0]) })).toBeNull();
     // 배우지 않은 스킬은 낄 수 없다
     expect(swapSkills(out.seed, out.learned, { equip: "ult_mage" })).toBeNull();
+    expect(getFragment(main)).toBeDefined();
   });
 });

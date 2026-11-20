@@ -14,9 +14,10 @@ import { WAGE } from "@/data/wages";
 import { STAT_NAME, TRAINING_COST, type StatBlock } from "@/data/growth";
 import { NO_GROWTH, addStats, canPromote, gainXp, statLine, validTraining, type Growth } from "@/game/merc/growth";
 import { promote, promoteCost } from "@/game/merc/promotion";
-import { craft, knownPieces, paySalvage, swapSkills, unlockBlock } from "@/game/merc/skillhall";
-import { CRAFT_COST, getPiece } from "@/data/craft";
+import { craft, knownFragments, paySalvage, swapSkills, unlockBlock, upgradeBlock } from "@/game/merc/skillhall";
+import { CRAFT_COST, getFragment, upgradeCost } from "@/data/fragments";
 import { FIRST_DUNGEON, getDungeon } from "@/data/regions";
+import { stageOf } from "@/data/ranks";
 import { TRINKET_MAX_LV, forgeCost, getTrinket, trinketStats, type OwnedTrinket } from "@/data/trinkets";
 import { advanceCost, wageOf } from "@/game/merc/wages";
 import { act, giftsReceived, type Battle, type BattleAction } from "@/game/combat/engine";
@@ -36,15 +37,23 @@ import {
 } from "@/game/dungeon/expedition";
 import { buildMerc } from "@/game/merc/generate";
 import type { Merc } from "@/game/types";
-import type { EventResponse, HistoryLine, MercRef, MercSeed, Stage, TalkResponse, TalkState } from "@/lib/schemas";
+import type { Element, EventResponse, HistoryLine, MercRef, MercSeed, SkillBuild, Stage, TalkResponse, TalkState } from "@/lib/schemas";
 
 const HISTORY_LIMIT = 20;
 
 /** wage: 고용할 때 정해진 원정 1회 보수 (몫 약속을 했으면 더 많다). 고용 전에는 없다 */
 /** learned: 배웠지만 장착하지 않은 스킬 (장착 칸이 꽉 찼을 때, 전수관에서 바꿔 낀다) */
 /** pieces: 전수관에서 이 용병에게 뚫어 준 조각 (가진 스킬 안에 든 조각은 따로 저장하지 않는다) */
+/** levels: 부 조각 레벨 (전수관 강화. 없으면 Lv1) */
 /** trinket: 끼고 있는 장신구 (대장간) */
-export type MercProgress = TalkState & { hired: boolean; wage?: number; learned: string[]; pieces: string[]; trinket?: OwnedTrinket } & Growth;
+export type MercProgress = TalkState & {
+  hired: boolean;
+  wage?: number;
+  learned: SkillBuild[];
+  pieces: string[];
+  levels: Record<string, number>;
+  trinket?: OwnedTrinket;
+} & Growth;
 
 /** 길드 명단의 한 칸. 고유 용병은 id만, 랜덤 용병은 다시 만들 수 있는 시드를 들고 있다. */
 export type RosterEntry = MercRef;
@@ -180,13 +189,15 @@ export type GameAction =
   | { type: "sell"; index: number }
   /** 단련장: 금화를 내고 스탯 3을 직접 배분 (레벨업으로 생긴 기회를 하나 쓴다) */
   | { type: "train"; mercId: string; alloc: StatBlock }
-  /** 단련장: 등급 승급 (레벨 3에서). 패시브·스킬 후보에서 하나씩 고른다 */
-  | { type: "promote"; mercId: string; passive?: string; skill?: string }
+  /** 단련장: 등급 승급 (등급의 1단계에서). 패시브 후보에서 하나, 금으로 오를 때는 전직 갈래(원소술사면 원소 둘)도 */
+  | { type: "promote"; mercId: string; passive?: string; branch?: string; elements?: Element[] }
   /** 전수관: 금화·유실물을 내고 이 용병에게 조각 하나를 뚫어 준다 */
   | { type: "unlockPiece"; mercId: string; piece: string }
-  /** 전수관: 아는 조각으로 스킬을 조립한다 (몸체 하나 + 덧붙임) */
-  | { type: "craftSkill"; mercId: string; core: string; mods: string[] }
-  /** 전수관: 장착 바꾸기 (배운 스킬 equip ↔ 장착 스킬 unequip) */
+  /** 전수관: 부 조각 강화 (한 단계, 100% 성공) */
+  | { type: "upgradePiece"; mercId: string; piece: string }
+  /** 전수관: 아는 조각으로 스킬을 조립한다 (메인 하나 + 부 조각) */
+  | { type: "craftSkill"; mercId: string; build: SkillBuild }
+  /** 전수관: 장착 바꾸기 (스킬 id: 배운 스킬 equip ↔ 장착 스킬 unequip) */
   | { type: "swapSkill"; mercId: string; equip?: string; unequip?: string }
   /** 대장간: 장신구를 새로 만든다 (보관함으로) */
   | { type: "forgeTrinket"; trinket: string }
@@ -353,7 +364,7 @@ function partyMercs(state: GameState): Merc[] {
     const entry = state.roster.find((e) => entryId(e) === id);
     const p = state.progress[id];
     // 성장 스탯 + 장신구
-    return entry ? [{ ...mercOf(entry), stats: addStats(p?.stats ?? {}, trinketStats(p?.trinket)) }] : [];
+    return entry ? [{ ...mercOf(entry), stats: addStats(p?.stats ?? {}, trinketStats(p?.trinket)), subLevels: p?.levels ?? {} }] : [];
   });
 }
 
@@ -398,6 +409,7 @@ function freshProgress(merc: Merc): MercProgress {
     hired: false,
     learned: [],
     pieces: [],
+    levels: {},
     ...NO_GROWTH,
   };
 }
@@ -618,18 +630,18 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       if (state.expedition || !p?.hired || !canPromote(p) || entry?.kind !== "random") return state;
       const cost = promoteCost(entry.seed.level);
       if (cost === null || state.gold < cost) return state;
-      const done = promote(entry.seed, p.learned ?? [], { passive: action.passive, skill: action.skill });
-      if (!done) return state;
-      const roster = state.roster.map((e) => (e === entry ? { kind: "random" as const, seed: done.seed } : e));
-      const merc = mercOf({ kind: "random", seed: done.seed });
+      const seed = promote(entry.seed, { passive: action.passive, branch: action.branch, elements: action.elements });
+      if (!seed) return state;
+      const roster = state.roster.map((e) => (e === entry ? { kind: "random" as const, seed } : e));
+      const merc = mercOf({ kind: "random", seed });
       return {
         ...state,
         gold: state.gold - cost,
         roster,
         progress: {
           ...state.progress,
-          // 새 등급의 레벨 0부터. 보수도 등급에 맞춰 오른다 (몫 약속은 그대로)
-          [action.mercId]: { ...p, lv: 0, xp: 0, learned: done.learned, wage: wageOf(merc, p.offers.share) },
+          // 새 등급의 3단계부터. 보수도 등급에 맞춰 오른다 (몫 약속은 그대로)
+          [action.mercId]: { ...p, lv: 0, xp: 0, wage: wageOf(merc, p.offers.share) },
         },
       };
     }
@@ -638,14 +650,30 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const p = state.progress[action.mercId];
       const entry = state.roster.find((e) => entryId(e) === action.mercId);
       if (state.expedition || !p?.hired || entry?.kind !== "random") return state;
-      const known = knownPieces(entry.seed, p.learned, p.pieces);
-      if (unlockBlock(action.piece, known, state.gold, state.salvage)) return state;
-      const { cost } = getPiece(action.piece)!;
+      const known = knownFragments(entry.seed, p.learned, p.pieces);
+      if (unlockBlock(action.piece, entry.seed, known, state.gold, state.salvage)) return state;
+      const { cost } = getFragment(action.piece)!;
+      return {
+        ...state,
+        gold: state.gold - cost!.gold,
+        salvage: paySalvage(state.salvage, cost!.salvage),
+        progress: { ...state.progress, [action.mercId]: { ...p, pieces: [...p.pieces, action.piece] } },
+      };
+    }
+
+    case "upgradePiece": {
+      const p = state.progress[action.mercId];
+      const entry = state.roster.find((e) => entryId(e) === action.mercId);
+      if (state.expedition || !p?.hired || entry?.kind !== "random") return state;
+      const known = knownFragments(entry.seed, p.learned, p.pieces);
+      if (upgradeBlock(action.piece, known, p.levels, state.gold, state.salvage)) return state;
+      const lv = (p.levels[action.piece] ?? 1) + 1;
+      const cost = upgradeCost(getFragment(action.piece)!, lv)!;
       return {
         ...state,
         gold: state.gold - cost.gold,
         salvage: paySalvage(state.salvage, cost.salvage),
-        progress: { ...state.progress, [action.mercId]: { ...p, pieces: [...p.pieces, action.piece] } },
+        progress: { ...state.progress, [action.mercId]: { ...p, levels: { ...p.levels, [action.piece]: lv } } },
       };
     }
 
@@ -656,7 +684,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       if (state.expedition || !p?.hired || entry?.kind !== "random") return state;
       const done =
         action.type === "craftSkill"
-          ? craft(entry.seed, p.learned, p.pieces, state.gold, action.core, action.mods)
+          ? craft(entry.seed, p.learned, p.pieces, state.gold, action.build)
           : swapSkills(entry.seed, p.learned, { equip: action.equip, unequip: action.unequip });
       if (!done) return state;
       return {
@@ -859,7 +887,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           progress[m.id] = { ...p, ...growth };
           report.growth.push(
             gained.length
-              ? `${m.name}: 경험치 +${xp}, 레벨 ${growth.lv} (${gained.map((g) => statLine(g, STAT_NAME)).join(" / ")})${canPromote(growth) ? " · 승급할 수 있다" : ""}`
+              ? `${m.name}: 경험치 +${xp}, 레벨업 → ${stageOf(growth.lv)}단계 (${gained.map((g) => statLine(g, STAT_NAME)).join(" / ")})${canPromote(growth) ? " · 승급할 수 있다" : ""}`
               : `${m.name}: 경험치 +${xp}`,
           );
         }

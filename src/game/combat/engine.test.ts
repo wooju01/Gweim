@@ -17,6 +17,10 @@ import {
   startBattleWithUnits,
   hasStatus,
   living,
+  resistOf,
+  skillDef,
+  speedOf,
+  statusValue,
   startBattle,
   unitById,
   validate,
@@ -25,10 +29,66 @@ import {
   type BattleEvent,
   type Unit,
 } from "./engine";
-import { SKILLS, getSkill } from "@/data/combat";
-import { comboId } from "@/data/combo";
-import { JOB_SKILL, skillsFrom } from "@/data/skills";
+import { describeSkill, type Skill, type SkillDef } from "@/data/skills";
+import { JOB_IDS, RACE_IDS, canBe } from "@/data/jobs";
+import { RESIST } from "@/data/combat";
+import { rollStartSkills, skillKey } from "@/game/skills";
 import { describe as describeEvent, josa } from "./text";
+
+/**
+ * 엔진 규칙을 시험하려고 직접 정의한 스킬. 조각 데이터와 상관없이 효과만 고정해 두고,
+ * 테스트용 유닛의 스킬 책(book)에 넣는다. 대기는 엔진 규칙(쓰고 나서 쉬는 자기 차례 수)
+ */
+const TEST_SKILL_DEFS: SkillDef[] = [
+  { id: "guard", name: "막아서기", cooldown: 1, target: "none", effects: [{ kind: "taunt" }] },
+  {
+    id: "pierce",
+    name: "급소 찌르기",
+    cooldown: 1,
+    target: "enemy",
+    effects: [
+      { kind: "damage", bonus: 3, onHit: false },
+      { kind: "applyStatus", status: "bleed" },
+    ],
+  },
+  { id: "pray", name: "기도", cooldown: 2, target: "ally", effects: [{ kind: "heal", amount: 8 }, { kind: "cure" }] },
+  { id: "volley", name: "화살비", cooldown: 2, target: "none", effects: [{ kind: "damage", fixed: [3, 5], area: "all", onHit: false }] },
+  { id: "cleave", name: "내려찍기", cooldown: 1, target: "enemy", effects: [{ kind: "damage", multiplier: 1.8 }, { kind: "selfCost", hp: 3 }] },
+  { id: "miasma", name: "독안개", cooldown: 2, target: "none", effects: [{ kind: "applyStatus", status: "poison", area: "all" }] },
+  { id: "firelance", name: "불꽃 창", cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 2.5, onHit: false }, { kind: "selfCost", hp: 4 }] },
+  { id: "ward", name: "정령의 가호", cooldown: 1, target: "ally", effects: [{ kind: "fail", chance: 0.2 }, { kind: "shield", amount: 6 }] },
+  { id: "power", name: "전력 공격", cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.5 }] },
+  { id: "resolve", name: "결의", cooldown: 3, target: "none", effects: [{ kind: "applyStatus", status: "awaken", who: "self" }] },
+  { id: "smoke", name: "연막", cooldown: 1, target: "none", effects: [{ kind: "shield", amount: 5, who: "self" }] },
+  { id: "mend_all", name: "함께하는 기도", cooldown: 2, target: "ally", effects: [{ kind: "heal", amount: 8 }, { kind: "support", shield: 0 }] },
+  { id: "brace", name: "버티기", cooldown: 1, target: "none", effects: [{ kind: "applyStatus", status: "brace", who: "self" }] },
+  { id: "haste", name: "앞서기", cooldown: 1, target: "none", effects: [{ kind: "applyStatus", status: "haste", who: "self" }] },
+  { id: "hunt", name: "사냥", cooldown: 1, target: "enemy", effects: [{ kind: "damage", multiplier: 1.8 }, { kind: "resetOnKill" }] },
+  { id: "twin", name: "연타", cooldown: 1, target: "enemy", effects: [{ kind: "damage", multiplier: 0.6, hits: 2 }] },
+];
+const TEST_SKILLS: Record<string, Skill> = Object.fromEntries(TEST_SKILL_DEFS.map((d) => [d.id, { ...d, description: describeSkill(d) }]));
+/** 직업별 시험용 기본 스킬 */
+const TEST_JOB_SKILL: Record<string, string> = {
+  knight: "guard",
+  assassin: "pierce",
+  priest: "pray",
+  archer: "volley",
+  greatsword: "cleave",
+  monk: "miasma",
+  mage: "firelance",
+  minstrel: "ward",
+};
+
+/** 시험용 스킬을 쓰는 용병 (kit: 스킬 id, 없으면 직업 기본) */
+type TMerc = Merc & { kit?: string[] };
+
+/** 시험용 스킬을 넣은 용병 유닛. 실제 조각 스킬(merc.skills)이 있으면 그대로 */
+function tUnit(m: TMerc): Unit {
+  const u = mercUnit(m);
+  if (m.skills?.length) return u;
+  const ids = (m.kit ?? [TEST_JOB_SKILL[m.job ?? ""] ?? "power"]).slice(0, 4);
+  return { ...u, skills: ids, book: { ...u.book, ...Object.fromEntries(ids.map((id) => [id, TEST_SKILLS[id]])) } };
+}
 
 /** 밸런스 측정용 단순 정책: 출혈이면 붕대, 스킬이 준비되면 스킬, 아니면 가장 약한 적 공격 */
 function simplePolicy(b: Battle, actor: Unit): BattleAction {
@@ -37,7 +97,7 @@ function simplePolicy(b: Battle, actor: Unit): BattleAction {
     return { type: "bandage" };
   const sk = actor.skills[0];
   if (sk && !(actor.cooldowns[sk] > 0)) {
-    const kind = getSkill(sk)!.target;
+    const kind = skillDef(actor, sk)!.target;
     if (kind === "none") return { type: "skill" };
     if (kind === "enemy") return { type: "skill", target: weakest };
     const hurt = [...living(b, "merc")].sort(
@@ -52,7 +112,7 @@ const [varn, kass, elke] = TEST_MERCS;
 const party: Merc[] = [
   { ...varn, job: "knight" },
   { ...kass, job: "assassin" },
-  { ...elke, job: "nun" },
+  { ...elke, job: "priest" },
 ];
 
 /**
@@ -60,14 +120,14 @@ const party: Merc[] = [
  * 용병이 파티 순서대로 행동하고 피해 계산이 단순해진다. 방어력·속도 자체는 따로 테스트한다.
  */
 function start(
-  mercs: Merc[],
+  mercs: TMerc[],
   seed: number,
   enemies?: Unit[],
   depth = 1,
 ): Battle {
   if (!enemies) return startBattle(mercs, seed, undefined, depth);
   const units = mercs.map((m, i) => ({
-    ...mercUnit(m),
+    ...tUnit(m),
     defense: 0,
     speed: 100 - i * 10,
   }));
@@ -342,17 +402,14 @@ describe("스킬", () => {
   const withJob = (job: string): Merc[] => [
     { ...varn, job },
     { ...kass, job: "assassin" },
-    { ...elke, job: "nun" },
+    { ...elke, job: "priest" },
   ];
 
-  it("직업마다 스킬이 정해지고, 직업이 없으면 전력 공격", () => {
-    const b = start([...party, { ...varn, id: "nojob", job: undefined }], 1, [
-      dummy("e0"),
-    ]);
-    expect(unitById(b, varn.id)!.skills[0]).toBe("guard");
-    expect(unitById(b, kass.id)!.skills[0]).toBe("pierce");
-    expect(unitById(b, elke.id)!.skills[0]).toBe("pray");
-    expect(unitById(b, "nojob")!.skills[0]).toBe("power");
+  it("스킬이 없는 용병은 직업 기본 조각, 직업이 없으면 전력 공격", () => {
+    expect(mercUnit({ ...varn, job: "knight" }).skills).toEqual(["knight_slash"]);
+    expect(mercUnit({ ...kass, job: "assassin" }).skills).toEqual(["as_flurry"]);
+    expect(mercUnit({ ...elke, job: "priest" }).skills).toEqual(["pr_heal"]);
+    expect(mercUnit({ ...varn, job: undefined }).skills).toEqual(["power"]);
   });
 
   it("쓰고 나면 대기 시간이 생기고, 자기 턴이 지나면 다시 쓸 수 있다", () => {
@@ -372,7 +429,7 @@ describe("스킬", () => {
   });
 
   it("대상 규칙: 기도는 아군에게만, 막아서기는 대상 없이", () => {
-    const nunFirst = start([{ ...elke, job: "nun" }, ...party.slice(0, 2)], 1, [
+    const nunFirst = start([{ ...elke, job: "priest" }, ...party.slice(0, 2)], 1, [
       dummy("e0"),
     ]);
     expect(validate(nunFirst, { type: "skill", target: "e0" })).toBe(
@@ -425,7 +482,7 @@ describe("스킬", () => {
 
   it("기도: 아군 체력 회복과 상태이상 해제, 자신에게도 쓸 수 있다", () => {
     const b = edit(
-      start([{ ...elke, job: "nun" }, ...party.slice(0, 2)], 1, [dummy("e0")]),
+      start([{ ...elke, job: "priest" }, ...party.slice(0, 2)], 1, [dummy("e0")]),
       (x) => {
         const me = unitById(x, elke.id)!;
         me.hp = 10;
@@ -471,7 +528,7 @@ describe("스킬", () => {
 
   it("독안개: 모든 적이 중독된다", () => {
     const b = act(
-      start(withJob("herbalist"), 1, [dummy("e0", 999), dummy("e1", 999)]),
+      start(withJob("monk"), 1, [dummy("e0", 999), dummy("e1", 999)]),
       { type: "skill" },
     );
     for (const id of ["e0", "e1"]) {
@@ -520,11 +577,11 @@ describe("전투 문장", () => {
   });
 });
 
-describe("마법사·정령사", () => {
+describe("반동·실패·보호막 (시험용 스킬)", () => {
   const first = (job: string): Merc[] => [
     { ...varn, job },
     { ...kass, job: "assassin" },
-    { ...elke, job: "nun" },
+    { ...elke, job: "priest" },
   ];
 
   it("불꽃 창: 2.5배 피해를 주고 자기 체력 4를 태운다", () => {
@@ -549,7 +606,7 @@ describe("마법사·정령사", () => {
     let shields = 0;
     let fizzles = 0;
     for (let seed = 1; seed <= 500; seed++) {
-      const b = act(start(first("spiritcaller"), seed, [dummy("e0", 999)]), {
+      const b = act(start(first("minstrel"), seed, [dummy("e0", 999)]), {
         type: "skill",
         target: kass.id,
       });
@@ -578,13 +635,13 @@ describe("마법사·정령사", () => {
       expect(first.damage + (first.absorbed ?? 0)).toBe(4);
   });
 
-  it("마법사·정령사가 섞인 파티도 전투 한 번은 쉽게 이긴다", () => {
-    // 탱커·딜러 + 마법사 + 정령사 (보조 직업이 하나인 흔한 조합)
+  it("마법사·바드가 섞인 파티도 전투 한 번은 쉽게 이긴다", () => {
+    // 탱커·딜러 + 마법사 + 바드 (보조 직업이 하나인 흔한 조합)
     const mixed: Merc[] = [
       { ...varn, job: "knight" },
       { ...kass, job: "greatsword" },
       { ...elke, job: "mage" },
-      { ...varn, id: "m4", job: "spiritcaller" },
+      { ...varn, id: "m4", job: "minstrel" },
     ];
     let wins = 0;
     for (let seed = 1; seed <= 1000; seed++) {
@@ -966,7 +1023,7 @@ describe("종족 패시브", () => {
   });
 
   it("기도는 출혈·중독만 씻고 각성 같은 강화는 남긴다", () => {
-    let b = start([{ ...elke, job: "nun" }], 1, [dummy("e0", 999)]);
+    let b = start([{ ...elke, job: "priest" }], 1, [dummy("e0", 999)]);
     b = edit(b, (c) => {
       unitById(c, elke.id)!.statuses = [
         { kind: "bleed", turns: 2 },
@@ -1050,38 +1107,27 @@ describe("빈 전투", () => {
 describe("미리보기", () => {
   type AttackEvent = Extract<BattleEvent, { type: "attack" }>;
   const ALL_PASSIVES = PASSIVES.map((p) => p.id);
-  const JOBS_ = [
-    "knight",
-    "assassin",
-    "nun",
-    "archer",
-    "greatsword",
-    "herbalist",
-    "mage",
-    "spiritcaller",
-  ];
 
-  it("실제 피해는 언제나 미리보기 범위 안이다 (무작위 파티·패시브·스킬 수천 번)", () => {
+  it("실제 피해는 언제나 미리보기 범위 안이다 (무작위 파티·패시브·조각 스킬 수천 번)", () => {
     let checked = 0;
     for (let seed = 0; seed < 300; seed++) {
       const r = createRng(seed);
-      const RACES_ = ["human", "dwarf", "elf", "beastfolk", "barbarian"];
       const party: Merc[] = [0, 1, 2, 3].map((i) => {
-        const job = JOBS_[Math.floor(r.next() * JOBS_.length)];
-        const race = RACES_[Math.floor(r.next() * RACES_.length)];
-        // 대표 스킬, 조합 스킬 두 개, 종족 스킬 하나
-        const skills = [
-          JOB_SKILL[job],
-          comboId(job, race, 1),
-          comboId(job, race, 2),
-          skillsFrom({ race })[Math.floor(r.next() * 4)],
-        ];
+        const job = JOB_IDS[Math.floor(r.next() * JOB_IDS.length)];
+        const races = RACE_IDS.filter((race) => canBe(race, job));
+        const race = races[Math.floor(r.next() * races.length)];
+        // 은 등급 규칙으로 무작위 조각 스킬 (부 조각 최대 2개), 부 조각 레벨도 무작위
+        const skills = [...rollStartSkills({ job, race, level: "silver" }, r.next), ...rollStartSkills({ job, race, level: "silver" }, r.next)]
+          .filter((b, k, all) => all.findIndex((x) => skillKey(x) === skillKey(b)) === k)
+          .slice(0, 4);
+        const subLevels = Object.fromEntries(skills.flatMap((b) => b.subs).map((id) => [id, 1 + Math.floor(r.next() * 3)]));
         return {
           ...varn,
           id: `m${i}`,
           job,
           race,
           skills,
+          subLevels,
           // 성장 스탯도 무작위로 (미리보기가 스탯까지 맞게 계산하는지)
           stats: {
             str: Math.floor(r.next() * 4),
@@ -1100,7 +1146,7 @@ describe("미리보기", () => {
         const pick = enemies[Math.floor(r.next() * enemies.length)];
         const ready = actor.skills.filter((id) => !(actor.cooldowns[id] > 0));
         const skill = ready.length
-          ? getSkill(ready[Math.floor(r.next() * ready.length)])!
+          ? skillDef(actor, ready[Math.floor(r.next() * ready.length)])!
           : null;
         let action: BattleAction = { type: "attack", target: pick.id };
         if (skill && r.next() < 0.6) {
@@ -1118,25 +1164,26 @@ describe("미리보기", () => {
         expect(preview, JSON.stringify(action)).not.toBeNull();
         const before = b.log.length;
         b = act(b, action);
-        // 이 행동에서 나온 이 용병의 타격 (반격 등 나중 일은 빼고, 미리보기한 대상 수만큼)
-        const hits = b.log
-          .slice(before)
-          .filter(
-            (e): e is AttackEvent =>
-              e.type === "attack" && e.actor === actor.id,
-          )
-          .slice(0, preview!.damage.length);
-        hits.forEach((hit, i) => {
-          // 미리보기는 타격 순서대로 (연타·전체 공격도)
-          const p = preview!.damage[i];
-          expect(p.target).toBe(hit.target);
+        // 이 행동에서 나온 이 용병의 타격 (반격 등 나중 일은 빼고, 미리보기한 대상 수만큼).
+        // 행동 중에 확률로 걸린 균열(장인의 눈썰미)은 뒤 타격의 피해를 바꾸므로 거기서 멈춘다 (미리보기가 알 수 없는 운)
+        const hits: AttackEvent[] = [];
+        for (const e of b.log.slice(before)) {
+          if (e.type === "status" && e.kind === "crack") break;
+          if (e.type === "attack" && e.actor === actor.id) hits.push(e);
+        }
+        // 타격을 미리보기 항목과 순서대로 짝짓는다 (앞 대상이 쓰러지면 남은 타격은 건너뛴다)
+        let at = 0;
+        hits.forEach((hit) => {
+          while (at < preview!.damage.length && preview!.damage[at].target !== hit.target) at++;
+          if (at >= preview!.damage.length) return;
+          const p = preview!.damage[at++];
           const total = hit.damage + (hit.absorbed ?? 0);
           const [lo, hi] = hit.crit ? [p.critMin, p.critMax] : [p.min, p.max];
           expect(
             total,
             `${actor.id} ${JSON.stringify(action)} seed ${seed}`,
           ).toBeGreaterThanOrEqual(lo);
-          expect(total).toBeLessThanOrEqual(hi);
+          expect(total, `${actor.id} ${JSON.stringify(action)} seed ${seed}`).toBeLessThanOrEqual(hi);
           checked++;
         });
       }
@@ -1156,7 +1203,7 @@ describe("미리보기", () => {
       previewAction(b, { type: "skill", target: "e1" })!.damage[0].kill,
     ).toBe("no");
 
-    const w = start([{ ...varn, job: "spiritcaller" }], 1, [dummy("e0", 999)]);
+    const w = start([{ ...varn, job: "minstrel" }], 1, [dummy("e0", 999)]);
     const ward = previewAction(w, { type: "skill", target: varn.id })!;
     expect(ward).toMatchObject({
       failChance: 0.2,
@@ -1164,7 +1211,7 @@ describe("미리보기", () => {
     });
 
     const n = fix2(
-      start([{ ...varn, job: "nun" }], 1, [dummy("e0", 999)]),
+      start([{ ...varn, job: "priest" }], 1, [dummy("e0", 999)]),
       varn.id,
       { hp: 10 },
     );
@@ -1188,10 +1235,10 @@ describe("미리보기", () => {
   });
 
   it("스킬 설명은 효과 조각에서 만들어진다", () => {
-    expect(SKILLS.firelance.description).toContain("2.5배");
-    expect(SKILLS.firelance.description).toContain("자기 체력 4");
-    expect(SKILLS.ward.description).toContain("20% 확률로 실패");
-    expect(SKILLS.volley.description).toContain("모든 적에게 3~5 피해");
+    expect(TEST_SKILLS.firelance.description).toContain("2.5배");
+    expect(TEST_SKILLS.firelance.description).toContain("자기 체력 4");
+    expect(TEST_SKILLS.ward.description).toContain("20% 확률로 실패");
+    expect(TEST_SKILLS.volley.description).toContain("모든 적에게 3~5 피해");
   });
 });
 
@@ -1200,20 +1247,18 @@ function fix2(b: Battle, id: string, patch: Partial<Unit>): Battle {
 }
 
 describe("장착 슬롯", () => {
-  const multi: Merc = {
+  const multi: TMerc = {
     ...varn,
     job: "knight",
-    skills: ["cleave", "pray", "volley", "guard", "power"],
+    kit: ["cleave", "pray", "volley", "guard", "power"],
   };
 
-  it("최대 4칸까지 장착하고, 장착하지 않은 스킬은 쓸 수 없다", () => {
+  it("장착하지 않은 스킬은 쓸 수 없다", () => {
     const b = start([multi], 1, [dummy("e0", 999)]);
-    expect(unitById(b, varn.id)!.skills).toEqual([
-      "cleave",
-      "pray",
-      "volley",
-      "guard",
-    ]);
+    expect(unitById(b, varn.id)!.skills).toEqual(["cleave", "pray", "volley", "guard"]);
+    // 조각 스킬도 4칸까지만 싣는다
+    const five = ["knight_slash", "knight_bulwark", "knight_duel", "knight_charge", "rc_human_cut"].map((main) => ({ main, subs: [] }));
+    expect(mercUnit({ ...varn, job: "knight", skills: five }).skills).toHaveLength(4);
     expect(validate(b, { type: "skill", skill: "power", target: "e0" })).toBe(
       "장착하지 않은 스킬",
     );
@@ -1308,7 +1353,7 @@ describe("호감 단계", () => {
     for (let seed = 0; seed < 600; seed++) {
       const units = [
         {
-          ...mercUnit({ ...varn, job: "nun" }),
+          ...tUnit({ ...varn, job: "priest" }),
           defense: 0,
           speed: 100,
           bond: "hostile" as const,
@@ -1341,18 +1386,12 @@ describe("호감 단계", () => {
 
 describe("자신에게 쓰는 스킬", () => {
   it("결의: 자신에게 각성, 연막: 자신에게 보호막, 미리보기도 자신을 가리킨다", () => {
-    const merc: Merc = {
-      ...varn,
-      job: "assassin",
-      skills: ["human_resolve", "assassin_smoke"],
-    };
+    const merc: TMerc = { ...varn, job: "assassin", kit: ["resolve", "smoke"] };
     let b = start([merc], 1, [dummy("e0", 999)]);
-    expect(
-      previewAction(b, { type: "skill", skill: "human_resolve" })!.applies,
-    ).toEqual([{ target: varn.id, kind: "awaken" }]);
-    b = act(b, { type: "skill", skill: "human_resolve" });
+    expect(previewAction(b, { type: "skill", skill: "resolve" })!.applies).toEqual([{ target: varn.id, kind: "awaken", chance: 1 }]);
+    b = act(b, { type: "skill", skill: "resolve" });
     expect(hasStatus(unitById(b, varn.id)!, "awaken")).toBe(true);
-    b = act(b, { type: "skill", skill: "assassin_smoke" });
+    b = act(b, { type: "skill", skill: "smoke" });
     expect(b.log).toContainEqual({
       type: "shield",
       target: varn.id,
@@ -1362,94 +1401,199 @@ describe("자신에게 쓰는 스킬", () => {
   });
 });
 
-describe("조합 스킬 변형", () => {
-  const go = (merc: Merc, enemies: Unit[], seed = 1) =>
-    start([merc], seed, enemies);
+describe("효과 규칙 (시험용 스킬)", () => {
+  const go = (merc: TMerc, enemies: Unit[], seed = 1) => start([merc], seed, enemies);
 
-  it("수인 연타: 같은 대상을 두 번, 각 60%", () => {
-    const id = comboId("knight", "beastfolk", 1); // 막아서기는 피해가 없으니 회복·보호막 변형이 된다
-    expect(getSkill(id)!.name).toContain("막아서기");
-    const pierce2 = comboId("assassin", "beastfolk", 1);
-    const b = act(
-      go({ ...varn, job: "assassin", race: "beastfolk", skills: [pierce2] }, [
-        dummy("e0", 999),
-      ]),
-      { type: "skill", skill: pierce2, target: "e0" },
-    );
-    expect(
-      b.log.filter((e) => e.type === "attack" && e.actor === varn.id),
-    ).toHaveLength(2);
-    expect(
-      previewAction(
-        go({ ...varn, job: "assassin", race: "beastfolk", skills: [pierce2] }, [
-          dummy("e0", 999),
-        ]),
-        { type: "skill", skill: pierce2, target: "e0" },
-      )!.damage,
-    ).toHaveLength(2);
+  it("연타: 같은 대상을 두 번, 미리보기도 두 번", () => {
+    const merc: TMerc = { ...varn, job: "assassin", kit: ["twin"] };
+    const b = act(go(merc, [dummy("e0", 999)]), { type: "skill", skill: "twin", target: "e0" });
+    expect(b.log.filter((e) => e.type === "attack" && e.actor === varn.id)).toHaveLength(2);
+    expect(previewAction(go(merc, [dummy("e0", 999)]), { type: "skill", skill: "twin", target: "e0" })!.damage).toHaveLength(2);
   });
 
-  it("수인 사냥: 처치하면 그 스킬을 바로 다시 쓸 수 있다", () => {
-    const id = comboId("greatsword", "beastfolk", 2);
-    let b = go(
-      { ...varn, job: "greatsword", race: "beastfolk", skills: [id] },
-      [dummy("e0", 1), dummy("e1", 999)],
-    );
-    b = act(b, { type: "skill", skill: id, target: "e0" });
+  it("처치하면 대기 초기화", () => {
+    let b = go({ ...varn, job: "greatsword", kit: ["hunt"] }, [dummy("e0", 1), dummy("e1", 999)]);
+    b = act(b, { type: "skill", skill: "hunt", target: "e0" });
     expect(b.log.some((e) => e.type === "refresh")).toBe(true);
-    expect(validate(b, { type: "skill", skill: id, target: "e1" })).toBeNull();
+    expect(validate(b, { type: "skill", skill: "hunt", target: "e1" })).toBeNull();
   });
 
-  it("인간 지원: 아군 스킬은 대상의 옆 아군도 절반 받는다", () => {
-    const id = comboId("nun", "human", 1);
-    let b = start(
-      [{ ...elke, job: "nun", race: "human", skills: [id] }, varn, kass],
-      1,
-      [dummy("e0", 999)],
-    );
+  it("옆 아군 지원: 아군 스킬은 대상의 옆 아군도 절반 받는다", () => {
+    let b = start([{ ...elke, job: "priest", kit: ["mend_all"] }, varn, kass], 1, [dummy("e0", 999)]);
     b = edit(b, (c) => c.units.forEach((u) => u.side === "merc" && (u.hp = 5)));
-    b = act(b, { type: "skill", skill: id, target: varn.id }); // 바른의 옆: 엘케, 카스
+    b = act(b, { type: "skill", skill: "mend_all", target: varn.id }); // 바른의 옆: 엘케, 카스
     const heals = b.log.filter((e) => e.type === "heal" && e.by === elke.id);
-    expect(
-      heals.map((e) => (e.type === "heal" ? [e.target, e.amount] : null)),
-    ).toEqual([
+    expect(heals.map((e) => (e.type === "heal" ? [e.target, e.amount] : null))).toEqual([
       [varn.id, 8],
       [elke.id, 4],
       [kass.id, 4],
     ]);
   });
 
-  it("드워프 버팀: 방어 +2 / 엘프 선제: 다음 라운드에 맨 먼저", () => {
-    const brace = comboId("archer", "dwarf", 2);
-    let b = start(
-      [{ ...varn, job: "archer", race: "dwarf", skills: [brace] }],
-      1,
-      [dummy("e0", 999, { attack: [6, 6] })],
-    );
-    b = act(b, { type: "skill", skill: brace });
+  it("버팀: 방어 +2 / 선제: 다음 라운드에 맨 먼저", () => {
+    let b = start([{ ...varn, job: "archer", kit: ["brace"] }], 1, [dummy("e0", 999, { attack: [6, 6] })]);
+    b = act(b, { type: "skill", skill: "brace" });
     const hit = b.log.find((e) => e.type === "attack" && e.actor === "e0");
     if (hit?.type === "attack" && !hit.crit) expect(hit.damage).toBe(4);
 
-    const haste = comboId("archer", "elf", 1);
-    let h = start(
-      [varn, { ...kass, job: "archer", race: "elf", skills: [haste] }],
-      1,
-      [dummy("e0", 999)],
-    );
+    let h = start([varn, { ...kass, job: "archer", kit: ["haste"] }], 1, [dummy("e0", 999)]);
     h = act(h, { type: "attack", target: "e0" });
-    h = act(h, { type: "skill", skill: haste });
+    h = act(h, { type: "skill", skill: "haste" });
     expect(h.order[0]).toBe(kass.id);
   });
+});
 
-  it("바바리안 광기는 위력 +80%와 자기 체력 -3, 드워프 강화는 대기 +1", () => {
-    const frenzy = getSkill(comboId("mage", "barbarian", 1))!;
-    expect(frenzy.effects).toContainEqual({ kind: "selfCost", hp: 3 });
-    expect(frenzy.effects.find((e) => e.kind === "damage")).toMatchObject({
-      multiplier: 4.5,
-    });
-    expect(getSkill(comboId("mage", "dwarf", 1))!.cooldown).toBe(
-      SKILLS.firelance.cooldown + 1,
-    );
+describe("조각 스킬 (엔진 1단계)", () => {
+  const build = (main: string, ...subs: string[]) => ({ main, subs });
+  /** 조각 스킬 하나를 든 용병 (방어 0, 맨 먼저 행동) */
+  const one = (m: Partial<Merc>, enemies: Unit[], seed = 1) => start([{ ...varn, ...m }], seed, enemies);
+
+  it("두 스탯 혼합 피해: 힘 1.0배 + 마법 0.3배 (스탯도 배율만큼)", () => {
+    const merc = { job: "knight", race: "elf", skills: [build("knight_elf_main")], stats: { str: 4, mag: 10 } };
+    const b = one(merc, [dummy("e0", 999)]);
+    const id = unitById(b, varn.id)!.skills[0];
+    const p = previewAction(b, { type: "skill", skill: id, target: "e0" })!.damage[0];
+    // 공격력 6~9 × 1.3 = 8~12, + 힘 4 × 1 + 마법 10 × 0.3 = +7
+    expect([p.min, p.max]).toEqual([8 + 7, 12 + 7]);
+  });
+
+  it("고정 피해와 방어 무시: 오러 블레이드(방어 20% 무시) + 오러 Lv3(고정 +5)", () => {
+    const merc = { job: "knight", race: "human", skills: [build("knight_human_main", "knight_human_sub")], subLevels: { knight_human_sub: 3 } };
+    const armored = dummy("e0", 999, { defense: 10 });
+    const b = one(merc, [armored]);
+    const id = unitById(b, varn.id)!.skills[0];
+    const p = previewAction(b, { type: "skill", skill: id, target: "e0" })!.damage[0];
+    // (6~9 + 5) - 방어 10 × 0.8 = 3~6
+    expect([p.min, p.max]).toEqual([11 - 8, 14 - 8]);
+    const plain = previewAction(b, { type: "attack", target: "e0" })!.damage[0];
+    expect(plain.min).toBe(1); // 기본 공격은 방어를 다 받는다
+  });
+
+  it("다회 타격: 연격을 낀 검격은 두 번 친다", () => {
+    let b = one({ job: "knight", skills: [build("knight_slash", "knight_combo")] }, [dummy("e0", 999)]);
+    const id = unitById(b, varn.id)!.skills[0];
+    expect(previewAction(b, { type: "skill", skill: id, target: "e0" })!.damage).toHaveLength(2);
+    b = act(b, { type: "skill", skill: id, target: "e0" });
+    expect(b.log.filter((e) => e.type === "attack" && e.actor === varn.id)).toHaveLength(2);
+  });
+
+  it("대기: 대기 1이면 다음 자기 차례 한 번을 쉰다, 대기 0이면 매 차례", () => {
+    let b = one({ job: "knight", skills: [build("knight_charge"), build("knight_slash")] }, [dummy("e0", 999)]);
+    b = act(b, { type: "skill", skill: "knight_charge", target: "e0" });
+    expect(validate(b, { type: "skill", skill: "knight_charge", target: "e0" })).toBe("1턴 뒤에 쓸 수 있다");
+    expect(validate(b, { type: "skill", skill: "knight_slash", target: "e0" })).toBeNull();
+    b = act(b, { type: "skill", skill: "knight_slash", target: "e0" });
+    expect(validate(b, { type: "skill", skill: "knight_slash", target: "e0" })).toBeNull();
+    expect(validate(b, { type: "skill", skill: "knight_charge", target: "e0" })).toBeNull();
+  });
+
+  it("기절: 걸리면 다음 차례를 쉬고, 걸릴 때마다 기절 저항이 40%씩 쌓인다", () => {
+    let b = one({ job: "monk", skills: [build("monk_upper")] }, [dummy("e0", 999, { speed: 50 })]);
+    const target = () => unitById(b, "e0")!;
+    expect(resistOf(target(), "stun")).toBeCloseTo(RESIST.stunBase.normal);
+    // 어퍼컷: 기절 100% (저항 적용) → 첫 번은 90%
+    expect(previewAction(b, { type: "skill", skill: "monk_upper", target: "e0" })!.applies[0].chance).toBeCloseTo(1 - RESIST.stunBase.normal);
+    let stunned = 0;
+    for (let seed = 0; seed < 200; seed++) {
+      let c = edit(b, (x) => (x.rng = seed));
+      c = act(c, { type: "skill", skill: "monk_upper", target: "e0" });
+      if (c.log.some((e) => e.type === "status" && e.kind === "stun")) {
+        stunned++;
+        expect(unitById(c, "e0")!.fx?.stunCount).toBe(1);
+        expect(resistOf(unitById(c, "e0")!, "stun")).toBeCloseTo(RESIST.stunBase.normal + RESIST.stunStep);
+        // 허수아비의 다음 차례는 기절로 넘어간다
+        c = act(c, { type: "attack", target: "e0" });
+        expect(c.log.some((e) => e.type === "stunned" && e.target === "e0")).toBe(true);
+      }
+    }
+    expect(stunned / 200).toBeGreaterThan(0.8);
+    // 세 번 걸리면 (0.1 + 1.2) 더는 걸리지 않는다
+    b = edit(b, (x) => (unitById(x, "e0")!.fx = { stunCount: 3 }));
+    expect(previewAction(b, { type: "skill", skill: "monk_upper", target: "e0" })!.applies[0].chance).toBe(0);
+  });
+
+  it("흔들림은 기절 저항을 깎고, 확정 기절은 저항을 무시한다", () => {
+    const u = { ...dummy("e0"), rank: "dungeonBoss" as const, statuses: [{ kind: "shaken" as const, turns: 2, value: 0.3 }] };
+    expect(resistOf(u, "stun")).toBeCloseTo(RESIST.stunBase.dungeonBoss - 0.3);
+    let b = one({ job: "monk", ultimate: "ult_monk" }, [dummy("e0", 999, { rank: "dungeonBoss", fx: { stunCount: 5 } })]);
+    b = act(b, { type: "skill", skill: "ult_monk", target: "e0" });
+    expect(b.log).toContainEqual({ type: "status", target: "e0", kind: "stun" });
+    // 확정 기절은 저항을 쌓지 않는다
+    expect(unitById(b, "e0")!.fx?.stunCount).toBe(5);
+  });
+
+  it("디버프: 둔화는 속도, 방어 감소는 방어, 회피 감소는 회피를 깎는다", () => {
+    let b = one({ job: "monk", race: "dwarf", skills: [build("monk_dwarf_main")] }, [dummy("e0", 999, { speed: 5 })]);
+    b = act(b, { type: "skill", skill: "monk_dwarf_main", target: "e0" });
+    expect(statusValue(unitById(b, "e0")!, "slow")).toBe(2);
+    expect(speedOf(unitById(b, "e0")!)).toBe(3);
+
+    let d = one({ job: "knight", race: "dwarf", skills: [build("knight_dwarf_main")] }, [dummy("e0", 999, { defense: 3 })]);
+    const before = previewAction(d, { type: "attack", target: "e0" })!.damage[0].min;
+    d = act(d, { type: "skill", skill: "knight_dwarf_main", target: "e0" });
+    d = edit(d, (x) => (x.turn = x.order.indexOf(varn.id)));
+    expect(previewAction(d, { type: "attack", target: "e0" })!.damage[0].min).toBe(before + 2);
+  });
+
+  it("자기 강화는 쓴 행동이 끝나도 남아 다음 행동까지 간다 (방벽 2턴 → 다음 두 번의 행동)", () => {
+    let b = one({ job: "knight", skills: [build("knight_bulwark"), build("knight_slash")] }, [dummy("e0", 999, { attack: [8, 8] })]);
+    b = act(b, { type: "skill", skill: "knight_bulwark" });
+    const me = () => unitById(b, varn.id)!;
+    expect(statusValue(me(), "armorUp")).toBe(3);
+    b = act(b, { type: "attack", target: "e0" });
+    expect(statusValue(me(), "armorUp")).toBe(3);
+    b = act(b, { type: "attack", target: "e0" });
+    expect(statusValue(me(), "armorUp")).toBe(0);
+  });
+
+  it("응축: 다음 공격 한 번의 위력이 오르고 사라진다", () => {
+    let b = one({ job: "greatsword", skills: [build("gs_stance")] }, [dummy("e0", 999)]);
+    const plain = previewAction(b, { type: "attack", target: "e0" })!.damage[0];
+    b = act(b, { type: "skill", skill: "gs_stance" });
+    const charged = previewAction(b, { type: "attack", target: "e0" })!.damage[0];
+    expect(charged.min).toBe(plain.min * 2);
+    b = act(b, { type: "attack", target: "e0" });
+    expect(hasStatus(unitById(b, varn.id)!, "charge")).toBe(false);
+  });
+
+  it("흡혈: 준 피해의 비율만큼 회복", () => {
+    let b = one({ job: "greatsword", skills: [build("gs_strike", "gs_vamp")] }, [dummy("e0", 999)]);
+    b = fix2(b, varn.id, { hp: 10 });
+    const id = unitById(b, varn.id)!.skills[0];
+    b = act(b, { type: "skill", skill: id, target: "e0" });
+    const hit = b.log.find((e) => e.type === "attack" && e.actor === varn.id);
+    const healed = b.log.find((e) => e.type === "heal" && e.target === varn.id);
+    expect(hit?.type === "attack" && healed?.type === "heal" && healed.amount).toBe(Math.round((hit as { damage: number }).damage * 0.2));
+  });
+
+  it("출혈 부 조각(피해 2)과 출혈 취약: 저항이 음수면 더 잘 걸린다", () => {
+    let b = one({ job: "assassin", skills: [build("as_throw", "as_bleed")] }, [dummy("e0", 999)]);
+    const id = unitById(b, varn.id)!.skills[0];
+    b = act(b, { type: "skill", skill: id, target: "e0" });
+    expect(unitById(b, "e0")!.statuses.find((x) => x.kind === "bleed")).toMatchObject({ value: 2 });
+    const vuln = { ...dummy("e1"), statuses: [{ kind: "bleedVuln" as const, turns: 2, value: 0.3 }] };
+    expect(resistOf(vuln, "bleed")).toBeCloseTo(-0.3);
+  });
+
+  it("아군 전체 강화와 재생: 용기의 노래, 선조의 토템", () => {
+    let b = start([{ ...elke, job: "minstrel", skills: [build("mn_courage")] }, varn, kass], 1, [dummy("e0", 999)]);
+    b = act(b, { type: "skill", skill: "mn_courage" });
+    for (const id of [elke.id, varn.id, kass.id]) expect(statusValue(unitById(b, id)!, "attackUp")).toBe(2);
+
+    let t = start([{ ...elke, job: "priest", race: "barbarian", skills: [build("pr_barbarian_main")] }, varn], 1, [dummy("e0", 999)]);
+    t = edit(t, (x) => x.units.forEach((u) => u.side === "merc" && (u.hp = 5)));
+    t = act(t, { type: "skill", skill: "pr_barbarian_main" });
+    t = act(t, { type: "attack", target: "e0" }); // 바른 차례 시작에 재생
+    t = act(t, { type: "attack", target: "e0" });
+    expect(t.log.some((e) => e.type === "heal" && e.target === varn.id && e.amount === 2)).toBe(true);
+  });
+
+  it("2단계 효과(later)는 전투에서 아무 일도 하지 않는다", () => {
+    let b = one({ job: "knight", skills: [build("knight_duel")] }, [dummy("e0", 999)]);
+    const before = structuredClone(unitById(b, "e0")!);
+    b = act(b, { type: "skill", skill: "knight_duel", target: "e0" });
+    expect(b.log.some((e) => e.type === "skill" && e.skill === "knight_duel")).toBe(true);
+    expect(unitById(b, "e0")!.statuses).toEqual(before.statuses);
   });
 });
 
@@ -1460,14 +1604,17 @@ describe("용병형 적", () => {
         ...kass,
         job: "greatsword",
         race: "barbarian",
-        skills: ["cleave", "barb_frenzy"],
+        skills: [
+          { main: "gs_strike", subs: [] },
+          { main: "rc_barb_swing", subs: [] },
+        ],
         passives: ["blood_thirst"],
       },
       "e0",
     );
     expect(raider).toMatchObject({
       side: "enemy",
-      skills: ["cleave", "barb_frenzy"],
+      skills: ["gs_strike", "rc_barb_swing"],
     });
     let used = 0;
     for (let seed = 0; seed < 100; seed++) {
@@ -1588,7 +1735,7 @@ describe("빈사와 죽음", () => {
   it("생존 확률: 기본 50%, 호감·종족·등급으로 오르내리고 5~95% 안", () => {
     expect(survivalChance({})).toBe(0.5);
     expect(
-      survivalChance({ bond: "trusted", race: "barbarian", level: "legend" }),
+      survivalChance({ bond: "trusted", race: "barbarian", level: "radiant" }),
     ).toBe(0.95);
     expect(survivalChance({ bond: "hostile", race: "elf" })).toBeCloseTo(0.2);
   });
@@ -1602,7 +1749,7 @@ describe("성장 스탯", () => {
     expect(u.evadeBonus).toBeCloseTo(0.04);
   });
 
-  it("힘은 기본 공격에, 마법은 마법 기술에만 더해진다", () => {
+  it("힘은 기본 공격에, 마법은 마법 기술에만 더해진다 (스탯도 기술 배율만큼)", () => {
     const mage: Merc = { ...varn, job: "mage", stats: { str: 2, mag: 5 } };
     const b = start([mage], 1, [dummy("e0", 999)]);
     const plain = start([{ ...varn, job: "mage" }], 1, [dummy("e0", 999)]);
@@ -1611,11 +1758,12 @@ describe("성장 스탯", () => {
     expect(atk.min).toBe(base.min + 2);
     const fire = previewAction(b, { type: "skill", skill: "firelance", target: "e0" })!.damage[0];
     const fireBase = previewAction(plain, { type: "skill", skill: "firelance", target: "e0" })!.damage[0];
-    expect(fire.min).toBe(fireBase.min + 5);
+    // 불꽃 창은 2.5배: 마법 5 × 2.5 = 12.5 → 13
+    expect(fire.min).toBe(fireBase.min + 13);
   });
 
   it("신성은 회복량을 올린다", () => {
-    const nun = (faith: number) => fix2(start([{ ...varn, job: "nun", stats: { faith } }], 1, [dummy("e0", 999)]), varn.id, { hp: 1 });
+    const nun = (faith: number) => fix2(start([{ ...varn, job: "priest", stats: { faith } }], 1, [dummy("e0", 999)]), varn.id, { hp: 1 });
     expect(previewAction(nun(0), { type: "skill", skill: "pray", target: varn.id })!.heal!.amount).toBe(8);
     expect(previewAction(nun(3), { type: "skill", skill: "pray", target: varn.id })!.heal!.amount).toBe(11);
     const b = act(nun(3), { type: "skill", skill: "pray", target: varn.id });

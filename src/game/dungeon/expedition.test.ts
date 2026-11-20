@@ -33,8 +33,8 @@ const [varn, kass, elke] = TEST_MERCS;
 const mercs: Merc[] = [
   { ...varn, job: "knight" },
   { ...kass, job: "assassin" },
-  { ...elke, job: "nun" },
-  { ...varn, id: "v2", job: "herbalist" },
+  { ...elke, job: "priest" },
+  { ...varn, id: "v2", job: "archer" },
 ];
 
 /** 원하는 종류의 칸이 입구 바로 다음에 있는 맵을 찾는다 */
@@ -160,7 +160,7 @@ describe("탐험", () => {
   });
 
   it("맞는 사람이 있으면 그 사람이 나서고, 없으면 이유가 보인다", () => {
-    const base = startExpedition(mercs, 5); // 약초꾼(v2) 있음, 드워프 없음
+    const base = startExpedition(mercs, 5); // 궁수(v2) 있음, 드워프 없음
     const spring: Expedition = { ...structuredClone(base), room: { kind: "event", eventId: "strange_spring", result: null } };
     expect(choiceProblem(spring, "strange_spring", "check")).toBeNull();
     const done = chooseEvent(spring, "check", 1);

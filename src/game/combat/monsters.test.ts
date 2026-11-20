@@ -5,7 +5,7 @@ import { getRegion } from "@/data/regions";
 import { createRng } from "@/game/random";
 import { generateMap } from "@/game/dungeon/map";
 import { placeFloorBoss } from "@/game/dungeon/expedition";
-import { getSkill } from "@/data/skillgen";
+import { getSkill } from "@/game/skills";
 import { act, bossEncounter, currentActor, enemyUnit, living, makeElite, mercUnit, rollEncounter, startBattleWithUnits, strikeFactors, type Battle, type Unit } from "./engine";
 import { describe as describeEvent } from "./text";
 

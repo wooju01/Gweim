@@ -1,4 +1,5 @@
-import { LEVELS, getPassive } from "@/data/passives";
+import { getPassive } from "@/data/passives";
+import { RANKS } from "@/data/ranks";
 import { CURRENCY } from "@/data/economy";
 import { wageOf } from "@/game/merc/wages";
 import type { Merc } from "@/game/types";
@@ -81,7 +82,7 @@ export function GuildScreen({ mercs, progress, recruit, onRecruit, onTalk, onDis
                   <ul className="flex flex-wrap gap-1">
                     {merc.level && (
                       <li className="rounded-sm bg-edge/60 px-1.5 py-0.5 text-[11px] text-bone">
-                        {LEVELS[merc.level].name}
+                        {RANKS[merc.level].name}
                       </li>
                     )}
                     {merc.tags.map((tag) => (

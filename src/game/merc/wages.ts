@@ -6,7 +6,7 @@ export type OfferKind = "advance" | "share";
 
 /** 용병이 원하는 원정 1회 보수 (몫 약속을 했으면 더 많다) */
 export function wageOf(merc: Merc, share = false): number {
-  const base = WAGE.base[merc.level ?? "apprentice"];
+  const base = WAGE.base[merc.level ?? "bronze"];
   const ids = [...(merc.traitIds?.personalities ?? []), merc.traitIds?.background ?? ""];
   const extra = ids.reduce((s, id) => s + (WAGE.extra[id] ?? 0), 0);
   return Math.round((base + extra) * (share ? WAGE.shareMultiplier : 1));

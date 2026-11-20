@@ -4,6 +4,7 @@ import type { Merc } from "@/game/types";
 import { wageOf } from "@/game/merc/wages";
 import { xpToNext } from "@/game/merc/growth";
 import { CURRENCY } from "@/data/economy";
+import { rankLabel } from "@/data/ranks";
 import type { Stage } from "@/lib/schemas";
 import { Button, Portrait } from "@/components/common/parts";
 import type { MercProgress } from "@/game/state/state";
@@ -71,7 +72,7 @@ export function InnScreen({ day, gold, hired, progress, party, onToggle, onBack 
                   </span>
                   <span className="text-xs text-ash">{merc.title}</span>
                   <span className="text-xs text-ash">
-                    보수 {CURRENCY} {p.wage ?? wageOf(merc)} / 원정 · 레벨 {p.lv}
+                    보수 {CURRENCY} {p.wage ?? wageOf(merc)} / 원정 · {merc.level ? rankLabel(merc.level, p.lv) : `레벨 ${p.lv}`}
                     {xpToNext(p.lv) === null ? " (승급 가능)" : ` · 경험치 ${p.xp}/${xpToNext(p.lv)}`}
                   </span>
                   <Button

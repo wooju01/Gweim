@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ALL_TRAITS, BACKGROUNDS, JOBS, PERSONALITIES, RACES, getTrait } from "@/data/traits";
 import { MercSeed } from "@/lib/schemas";
 import { PASSIVES, getPassive, passivesOf } from "@/data/passives";
+import { canBe } from "@/data/jobs";
 import { dislikedTones, likedTones } from "./affinity";
 import {
   pickImpression,
@@ -80,10 +81,10 @@ describe("rollTraits", () => {
     }
   });
 
-  it("파문은 수녀에게만 나온다", () => {
+  it("파문은 사제에게만 나온다", () => {
     const excommunicated = rolls.filter((r) => r.ids.background === "excommunicated");
     expect(excommunicated.length).toBeGreaterThan(0);
-    for (const r of excommunicated) expect(r.ids.job).toBe("nun");
+    for (const r of excommunicated) expect(r.ids.job).toBe("priest");
   });
 
   it("다정함과 싸가지없음은 같이 나오지 않는다", () => {
@@ -139,7 +140,7 @@ describe("combineReactions", () => {
 
   it("뽑힌 용병은 대부분 좋아하는 태도와 싫어하는 태도를 모두 가진다", () => {
     const mercs = rollMany().map(({ ids, start }) =>
-      buildMerc({ id: "x", traits: ids, start: start!, level: "apprentice", passives: [], skills: [], profile }),
+      buildMerc({ id: "x", traits: ids, start: start!, level: "bronze", passives: [], skills: [], profile }),
     );
     const complete = mercs.filter((m) => likedTones(m!).length > 0 && dislikedTones(m!).length > 0);
     expect(complete.length / mercs.length).toBeGreaterThan(0.95);
@@ -149,29 +150,29 @@ describe("combineReactions", () => {
 describe("buildMerc", () => {
   const seed: MercSeed = {
     id: "r-test",
-    traits: { race: "human", job: "nun", personalities: ["rude"], background: "excommunicated" },
+    traits: { race: "human", job: "priest", personalities: ["rude"], background: "excommunicated" },
     start: { affinity: 15, willingness: 40 },
-    level: "apprentice",
+    level: "bronze",
     passives: [],
     skills: [],
     profile,
   };
 
-  it("싸가지없는 수녀: 반응표는 특성에서 계산되고 태그가 붙는다", () => {
+  it("싸가지없는 사제: 반응표는 특성에서 계산되고 태그가 붙는다", () => {
     const merc = buildMerc(seed)!;
-    expect(merc.tags).toEqual(["인간", "수녀", "싸가지없음", "파문"]);
+    expect(merc.tags).toEqual(["인간", "사제", "싸가지없음", "파문"]);
     expect(merc.race).toBe("human");
     expect(merc.reactions.mockery).toMatchObject({ affinity: 2, willingness: 1 });
     expect(merc.startWillingness).toBe(40);
   });
 
   it("규칙을 어긴 조합이나 없는 특성은 거부한다", () => {
-    expect(buildMerc({ ...seed, traits: { ...seed.traits, job: "knight" } })).toBeNull(); // 파문은 수녀만
+    expect(buildMerc({ ...seed, traits: { ...seed.traits, job: "knight" } })).toBeNull(); // 파문은 사제만
     expect(buildMerc({ ...seed, traits: { ...seed.traits, personalities: ["kind", "rude"] } })).toBeNull();
     expect(buildMerc({ ...seed, traits: { ...seed.traits, job: "dragon" } })).toBeNull();
     expect(buildMerc({ ...seed, traits: { ...seed.traits, job: "kind" } })).toBeNull(); // 성격을 직업 자리에
     expect(buildMerc({ ...seed, traits: { ...seed.traits, race: "dragon" } })).toBeNull();
-    expect(buildMerc({ ...seed, traits: { ...seed.traits, race: "nun" } })).toBeNull(); // 직업을 종족 자리에
+    expect(buildMerc({ ...seed, traits: { ...seed.traits, race: "priest" } })).toBeNull(); // 직업을 종족 자리에
   });
 });
 
@@ -226,11 +227,35 @@ describe("종족", () => {
     expect(table.respect).toMatchObject({ affinity: 2, willingness: 1 });
   });
 
-  it("엘프는 정령사가, 바바리안은 대검사가 더 잘 나오고 바바리안 마법사는 드물다", () => {
+  it("종족×직업 표 밖의 직업은 나오지 않고, 표 안에서는 종족 가중치를 따른다", () => {
+    const jobs = (race: string) => jobsFor(getTrait(race)!).map((j) => j.id);
+    expect(jobs("beastfolk")).not.toContain("knight");
+    expect(jobs("barbarian")).not.toContain("mage");
+    expect(jobs("elf")).not.toContain("guardian");
+    expect(jobs("human")).toHaveLength(9);
     const weight = (race: string, job: string) => jobsFor(getTrait(race)!).find((j) => j.id === job)!.rarity;
-    expect(weight("elf", "spiritcaller")).toBeGreaterThan(weight("human", "spiritcaller"));
+    expect(weight("elf", "mage")).toBeGreaterThan(weight("human", "mage"));
     expect(weight("barbarian", "greatsword")).toBeGreaterThan(weight("human", "greatsword"));
-    expect(weight("barbarian", "mage")).toBeLessThan(weight("human", "mage"));
+    // 뽑힌 조합은 언제나 표 안에 있다
+    const rand = seededRandom(3);
+    for (let i = 0; i < 500; i++) {
+      const t = rollTraits(rand);
+      expect(canBe(t.race, t.job), `${t.race}/${t.job}`).toBe(true);
+    }
+  });
+
+  it("표 밖 조합(수인 기사)의 시드는 거부한다", () => {
+    const seed: MercSeed = {
+      id: "x",
+      traits: { race: "beastfolk", job: "knight", personalities: ["kind"], background: "wanderer" },
+      start: { affinity: 40, willingness: 40 },
+      level: "bronze",
+      passives: [],
+      skills: [],
+      profile,
+    };
+    expect(buildMerc(seed)).toBeNull();
+    expect(buildMerc({ ...seed, traits: { ...seed.traits, job: "monk" } })).not.toBeNull();
   });
 
   it("수인은 시작 호감이 낮다", () => {
@@ -250,11 +275,11 @@ describe("등급과 패시브", () => {
     expect(new Set(PASSIVES.map((p) => p.id)).size).toBe(PASSIVES.length);
   });
 
-  it("견습은 패시브 0~1개로 시작하고, 반쯤은 하나를 갖는다", () => {
+  it("동 등급은 패시브 0~1개로 시작하고, 반쯤은 하나를 갖는다", () => {
     const rand = seededRandom(9);
     let withOne = 0;
     for (let i = 0; i < 2000; i++) {
-      const passives = rollPassives("dwarf", "apprentice", rand);
+      const passives = rollPassives("dwarf", "bronze", rand);
       expect(passives.length).toBeLessThanOrEqual(1);
       if (passives.length === 1) {
         withOne++;
@@ -266,13 +291,13 @@ describe("등급과 패시브", () => {
   });
 
   it("다른 종족 패시브, 없는 패시브, 등급 한도 초과, 중복은 거부한다", () => {
-    expect(validPassives("dwarf", "apprentice", ["rock_root"])).toBe(true);
-    expect(validPassives("dwarf", "apprentice", [])).toBe(true);
-    expect(validPassives("dwarf", "apprentice", ["keen_eye"])).toBe(false); // 엘프 것
-    expect(validPassives("dwarf", "apprentice", ["fly"])).toBe(false);
-    expect(validPassives("dwarf", "apprentice", ["rock_root", "steel_heart"])).toBe(false); // 견습은 1개까지
-    expect(validPassives("dwarf", "skilled", ["rock_root", "steel_heart"])).toBe(true);
-    expect(validPassives("dwarf", "skilled", ["rock_root", "rock_root"])).toBe(false);
+    expect(validPassives("dwarf", "bronze", ["rock_root"])).toBe(true);
+    expect(validPassives("dwarf", "bronze", [])).toBe(true);
+    expect(validPassives("dwarf", "bronze", ["keen_eye"])).toBe(false); // 엘프 것
+    expect(validPassives("dwarf", "bronze", ["fly"])).toBe(false);
+    expect(validPassives("dwarf", "bronze", ["rock_root", "steel_heart"])).toBe(false); // 동은 1개까지
+    expect(validPassives("dwarf", "silver", ["rock_root", "steel_heart"])).toBe(true);
+    expect(validPassives("dwarf", "silver", ["rock_root", "rock_root"])).toBe(false);
   });
 
   it("buildMerc는 시드의 등급과 패시브를 싣고, 규칙을 어기면 거부한다", () => {
@@ -280,22 +305,22 @@ describe("등급과 패시브", () => {
       id: "d-1",
       traits: { race: "dwarf", job: "greatsword", personalities: ["jovial"], background: "veteran" },
       start: { affinity: 15, willingness: 40 },
-      level: "apprentice",
+      level: "bronze",
       passives: ["rock_root"],
       skills: [],
       profile,
     };
-    expect(buildMerc(seed)).toMatchObject({ level: "apprentice", passives: ["rock_root"] });
+    expect(buildMerc(seed)).toMatchObject({ level: "bronze", passives: ["rock_root"] });
     expect(buildMerc({ ...seed, passives: ["keen_eye"] })).toBeNull();
   });
 
-  it("예전 시드처럼 등급·패시브가 없으면 견습, 패시브 없음으로 읽는다", () => {
+  it("예전 시드처럼 등급·패시브가 없으면 동, 패시브 없음으로 읽는다", () => {
     const old = {
       id: "o-1",
       traits: { race: "human", job: "archer", personalities: ["kind"], background: "wanderer" },
       start: { affinity: 15, willingness: 40 },
       profile,
     };
-    expect(MercSeed.parse(old)).toMatchObject({ level: "apprentice", passives: [] });
+    expect(MercSeed.parse(old)).toMatchObject({ level: "bronze", passives: [] });
   });
 });

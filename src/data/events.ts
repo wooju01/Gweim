@@ -107,7 +107,7 @@ export const EVENTS: EventTemplate[] = [
         text: "성직자에게 정신을 맑게 하는 기도를 부탁한다.",
         approach: "person",
         tone: "mercy",
-        requires: { job: "nun" },
+        requires: { job: "priest" },
         outcomes: once("{helper}의 기도가 끝나자 모험가가 눈을 번쩍 떴다. 물약을 나눠 주고는 꾸벅 인사하고 떠났다. 모두 한숨 돌렸다.", { healAll: 3, supply: { potion: 1 } }),
       },
       {
@@ -146,10 +146,10 @@ export const EVENTS: EventTemplate[] = [
       },
       {
         id: "check",
-        text: "약초를 아는 동료에게 물을 살펴보게 한다.",
+        text: "숲을 잘 아는 궁수에게 물을 살펴보게 한다.",
         approach: "person",
         tone: null,
-        requires: { job: "herbalist" },
+        requires: { job: "archer" },
         outcomes: once("{helper}이(가) 물 냄새를 맡고 괜찮다고 했다. 모두 마시고 기운을 차렸다.", { healAll: 6 }),
       },
       {
@@ -222,10 +222,10 @@ export const EVENTS: EventTemplate[] = [
       },
       {
         id: "commune",
-        text: "정령과 말을 나눌 줄 아는 동료에게 맡긴다.",
+        text: "정령과 말을 나눌 줄 아는 엘프 동료에게 맡긴다.",
         approach: "person",
         tone: "respect",
-        requires: { job: "spiritcaller" },
+        requires: { race: "elf" },
         outcomes: once("{helper}이(가) 봉인에 깃든 정령과 말을 나누자 문이 열렸다. 안에 물약과 오래된 유물이 있었다.", { supply: { potion: 2 }, relics: 1 }),
       },
       {
@@ -258,10 +258,10 @@ export const EVENTS: EventTemplate[] = [
       },
       {
         id: "treat",
-        text: "약초를 아는 동료에게 치료를 부탁한다.",
+        text: "성직자에게 치료를 부탁한다.",
         approach: "person",
         tone: "mercy",
-        requires: { job: "herbalist" },
+        requires: { job: "priest" },
         outcomes: once("{helper}이(가) 들풀로 상처를 싸매 주었다. 보물 사냥꾼은 물약 두 병을 내밀었다.", { supply: { potion: 2 } }),
       },
       {
@@ -303,7 +303,7 @@ export const EVENTS: EventTemplate[] = [
         text: "성직자에게 기도를 맡긴다.",
         approach: "person",
         tone: "respect",
-        requires: { job: "nun" },
+        requires: { job: "priest" },
         outcomes: once("{helper}의 기도에 제단이 희미하게 빛났다. 상처와 독이 씻겨 나갔다.", { healAll: 5, cureAll: true }),
       },
       {

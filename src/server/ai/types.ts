@@ -1,4 +1,5 @@
 import type {
+  Gender,
   HistoryLine,
   MercProfile,
   MercReply,
@@ -58,6 +59,8 @@ export type SummaryInput = {
 /** 랜덤 용병 프로필 생성 입력. 코드가 뽑은 특성만 넘긴다. */
 export type ProfileInput = {
   traits: Trait[];
+  /** 코드가 뽑은 성별 (없을 수 있다) */
+  gender?: Gender;
   /** 코드가 뽑은 종족 패시브 (없을 수 있다) */
   passives?: Passive[];
   /** 이미 쓰이는 이름 */

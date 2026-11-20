@@ -1,24 +1,20 @@
-// 등급 승급 (순수 함수). 레벨 3을 채우면 단련장에서 승급한다.
-// 패시브는 종족 후보 2개 중 하나, 스킬은 후보 2개 중 하나를 고른다. 숙련이 되면 직업 궁극기가 열린다.
+// 등급 승급 (순수 함수). 등급의 1단계(마지막 레벨)를 채우면 단련장에서 다음 등급으로 승급한다.
+// 패시브는 종족 후보 2개 중 하나 (등급의 패시브 칸이 남아 있으면).
+// 금으로 오를 때 2차 전직 갈래를 하나 고르고(원소술사면 원소 둘도) 직업 궁극기가 열린다.
 // 후보는 용병 id와 지금 등급으로 정해져서 언제 다시 봐도 같다.
-import { comboId, VARIANTS } from "@/data/combo";
-import { PROMOTE_COST } from "@/data/growth";
+import { JOB_ULTIMATE } from "@/data/fragments";
+import { BRANCHES, type Branch, type JobId } from "@/data/jobs";
 import { passivesOf } from "@/data/passives";
-import { JOB_ULTIMATE, skillsFrom } from "@/data/skills";
-import type { MercLevel, MercSeed } from "@/lib/schemas";
+import { RANKS, nextRank } from "@/data/ranks";
+import { Element, type MercLevel, type MercSeed } from "@/lib/schemas";
 import { createRng } from "@/game/random";
 
-const RANKS: MercLevel[] = ["apprentice", "skilled", "veteran", "legend"];
+export { nextRank };
 
-/** 다음 등급. 전설은 승급으로 오르지 않는다 (null) */
-export function nextRank(level: MercLevel): Exclude<MercLevel, "apprentice" | "legend"> | null {
-  const next = RANKS[RANKS.indexOf(level) + 1];
-  return next === "skilled" || next === "veteran" ? next : null;
-}
-
+/** 다음 등급으로 오르는 비용. 마지막 등급이면 null */
 export function promoteCost(level: MercLevel): number | null {
   const next = nextRank(level);
-  return next ? PROMOTE_COST[next] : null;
+  return next ? RANKS[next].promoteCost : null;
 }
 
 function hash(s: string): number {
@@ -27,57 +23,57 @@ function hash(s: string): number {
   return h;
 }
 
-/** 승급 후보: 패시브 최대 2개, 스킬 최대 2개 (이미 가진 것은 빼고) */
-export function promotionChoices(seed: MercSeed, learned: string[] = []): { passives: string[]; skills: string[] } {
+export type PromotionChoices = {
+  next: MercLevel | null;
+  /** 패시브 후보 (최대 2개, 이미 가진 것 제외. 다음 등급의 칸이 꽉 찼으면 비어 있다) */
+  passives: string[];
+  /** 2차 전직 갈래 (금으로 오를 때만) */
+  branches: Branch[];
+};
+
+export function promotionChoices(seed: MercSeed): PromotionChoices {
+  const next = nextRank(seed.level);
+  if (!next) return { next: null, passives: [], branches: [] };
   const rng = createRng(hash(`${seed.id}:${seed.level}`));
   const shuffle = <T,>(xs: T[]) =>
     xs
       .map((x) => ({ x, k: rng.next() }))
       .sort((a, b) => a.k - b.k)
       .map((p) => p.x);
-  const { job, race } = seed.traits;
-
-  const passives = shuffle(passivesOf(race).map((p) => p.id).filter((id) => !seed.passives.includes(id))).slice(0, 2);
-
-  const owned = new Set([...seed.skills, ...learned]);
-  // 첫 후보: 아직 없는 조합 변형 (등급이 오를 때 배우는 쪽을 먼저)
-  const early = VARIANTS[race]?.early ?? 2;
-  const combos = [comboId(job, race, early === 1 ? 2 : 1), comboId(job, race, early)].filter((id) => !owned.has(id));
-  const others = shuffle([...skillsFrom({ job }), ...skillsFrom({ race })].filter((id) => !owned.has(id)));
-  const skills = [...combos.slice(0, 1), ...others].slice(0, 2);
-  return { passives, skills };
+  const room = seed.passives.length < RANKS[next].maxPassives;
+  const passives = room ? shuffle(passivesOf(seed.traits.race).map((p) => p.id).filter((id) => !seed.passives.includes(id))).slice(0, 2) : [];
+  const branches = RANKS[next].tier >= 2 && !seed.branch ? [...(BRANCHES[seed.traits.job as JobId] ?? [])] : [];
+  return { next, passives, branches };
 }
 
 /**
- * 승급을 적용한 새 시드와 배운 스킬 목록.
- * 고른 스킬은 장착 칸에 자리가 있으면 바로 장착, 없으면 배운 스킬로 보관 (전수관에서 바꿔 낀다).
+ * 승급을 적용한 새 시드. 후보가 있으면 그중에서 골라야 한다. 안 되면 null.
+ * elements: 원소술사를 고를 때 함께 고르는 원소 둘
  */
-export function promote(
-  seed: MercSeed,
-  learned: string[],
-  choice: { passive?: string; skill?: string },
-): { seed: MercSeed; learned: string[] } | null {
-  const next = nextRank(seed.level);
+export function promote(seed: MercSeed, choice: { passive?: string; branch?: string; elements?: Element[] }): MercSeed | null {
+  const options = promotionChoices(seed);
+  const next = options.next;
   if (!next) return null;
-  const options = promotionChoices(seed, learned);
   if (options.passives.length > 0 && (!choice.passive || !options.passives.includes(choice.passive))) return null;
-  if (options.skills.length > 0 && (!choice.skill || !options.skills.includes(choice.skill))) return null;
-
-  const skills = [...seed.skills];
-  const kept = [...learned];
-  if (choice.skill) {
-    if (skills.length < 4) skills.push(choice.skill);
-    else kept.push(choice.skill);
+  let branch = seed.branch;
+  let elements = seed.elements;
+  if (options.branches.length > 0) {
+    const picked = options.branches.find((b) => b.id === choice.branch);
+    if (!picked) return null;
+    branch = picked.id;
+    if (picked.dualElement) {
+      const els = choice.elements ?? [];
+      if (els.length !== 2 || els[0] === els[1] || !els.every((e) => Element.options.includes(e))) return null;
+      elements = [...els];
+    }
   }
   return {
-    seed: {
-      ...seed,
-      level: next,
-      passives: choice.passive ? [...seed.passives, choice.passive] : seed.passives,
-      skills,
-      // 숙련이 되면 직업 궁극기가 열린다
-      ultimate: seed.ultimate ?? JOB_ULTIMATE[seed.traits.job],
-    },
-    learned: kept,
+    ...seed,
+    level: next,
+    passives: choice.passive && options.passives.length > 0 ? [...seed.passives, choice.passive] : seed.passives,
+    ...(branch ? { branch } : {}),
+    ...(elements ? { elements } : {}),
+    // 궁극기 칸이 열리면 직업 궁극기
+    ultimate: seed.ultimate ?? (RANKS[next].ultimate ? JOB_ULTIMATE[seed.traits.job] : undefined),
   };
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DROPS, getSalvage } from "./loot";
-import { PIECES } from "./craft";
+import { FRAGMENTS, upgradeCost } from "./fragments";
 import { REGIONS } from "./regions";
 import { getMonster } from "./monsters";
 import { GROWTH } from "./growth";
@@ -34,7 +34,10 @@ describe("재료 구하기", () => {
         for (const e of getMonster(id)?.escort ?? []) kinds.add(e);
       }
     const obtainable = new Set([...kinds].flatMap((k) => (DROPS[k] ?? []).map((d) => d.id)));
-    const needed = [...PIECES.flatMap((p) => Object.keys(p.cost.salvage)), ...TRINKETS.map((t) => t.material.id)];
+    const needed = [
+      ...FRAGMENTS.flatMap((f) => [...Object.keys(f.cost?.salvage ?? {}), ...Object.keys(upgradeCost(f, 2)?.salvage ?? {})]),
+      ...TRINKETS.map((t) => t.material.id),
+    ];
     for (const id of needed) expect(obtainable.has(id), id).toBe(true);
   });
 });

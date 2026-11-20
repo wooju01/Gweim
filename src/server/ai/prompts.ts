@@ -4,8 +4,10 @@ import type { Resolve } from "@/game/merc/affinity";
 import type { Level, Merc } from "@/game/types";
 import { MEMORY_MAX_CHARS } from "@/game/merc/memory";
 import { getTrait } from "@/data/traits";
-import { LEVELS, getPassive, type Passive } from "@/data/passives";
-import { getSkill } from "@/data/skillgen";
+import { getPassive, type Passive } from "@/data/passives";
+import { jobTitle } from "@/data/jobs";
+import { RANKS } from "@/data/ranks";
+import { getSkill, skillKey } from "@/game/skills";
 import type { Trait } from "@/game/types";
 import type {
   Direction,
@@ -98,14 +100,19 @@ function abilityLines(merc: Merc): string {
   const lines: string[] = [];
   if (merc.level)
     lines.push(
-      `- 등급: ${LEVELS[merc.level].name}. 등급이 높을수록 자신감 있고 몸값을 높게 부른다.`,
+      `- 등급: ${RANKS[merc.level].name}. 등급이 높을수록 자신감 있고 몸값을 높게 부른다.`,
     );
+  if (merc.job && merc.level) {
+    const base = getTrait(merc.job)?.name ?? merc.job;
+    const title = jobTitle({ job: merc.job, level: merc.level, branch: merc.branch, race: merc.race, gender: merc.gender }, base);
+    if (title !== base) lines.push(`- 직업: ${base}에서 전직한 ${title}.`);
+  }
   const passives = (merc.passives ?? []).flatMap((id) => getPassive(id) ?? []);
   if (passives.length)
     lines.push(
       `- 전투 특기: ${passiveText(passives)}. 자랑하거나 넌지시 내비칠 수 있다. 수치는 말하지 않는다.`,
     );
-  const skills = (merc.skills ?? []).flatMap((id) => getSkill(id)?.name ?? []);
+  const skills = (merc.skills ?? []).flatMap((b) => getSkill(skillKey(b))?.name ?? []);
   if (skills.length)
     lines.push(
       `- 쓰는 기술: ${skills.join(", ")}. 말할 때 기술 이름을 굳이 꺼내지 않아도 된다.`,
@@ -290,7 +297,8 @@ ${race ? `- 종족: ${race.name} — ${race.description} 인간을 보는 눈: $
 - 성격: ${personalities.map((p) => `${p.name} — ${p.description}`).join(" / ")}
 - 배경: ${background.name} — ${background.description}
 - 비밀의 씨앗: ${background.secretHint}
-- 등급: 견습 (아직 이름이 알려지지 않은 용병)${input.passives?.length ? `\n- 전투 특기: ${passiveText(input.passives)} — 성격이나 과거에 자연스럽게 녹여도 좋다` : ""}
+${input.gender ? `- 성별: ${input.gender === "female" ? "여성" : "남성"}
+` : ""}- 등급: 동 (아직 이름이 알려지지 않은 용병)${input.passives?.length ? `\n- 전투 특기: ${passiveText(input.passives)} — 성격이나 과거에 자연스럽게 녹여도 좋다` : ""}
 
 # 만들 것
 - name: 한국어로 쓴 판타지풍 이름, 띄어쓰기 포함 12자 이내. ${race?.nameStyle ?? "2~3음절, 성은 없다."} 종족의 문화에서 나온 이름처럼. 다음 이름과 겹치지 않게: ${avoid}

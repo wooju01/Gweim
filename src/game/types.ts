@@ -1,5 +1,5 @@
 import type { StatBlock } from "@/data/growth";
-import type { ChoiceTone, MercLevel } from "@/lib/schemas";
+import type { ChoiceTone, Element, Gender, MercLevel, SkillBuild } from "@/lib/schemas";
 
 /** 반응 세기. 1칸당 변화량은 affinity.ts의 STEP */
 export type Level = -2 | -1 | 0 | 1 | 2;
@@ -64,10 +64,17 @@ export type Merc = {
   level?: MercLevel;
   /** 종족 패시브 id (data/passives.ts) */
   passives?: string[];
-  /** 장착 스킬 id (data/skills.ts). 없으면 직업 스킬 하나 */
-  skills?: string[];
-  /** 장착한 궁극기 (숙련부터, 전투당 1번) */
+  /** 장착 스킬 (조각 조합, data/fragments.ts). 없으면 직업 기본 조각 하나 */
+  skills?: SkillBuild[];
+  /** 장착한 궁극기 조각 id (금 등급부터, 전투당 1번) */
   ultimate?: string;
+  /** 부 조각 레벨 (전수관 강화). 없으면 모두 Lv1 */
+  subLevels?: Record<string, number>;
+  /** 2차 전직 갈래 (data/jobs.ts) */
+  branch?: string;
+  /** 원소술사가 고른 원소 */
+  elements?: Element[];
+  gender?: Gender;
   /** 성장으로 얻은 스탯 포인트 (레벨업·단련장). 전투 능력치에 더해진다 */
   stats?: StatBlock;
   /** 성격·배경 특성 id (보수·돈 얘기 반응에 쓴다). 랜덤 용병에만 있다 */

@@ -1,9 +1,9 @@
 // 개발·테스트용 샘플 용병. 길드가 이 용병들로 채워진 채 시작한다.
-// 직업 8개와 종족 5개가 모두 한 번 이상 나오고, 패시브도 골고루 들어 있다.
+// 직업 9개와 종족 5개가 모두 한 번 이상 나오고, 패시브도 골고루 들어 있다.
 // 프로필은 AI 없이 직접 쓴 것이다. 실제 모집(모집 공고)은 그대로 AI로 만든다.
 // 끄려면 USE_SAMPLE_ROSTER를 false로 바꾼다.
 import { resolveTraits, rollStart, seededRandom } from "@/game/merc/generate";
-import { rollSkills } from "./skillgen";
+import { rollStartSkills } from "@/game/skills";
 import type { MercProfile, MercSeed, MercTraits } from "@/lib/schemas";
 
 export const USE_SAMPLE_ROSTER = true;
@@ -68,14 +68,14 @@ const SAMPLES: Sample[] = [
     id: "s-elowen",
     traits: {
       race: "elf",
-      job: "spiritcaller",
+      job: "minstrel",
       personalities: ["proud"],
       background: "wanderer",
     },
     passives: ["wind_blessing"],
     profile: {
       name: "엘로웬",
-      title: "바람을 듣는 정령사",
+      title: "바람을 노래하는 바드",
       persona:
         "인간을 한 수 아래로 보지만, 바람의 정령이 고른 사람이라면 따라간다.",
       background:
@@ -134,7 +134,7 @@ const SAMPLES: Sample[] = [
     id: "s-mirel",
     traits: {
       race: "human",
-      job: "nun",
+      job: "priest",
       personalities: ["kind"],
       background: "plague_survivor",
     },
@@ -181,24 +181,43 @@ const SAMPLES: Sample[] = [
     id: "s-tob",
     traits: {
       race: "beastfolk",
-      job: "herbalist",
+      job: "monk",
       personalities: ["greedy"],
       background: "debtor",
     },
     passives: ["wild_recovery"],
     profile: {
       name: "토브",
-      title: "빚쟁이 약초꾼",
+      title: "빚쟁이 무투가",
       persona:
-        "약값은 꼭 받는다. 빚이 많아서 금화 냄새에 누구보다 먼저 반응한다.",
+        "주먹 한 번에도 값을 매긴다. 빚이 많아서 금화 냄새에 누구보다 먼저 반응한다.",
       background:
-        "약초 장사로 진 빚을 갚으려고 던전에 들어간다. 상처는 이상하게 빨리 낫는다.",
+        "뒷골목 내기 싸움으로 진 빚을 갚으려고 던전에 들어간다. 맞은 상처는 이상하게 빨리 낫는다.",
       secret: "빚을 진 상대는 그를 사냥하던 인간 상단이다.",
       speechStyle: "능글맞은 반말. 값을 따지는 말이 입에 붙어 있다.",
       exampleLines: [
-        "그 약? 공짜는 아니야.",
+        "한 대 더? 그건 따로 받아야지.",
         "금화 소리가 들리면 따라가는 거지.",
       ],
+    },
+  },
+  {
+    id: "s-hild",
+    traits: {
+      race: "barbarian",
+      job: "guardian",
+      personalities: ["honorable"],
+      background: "wanderer",
+    },
+    passives: ["warrior_pride"],
+    profile: {
+      name: "힐드",
+      title: "맹세를 새긴 방패",
+      persona: "등 뒤에 선 사람은 끝까지 지킨다는 맹세를 팔에 새겼다. 말은 짧고 약속은 무겁다.",
+      background: "부족을 떠나 떠돌며 큰 방패 하나로 상단 호위를 해 왔다.",
+      secret: "지키지 못한 사람의 이름을 방패 안쪽에 하나씩 새겨 두었다.",
+      speechStyle: "짧고 단단한 반말. 맹세라는 말을 자주 쓴다.",
+      exampleLines: ["내 뒤에 서.", "맹세했으면 지킨다. 그게 다야."],
     },
   },
 ];
@@ -213,6 +232,7 @@ const SAMPLE_AFFINITY: Record<string, number> = {
   "s-mirel": 90, // 신뢰
   "s-aithne": 40, // 중립
   "s-tob": 18, // 경계
+  "s-hild": 55, // 중립
 };
 /** 고용 의향도 100으로 고정한다 (80 이상이라 동행 제안이 바로 성공한다) */
 export const SAMPLE_WILLINGNESS = 100;
@@ -227,10 +247,10 @@ export function sampleSeeds(): MercSeed[] {
       affinity: SAMPLE_AFFINITY[s.id] ?? 50,
       willingness: SAMPLE_WILLINGNESS,
     },
-    level: "apprentice",
+    level: "bronze",
     passives: s.passives,
-    // 직업 2 + 종족 1 + 직업·종족 1 (시드 고정이라 매번 같다)
-    skills: rollSkills(s.traits.job, s.traits.race, seededRandom(2000 + i)),
+    // 모집과 같은 규칙의 시작 스킬 (시드 고정이라 매번 같다)
+    skills: rollStartSkills({ job: s.traits.job, race: s.traits.race, level: "bronze" }, seededRandom(2000 + i)),
     profile: s.profile,
   }));
 }

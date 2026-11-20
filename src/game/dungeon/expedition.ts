@@ -38,6 +38,7 @@ import {
 } from "@/data/events";
 import type { ChoiceTone, Stage } from "@/lib/schemas";
 import { BOND } from "@/data/bond";
+import { JOBS } from "@/data/traits";
 import {
   mercUnit,
   startBattleFrom,
@@ -560,16 +561,8 @@ const STAGE_NAME: Record<Stage, string> = {
   warm: "호의",
   trusted: "신뢰",
 };
-const JOB_NAME: Record<string, string> = {
-  knight: "기사",
-  assassin: "암살자",
-  nun: "수녀",
-  archer: "궁수",
-  greatsword: "대검사",
-  herbalist: "약초꾼",
-  mage: "마법사",
-  spiritcaller: "정령사",
-};
+/** 직업 이름 (data/traits.ts) */
+const JOB_NAME: Record<string, string> = Object.fromEntries(JOBS.map((j) => [j.id, j.name]));
 const RACE_NAME: Record<string, string> = {
   human: "인간",
   dwarf: "드워프",

@@ -1,5 +1,6 @@
-import { RECRUIT_LEVEL, getPassive } from "@/data/passives";
-import { rollSkills } from "@/data/skillgen";
+import { getPassive } from "@/data/passives";
+import { RECRUIT_LEVEL } from "@/data/ranks";
+import { rollStartSkills } from "@/game/skills";
 import { resolveTraits, rollPassives, rollRecruitCount, rollStart, rollTraits } from "@/game/merc/generate";
 import {
   MercProfile,
@@ -71,11 +72,11 @@ async function recruitOne(
   const start = rollStart(traits, Math.random);
   const level = RECRUIT_LEVEL;
   const passives = rollPassives(traitIds.race, level, Math.random);
-  const skills = rollSkills(traitIds.job, traitIds.race, Math.random);
+  const skills = rollStartSkills({ job: traitIds.job, race: traitIds.race, level }, Math.random);
   const id = `r-${crypto.randomUUID().slice(0, 8)}`;
 
   const ai = getMercAI();
-  const input = { traits, passives: passives.map((id) => getPassive(id)!), avoidNames };
+  const input = { traits, gender: traitIds.gender, passives: passives.map((id) => getPassive(id)!), avoidNames };
   try {
     const profile = MercProfile.parse(await ai.createProfile(input));
     return { seed: { id, traits: traitIds, start, level, passives, skills, profile }, mode: ai.mode };

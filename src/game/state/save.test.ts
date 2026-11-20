@@ -107,26 +107,22 @@ describe("보수 저장", () => {
   });
 });
 
-describe("저장 변환", () => {
-  it("버전 1 저장(창병·단검수 id)을 불러오면 기사·암살자로 바뀐다", () => {
+describe("저장 버전", () => {
+  it("버전이 다른 저장은 읽지 않는다 (새 게임으로 시작)", () => {
     const s = booted(initialState());
-    const v2 = JSON.parse(JSON.stringify(toSave(s)));
-    // 옛 형식 흉내: 버전 1, 옛 직업·스킬 id
-    const old = JSON.parse(
-      JSON.stringify({ ...v2, version: 1 })
-        .replace(/"knight"/g, '"spearman"')
-        .replace(/"assassin"/g, '"dagger"')
-        .replace(/"knight_(pin|shove)"/g, '"spear_$1"')
-        .replace(/"knight_sweep"/g, '"spear_whirl"')
-        .replace(/"assassin_(throat|smoke|ambush)"/g, '"dagger_$1"')
-        .replace(/combo:knight:/g, "combo:spearman:")
-        .replace(/combo:assassin:/g, "combo:dagger:"),
-    );
-    expect(JSON.stringify(old)).toContain('"spearman"');
-    const loaded = fromSave(old);
-    expect("state" in loaded).toBe(true);
-    const state = (loaded as { state: GameState }).state;
-    expect(state.roster).toEqual(s.roster);
-    expect(JSON.stringify(state.roster)).not.toContain("spearman");
+    const now = JSON.parse(JSON.stringify(toSave(s)));
+    expect("state" in fromSave(now)).toBe(true);
+    const old = fromSave({ ...now, version: SAVE_VERSION - 1 });
+    expect("error" in old && old.error).toContain("새 게임");
+    expect("error" in fromSave({ ...now, version: SAVE_VERSION + 1 })).toBe(true);
+  });
+
+  it("스킬은 조각 조합 { main, subs }로, 부 조각 레벨과 함께 저장된다", () => {
+    const s = booted(initialState());
+    const id = "s-durgan";
+    const learned = [{ main: "gs_strike", subs: ["gs_pierce"] }];
+    const withSkills = { ...s, progress: { ...s.progress, [id]: { ...s.progress[id], learned, levels: { gs_pierce: 2 } } } };
+    const back = fromSave(JSON.parse(JSON.stringify(toSave(withSkills)))) as { state: GameState };
+    expect(back.state.progress[id]).toMatchObject({ learned, levels: { gs_pierce: 2 } });
   });
 });

@@ -65,12 +65,17 @@ export type TalkAction = z.infer<typeof TalkAction>;
 
 // ── 랜덤 용병 ──────────────────────────────────────────────
 
+export const Gender = z.enum(["female", "male"]);
+export type Gender = z.infer<typeof Gender>;
+
 /** 코드가 뽑은 특성 조합 (data/traits.ts의 id) */
 export const MercTraits = z.object({
   race: z.string().max(40),
   job: z.string().max(40),
   personalities: z.array(z.string().max(40)).min(1).max(2),
   background: z.string().max(40),
+  /** 직업 이름(성녀/성자 등)과 AI 프로필에 쓴다. 없으면 정하지 않은 것 */
+  gender: Gender.optional(),
 });
 export type MercTraits = z.infer<typeof MercTraits>;
 
@@ -86,9 +91,20 @@ export const MercProfile = z.object({
 });
 export type MercProfile = z.infer<typeof MercProfile>;
 
-/** 용병 등급: 견습 / 숙련 / 노련 / 전설 (data/passives.ts의 LEVELS) */
-export const MercLevel = z.enum(["apprentice", "skilled", "veteran", "legend"]);
+/** 용병 등급: 동 / 은 / 금 / 미스릴 / 다이아 / 성휘 (data/ranks.ts의 RANKS). 등급마다 3단계 */
+export const MercLevel = z.enum(["bronze", "silver", "gold", "mithril", "diamond", "radiant"]);
 export type MercLevel = z.infer<typeof MercLevel>;
+
+/** 스킬 하나 = 메인 조각 1 + 부 조각 0~2 (data/fragments.ts의 id). 효과는 조각을 합쳐 계산한다 */
+export const SkillBuild = z.object({
+  main: z.string().max(40),
+  subs: z.array(z.string().max(40)).max(2).default([]),
+});
+export type SkillBuild = z.infer<typeof SkillBuild>;
+
+/** 원소 (마법사 원소 조각) */
+export const Element = z.enum(["fire", "water", "wind", "earth"]);
+export type Element = z.infer<typeof Element>;
 
 /** 랜덤 용병 한 명을 다시 만들 수 있는 최소 정보. 반응표는 traits에서 코드가 다시 계산한다. */
 export const MercSeed = z.object({
@@ -98,13 +114,17 @@ export const MercSeed = z.object({
     affinity: z.number().int().min(0).max(100),
     willingness: z.number().int().min(0).max(100),
   }),
-  level: MercLevel.default("apprentice"),
+  level: MercLevel.default("bronze"),
   /** 종족 패시브 id (data/passives.ts). 개수는 등급이 정한다 */
-  passives: z.array(z.string().max(40)).max(4).default([]),
-  /** 장착 스킬 id (최대 4). 비어 있으면 직업 스킬 하나 */
-  skills: z.array(z.string().max(40)).max(4).default([]),
-  /** 장착 궁극기 (숙련부터) */
+  passives: z.array(z.string().max(40)).max(5).default([]),
+  /** 장착 스킬 (최대 4). 비어 있으면 직업 기본 조각 하나 */
+  skills: z.array(SkillBuild).max(4).default([]),
+  /** 장착 궁극기 조각 id (금 등급부터) */
   ultimate: z.string().max(40).optional(),
+  /** 2차 전직 갈래 id (금 등급부터, data/jobs.ts) */
+  branch: z.string().max(40).optional(),
+  /** 원소술사가 고른 원소 2개 (한 스킬에 같이 낄 수 있다) */
+  elements: z.array(Element).max(2).optional(),
   profile: MercProfile,
 });
 export type MercSeed = z.infer<typeof MercSeed>;

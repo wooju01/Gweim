@@ -1,51 +1,88 @@
 import { describe, expect, it } from "vitest";
+import { JOB_ULTIMATE } from "@/data/fragments";
+import { jobTitle } from "@/data/jobs";
+import { RANKS, RANK_ORDER, rankLabel } from "@/data/ranks";
 import { sampleSeeds } from "@/data/sampleRoster";
-import { getSkill } from "@/data/skillgen";
-import { JOB_ULTIMATE } from "@/data/skills";
+import type { MercSeed } from "@/lib/schemas";
 import { buildMerc } from "./generate";
 import { nextRank, promote, promoteCost, promotionChoices } from "./promotion";
 
-const seed = sampleSeeds().find((s) => s.id === "s-durgan")!; // 드워프 대검사
+const seed = sampleSeeds().find((s) => s.id === "s-durgan")!; // 드워프 대검사, 동
+const atSilver: MercSeed = { ...seed, level: "silver" };
 
 describe("승급", () => {
-  it("견습 → 숙련 → 노련까지. 전설은 승급으로 오르지 않는다", () => {
-    expect(nextRank("apprentice")).toBe("skilled");
-    expect(nextRank("skilled")).toBe("veteran");
-    expect(nextRank("veteran")).toBeNull();
-    expect(promoteCost("apprentice")).toBe(20);
-    expect(promoteCost("skilled")).toBe(40);
+  it("동 → 은 → 금 → 미스릴 → 다이아 → 성휘. 성휘 다음은 없다", () => {
+    expect(RANK_ORDER).toHaveLength(6);
+    expect(nextRank("bronze")).toBe("silver");
+    expect(nextRank("diamond")).toBe("radiant");
+    expect(nextRank("radiant")).toBeNull();
+    expect(promoteCost("bronze")).toBe(RANKS.silver.promoteCost);
+    expect(promoteCost("radiant")).toBeNull();
+    expect(rankLabel("bronze", 0)).toBe("동 3단계");
+    expect(rankLabel("gold", 2)).toBe("금 1단계");
   });
 
-  it("후보는 언제 봐도 같고, 이미 가진 패시브·스킬은 빠진다", () => {
+  it("후보는 언제 봐도 같고, 이미 가진 패시브는 빠진다. 금으로 오를 때만 전직 갈래", () => {
     const a = promotionChoices(seed);
     expect(a).toEqual(promotionChoices(seed));
     expect(a.passives).toHaveLength(2);
-    expect(a.skills).toHaveLength(2);
     for (const id of a.passives) expect(seed.passives).not.toContain(id);
-    for (const id of a.skills) expect(seed.skills).not.toContain(id);
+    expect(a.branches).toEqual([]);
+    expect(promotionChoices(atSilver).branches.map((b) => b.id)).toEqual(["crusher", "gale_blade"]);
   });
 
-  it("승급하면 등급·패시브·스킬이 늘고 궁극기가 열린다. 규칙 검사도 통과한다", () => {
-    const { passives, skills } = promotionChoices(seed);
-    const done = promote(seed, [], { passive: passives[0], skill: skills[0] })!;
-    expect(done.seed.level).toBe("skilled");
-    expect(done.seed.passives).toContain(passives[0]);
-    expect(done.seed.ultimate).toBe(JOB_ULTIMATE.greatsword);
-    // 장착 칸 4개가 꽉 찼으니 배운 스킬로 보관
-    expect(seed.skills).toHaveLength(4);
-    expect(done.learned).toEqual([skills[0]]);
-    expect(buildMerc(done.seed)).not.toBeNull();
+  it("동 → 은: 패시브가 늘고, 궁극기는 아직 없다", () => {
+    const { passives } = promotionChoices(seed);
+    const done = promote(seed, { passive: passives[0] })!;
+    expect(done.level).toBe("silver");
+    expect(done.passives).toContain(passives[0]);
+    expect(done.ultimate).toBeUndefined();
+    expect(buildMerc(done)).not.toBeNull();
   });
 
-  it("후보에 없는 패시브·스킬이나 빠진 선택은 거부한다", () => {
-    const { passives, skills } = promotionChoices(seed);
-    expect(promote(seed, [], { passive: "keen_eye", skill: skills[0] })).toBeNull();
-    expect(promote(seed, [], { passive: passives[0] })).toBeNull();
+  it("은 → 금: 전직 갈래를 골라야 하고, 궁극기가 열린다", () => {
+    const { passives } = promotionChoices(atSilver);
+    expect(promote(atSilver, { passive: passives[0] })).toBeNull();
+    expect(promote(atSilver, { passive: passives[0], branch: "saber" })).toBeNull(); // 기사 갈래
+    const done = promote(atSilver, { passive: passives[0], branch: "crusher" })!;
+    expect(done).toMatchObject({ level: "gold", branch: "crusher", ultimate: JOB_ULTIMATE.greatsword });
+    expect(buildMerc(done)).not.toBeNull();
   });
 
-  it("견습에게 궁극기가 있거나, 다른 직업 궁극기면 규칙 검사에서 거부한다", () => {
+  it("원소술사는 원소 둘을 함께 고른다", () => {
+    const mage: MercSeed = { ...atSilver, id: "m", traits: { ...atSilver.traits, job: "mage", race: "human", personalities: ["kind"] }, passives: [], skills: [] };
+    const passive = promotionChoices(mage).passives[0];
+    expect(promote(mage, { passive, branch: "elementalist" })).toBeNull();
+    expect(promote(mage, { passive, branch: "elementalist", elements: ["fire", "fire"] })).toBeNull();
+    expect(promote(mage, { passive, branch: "elementalist", elements: ["fire", "wind"] })).toMatchObject({ branch: "elementalist", elements: ["fire", "wind"] });
+    expect(promote(mage, { passive, branch: "warlock" })).toMatchObject({ branch: "warlock" });
+  });
+
+  it("후보에 없는 패시브나 빠진 선택은 거부한다", () => {
+    const { passives } = promotionChoices(seed);
+    expect(promote(seed, { passive: "keen_eye" })).toBeNull();
+    expect(promote(seed, {})).toBeNull();
+    expect(passives.length).toBeGreaterThan(0);
+  });
+
+  it("규칙 검사: 동 등급 궁극기·다른 직업 궁극기·은 등급 전직은 거부한다", () => {
     expect(buildMerc({ ...seed, ultimate: JOB_ULTIMATE.greatsword })).toBeNull();
-    expect(buildMerc({ ...seed, level: "skilled", ultimate: JOB_ULTIMATE.mage })).toBeNull();
-    expect(getSkill(JOB_ULTIMATE.greatsword)!.ultimate).toBe(true);
+    expect(buildMerc({ ...seed, level: "gold", ultimate: JOB_ULTIMATE.mage })).toBeNull();
+    expect(buildMerc({ ...seed, level: "gold", ultimate: JOB_ULTIMATE.greatsword })).not.toBeNull();
+    expect(buildMerc({ ...seed, branch: "crusher" })).toBeNull();
+    expect(buildMerc({ ...seed, level: "gold", branch: "saber" })).toBeNull();
+  });
+});
+
+describe("직업 이름", () => {
+  it("1차는 기본, 금부터 갈래 이름, 4차는 종족별. 정하지 않은 단계는 앞 단계 이름", () => {
+    const knight = { job: "knight", race: "dwarf", branch: "saber" };
+    expect(jobTitle({ ...knight, level: "silver" }, "기사")).toBe("기사");
+    expect(jobTitle({ ...knight, level: "gold" }, "기사")).toBe("세이버");
+    expect(jobTitle({ ...knight, level: "diamond" }, "기사")).toBe("소드마스터");
+    expect(jobTitle({ ...knight, level: "radiant" }, "기사")).toBe("룬 팔라딘");
+    expect(jobTitle({ job: "greatsword", level: "radiant", branch: "crusher" }, "대검사")).toBe("파쇄자");
+    expect(jobTitle({ job: "priest", level: "gold", branch: "saint", gender: "female" }, "사제")).toBe("성녀");
+    expect(jobTitle({ job: "priest", level: "gold", branch: "saint", gender: "male" }, "사제")).toBe("성자");
   });
 });

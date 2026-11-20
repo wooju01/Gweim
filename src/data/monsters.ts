@@ -63,7 +63,7 @@ export type Monster = UnitStats & {
   note: string;
   tags: MonsterTag[];
   rank: MonsterRank;
-  /** 쓰는 스킬 (아래 MONSTER_SKILLS 또는 data/skills.ts) */
+  /** 쓰는 스킬 (아래 MONSTER_SKILLS) */
   skills?: string[];
   /** 후열 원거리 (진형이 생기면 쓴다. 지금은 표시만) */
   ranged?: boolean;
@@ -77,13 +77,13 @@ const poison = (chance: number): OnHit => ({ status: "poison", chance });
 
 /** 몬스터 전용 스킬 (효과 조각으로) */
 const MONSTER_SKILL_DEFS: SkillDef[] = [
-  { id: "m_mend", name: "주술 치료", source: {}, cooldown: 2, target: "ally", effects: [{ kind: "heal", amount: 6 }] },
-  { id: "m_war_drum", name: "전쟁 북", source: {}, cooldown: 3, target: "ally", effects: [{ kind: "applyStatus", status: "awaken" }] },
-  { id: "m_stone_volley", name: "돌팔매 세례", source: {}, cooldown: 3, target: "none", effects: [{ kind: "damage", fixed: [2, 4], area: "all", onHit: false }] },
-  { id: "m_howl", name: "울부짖음", source: {}, cooldown: 3, target: "none", effects: [{ kind: "applyStatus", status: "weaken", area: "all" }] },
-  { id: "m_slam", name: "내려찍기", source: {}, cooldown: 2, target: "enemy", effects: [{ kind: "damage", multiplier: 1.6 }] },
-  { id: "m_web", name: "거미줄", source: {}, cooldown: 3, target: "enemy", effects: [{ kind: "applyStatus", status: "bind" }] },
-  { id: "m_acid", name: "산성 분사", source: {}, cooldown: 2, target: "enemy", effects: [{ kind: "damage", bonus: 1, onHit: false }, { kind: "applyStatus", status: "crack" }] },
+  { id: "m_mend", name: "주술 치료", cooldown: 1, target: "ally", effects: [{ kind: "heal", amount: 6 }] },
+  { id: "m_war_drum", name: "전쟁 북", cooldown: 2, target: "ally", effects: [{ kind: "applyStatus", status: "awaken" }] },
+  { id: "m_stone_volley", name: "돌팔매 세례", cooldown: 2, target: "none", effects: [{ kind: "damage", fixed: [2, 4], area: "all", onHit: false }] },
+  { id: "m_howl", name: "울부짖음", cooldown: 2, target: "none", effects: [{ kind: "applyStatus", status: "weaken", area: "all" }] },
+  { id: "m_slam", name: "내려찍기", cooldown: 1, target: "enemy", effects: [{ kind: "damage", multiplier: 1.6 }] },
+  { id: "m_web", name: "거미줄", cooldown: 2, target: "enemy", effects: [{ kind: "applyStatus", status: "bind" }] },
+  { id: "m_acid", name: "산성 분사", cooldown: 1, target: "enemy", effects: [{ kind: "damage", bonus: 1, onHit: false }, { kind: "applyStatus", status: "crack" }] },
 ];
 
 export const MONSTER_SKILLS: Record<string, Skill> = Object.fromEntries(
