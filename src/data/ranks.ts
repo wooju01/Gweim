@@ -54,3 +54,16 @@ export function stageOf(lv: number): number {
 export function rankLabel(level: MercLevel, lv = 0): string {
   return `${RANKS[level].name} ${stageOf(lv)}단계`;
 }
+
+/** 등급 + 단계 ("bronze2" = 동 2단계). 구역 권장 등급과 몬스터 배율(data/combat.ts의 REGION_SCALE)에 쓴다 */
+export type StageKey = `${MercLevel}${1 | 2 | 3}`;
+
+export function parseStage(key: StageKey): { level: MercLevel; stage: number } {
+  return { level: key.slice(0, -1) as MercLevel, stage: Number(key.slice(-1)) };
+}
+
+/** "동2" */
+export function stageName(key: StageKey): string {
+  const { level, stage } = parseStage(key);
+  return `${RANKS[level].name}${stage}`;
+}

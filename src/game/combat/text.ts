@@ -141,6 +141,16 @@ export function describe(event: BattleEvent, b: Battle): string {
           return `${josa(name(event.by), "이", "가")} ${josa(name(event.unit), "을", "를")} 불렀다.`;
       }
       break;
+    case "charge": {
+      const skill = getSkill(event.skill);
+      const warn = skill?.warn?.replace("{name}", name(event.unit));
+      const aim = event.target ? ` ${name(event.target)}을(를) 노려본다.` : "";
+      return `⚠ ${warn ?? `${josa(name(event.unit), "이", "가")} ${josa(skill?.name ?? "큰 기술", "을", "를")} 준비한다.`}${aim} (다음 차례에 ${skill?.name ?? "기술"})`;
+    }
+    case "interrupt":
+      return `${josa(name(event.unit), "이", "가")} 기절해서 ${josa(skillName(event.unit, event.skill), "이", "가")} 끊겼다!`;
+    case "noRegen":
+      return `${name(event.unit)}의 상처가 ${event.why === "fire" ? "불에 그을려" : "피를 흘려"} 아물지 않는다.`;
     case "end":
       return event.outcome === "victory" ? "적을 모두 물리쳤다." : "파티가 전멸했다.";
   }

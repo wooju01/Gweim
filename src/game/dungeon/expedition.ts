@@ -29,7 +29,7 @@ import {
 } from "@/data/economy";
 import { rollRelic } from "@/data/relics";
 import { XP_GOAL_BONUS, XP_PER_SQUARE } from "@/data/growth";
-import { FIRST_DUNGEON, getDungeon, getRegion, hiddenFrom, type Region } from "@/data/regions";
+import { FIRST_DUNGEON, getDungeon, getRegion, hiddenFrom, recommendedGrade, type Region } from "@/data/regions";
 import { ELITE_DROP_ROLLS, getMonster } from "@/data/monsters";
 import { RANK_DROPS, rollMonsterDrops } from "@/data/drops";
 import { KEY_ITEMS, isKeyItem, type KeyItemId } from "@/data/keyItems";
@@ -264,7 +264,7 @@ export function hiddenEventFor(exp: Expedition): Region | undefined {
 
 /** 권장 등급별로 경험치를 쌓는다 */
 function addXp(exp: Expedition, amount: number) {
-  const grade = regionOf(exp).recommended[1];
+  const grade = recommendedGrade(regionOf(exp));
   exp.xpBy = { ...exp.xpBy, [grade]: (exp.xpBy?.[grade] ?? 0) + amount };
   exp.xp = expeditionXp(exp) + amount;
 }

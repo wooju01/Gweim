@@ -5,7 +5,8 @@ import { getRegion } from "@/data/regions";
 import { createRng } from "@/game/random";
 import { planGoal } from "@/game/dungeon/expedition";
 import { getSkill } from "@/game/skills";
-import { act, bossEncounter, currentActor, enemyUnit, living, makeElite, mercUnit, rollEncounter, startBattleWithUnits, strikeFactors, type Battle, type Unit } from "./engine";
+import { RESIST } from "@/data/combat";
+import { act, resistOf, bossEncounter, currentActor, enemyUnit, living, makeElite, mercUnit, rollEncounter, startBattleWithUnits, strikeFactors, type Battle, type Unit } from "./engine";
 import { describe as describeEvent } from "./text";
 
 /** 공격력이 아주 센 용병 하나 (한 방에 쓰러뜨린다). hp를 넉넉히 */
@@ -72,14 +73,14 @@ describe("몬스터 능력", () => {
     expect(wolves()).toHaveLength(0);
   });
 
-  it("우두머리 늑대: 곁의 짐승 하나당 공격 +1, 체력이 절반 아래면 늑대 둘을 부른다 (한 번)", () => {
+  it("우두머리 늑대: 곁의 짐승 하나당 공격 +1, 체력이 절반 아래면 늑대 하나를 부른다 (한 번)", () => {
     const units = [hero("h", [60, 60]), ...bossEncounter("alpha_wolf")];
     let b = startBattleWithUnits(units, 5);
     const boss = () => b.units.find((u) => u.kind === "alpha_wolf")!;
     expect(strikeFactors(b, boss(), b.units[0]).bonus).toBe(2);
     const before = living(b, "enemy").length;
-    b = hit(b, boss().id); // 75 → 15
-    expect(living(b, "enemy").length).toBe(before + 2);
+    b = hit(b, boss().id); // 75 → 27
+    expect(living(b, "enemy").length).toBe(before + 1);
   });
 
   it("광폭: 체력이 절반 아래면 공격 +3", () => {
@@ -91,12 +92,12 @@ describe("몬스터 능력", () => {
   });
 
   it("슬라임 킹은 체력이 3분의 1씩 줄 때마다 분열하고, 적은 MAX_ENEMIES를 넘지 않는다", () => {
-    let b = startBattleWithUnits([hero("h", [44, 44]), ...bossEncounter("slime_king")], 7); // 평타 0.8배 → 35
+    let b = startBattleWithUnits([hero("h", [28, 28]), ...bossEncounter("slime_king")], 7); // 평타 0.8배 → 22
     const king = () => b.units.find((u) => u.kind === "slime_king")!;
-    b = hit(b, king().id); // 90 → 55 (0.61)
-    expect(b.units.filter((u) => u.kind === "split_slime")).toHaveLength(1);
-    b = hit(b, king().id); // → 20 (0.22)
-    expect(b.units.filter((u) => u.kind === "split_slime")).toHaveLength(2);
+    b = hit(b, king().id); // 55 → 33 (0.6)
+    expect(b.units.filter((u) => u.kind === "slimelet")).toHaveLength(2);
+    b = hit(b, king().id); // → 11 (0.2)
+    expect(b.units.filter((u) => u.kind === "slimelet").length).toBeGreaterThanOrEqual(3);
     expect(living(b, "enemy").length).toBeLessThanOrEqual(MAX_ENEMIES);
   });
 });
@@ -165,10 +166,80 @@ describe("목적지 보스", () => {
     for (let seed = 0; seed < 50; seed++) expect(rollEncounter(createRng(seed), getRegion("uf_forest")!, 1).some((u) => u.rank === "elite")).toBe(true);
   });
 
-  it("나무 거인은 차례마다 체력을 되찾는다", () => {
+  it("나무 거인은 차례마다 최대 체력의 3%를 되찾는다. 출혈 중이거나 불 피해를 받았으면 그 차례는 못 되찾는다", () => {
     let b = startBattleWithUnits([hero("h", [1, 1]), mob("tree_giant", "e0", { hp: 50 })], 1);
     b = hit(b, "e0");
-    expect(b.log.some((e) => e.type === "heal" && e.target === "e0" && e.amount === 4)).toBe(true);
+    expect(b.log.some((e) => e.type === "heal" && e.target === "e0" && e.amount === Math.round(getMonster("tree_giant")!.hp * 0.03))).toBe(true);
+    // 출혈
+    let c = startBattleWithUnits([hero("h", [1, 1]), mob("tree_giant", "e0", { hp: 50, statuses: [{ kind: "bleed", turns: 3 }] })], 1);
+    c = hit(c, "e0");
+    expect(c.log.some((e) => e.type === "heal" && e.target === "e0")).toBe(false);
+    expect(c.log).toContainEqual({ type: "noRegen", unit: "e0", why: "bleed" });
+    // 불에 그을림
+    const giant = mob("tree_giant", "e0", { hp: 50 });
+    giant.fx = { scorched: true };
+    let d = startBattleWithUnits([hero("h", [1, 1]), giant], 1);
+    d = hit(d, "e0");
+    expect(d.log).toContainEqual({ type: "noRegen", unit: "e0", why: "fire" });
+    expect(describeEvent({ type: "noRegen", unit: "e0", why: "fire" }, d)).toContain("아물지 않는다");
+  });
+
+  it("나무 거인은 층 보스 체력 배율 대신 rankHp(2.5)를 쓴다", () => {
+    const scale = { hp: 2, atk: 1 };
+    expect(enemyUnit(getMonster("tree_giant")!, "e0", "나무 거인", scale).maxHp).toBe(Math.round(getMonster("tree_giant")!.hp * 2 * 2.5));
+  });
+});
+
+describe("보스 예고 패턴", () => {
+  /** 늘 스킬을 쓰는 늑대 (예고 → 다음 차례에 사냥 돌진) */
+  const wolf = () => mob("alpha_wolf", "e0", { hp: 999, maxHp: 999, speed: 0 });
+  /** 한 번 공격하고 예고가 나올 때까지 */
+  function untilCharge(b: Battle): Battle {
+    for (let i = 0; i < 30 && !b.units.find((u) => u.id === "e0")!.charging && !b.outcome; i++) b = hit(b, "e0");
+    return b;
+  }
+
+  it("예고하면 그 차례는 공격하지 않고, 다음 차례에 큰 기술을 쓴다", () => {
+    let b = untilCharge(startBattleWithUnits([hero("h", [1, 1]), wolf()], 11));
+    const charge = b.log.find((e) => e.type === "charge");
+    expect(charge).toMatchObject({ type: "charge", unit: "e0", skill: "m_hunt_rush", target: "h" });
+    expect(describeEvent(charge!, b)).toContain("⚠");
+    const at = b.log.indexOf(charge!);
+    b = hit(b, "e0");
+    const after = b.log.slice(at + 1);
+    expect(after).toContainEqual({ type: "skill", actor: "e0", skill: "m_hunt_rush", target: "h" });
+    expect(b.units.find((u) => u.id === "e0")!.charging).toBeUndefined();
+  });
+
+  it("예고 중에 기절하면 기술이 끊긴다", () => {
+    let b = untilCharge(startBattleWithUnits([hero("h", [1, 1]), wolf()], 11));
+    const boss = b.units.find((u) => u.id === "e0")!;
+    boss.statuses.push({ kind: "stun", turns: 1 });
+    b = hit(b, "e0");
+    expect(b.log).toContainEqual({ type: "interrupt", unit: "e0", skill: "m_hunt_rush" });
+    expect(b.log.some((e) => e.type === "skill" && e.actor === "e0")).toBe(false);
+  });
+
+  it("거미 여왕의 독은 물 때마다 쌓인다 (최대 30)", () => {
+    const queen = mob("spider_queen", "e0", { hp: 999, maxHp: 999, skills: [] });
+    let b = startBattleWithUnits([hero("h", [1, 1]), queen], 4);
+    for (let i = 0; i < 12 && !b.outcome; i++) b = hit(b, "e0");
+    const poison = b.units.find((u) => u.id === "h")!.statuses.find((s) => s.kind === "poison");
+    expect(poison?.value ?? 0).toBeGreaterThan(8);
+    expect(poison?.value ?? 0).toBeLessThanOrEqual(30);
+  });
+
+  it("예고 중인 적은 기절 저항이 낮아진다 (무방비)", () => {
+    const boss = mob("goblin_king", "e0");
+    const open = resistOf({ ...boss, charging: { skill: "m_king_command" } }, "stun");
+    expect(resistOf(boss, "stun") - open).toBeCloseTo(RESIST.chargingOpen);
+  });
+
+  it("고블린 킹은 졸개를 부르되 살아 있는 졸개가 둘이면 더 부르지 않는다", () => {
+    let b = startBattleWithUnits([hero("h", [1, 1]), mob("goblin_king", "e0", { hp: 999, maxHp: 999 })], 3);
+    for (let i = 0; i < 40 && !b.outcome; i++) b = hit(b, "e0");
+    expect(b.units.filter((u) => u.kind === "goblin_grunt" && u.hp > 0).length).toBeLessThanOrEqual(2);
+    expect(b.log.some((e) => e.type === "spawn" && e.how === "brood")).toBe(true);
   });
 });
 

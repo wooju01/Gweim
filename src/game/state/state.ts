@@ -11,7 +11,7 @@ import { CURRENCY, PACK_LIMIT, PRICE, START_GOLD, START_PACK, START_STOCK, STOCK
 import { getRelic } from "@/data/relics";
 import { addSalvage, getSalvage, salvageCount, sellable } from "@/data/loot";
 import { WAGE } from "@/data/wages";
-import { STAT_NAME, TRAINING_COST, type StatBlock } from "@/data/growth";
+import { PROMOTE_BONUS, STAT_NAME, TRAINING_COST, type StatBlock } from "@/data/growth";
 import { NO_GROWTH, addStats, canPromote, gainXp, statLine, validTraining, type Growth } from "@/game/merc/growth";
 import { promote, promoteCost } from "@/game/merc/promotion";
 import { craft, forgetSkill, knownFragments, paySalvage, swapSkills, unlockBlock, upgradeBlock } from "@/game/merc/skillhall";
@@ -884,8 +884,15 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         roster,
         progress: {
           ...state.progress,
-          // 새 등급의 3단계부터. 보수도 등급에 맞춰 오른다 (몫 약속은 그대로)
-          [action.mercId]: { ...p, lv: 0, xp: 0, wage: wageOf(merc, p.offers.share) },
+          // 새 등급의 3단계부터. 승급 보너스로 체력과 단련 기회가 붙는다. 보수도 등급에 맞춰 오른다 (몫 약속은 그대로)
+          [action.mercId]: {
+            ...p,
+            lv: 0,
+            xp: 0,
+            stats: addStats(p.stats, { hp: PROMOTE_BONUS.hp }),
+            trainable: p.trainable + PROMOTE_BONUS.trainable,
+            wage: wageOf(merc, p.offers.share),
+          },
         },
       };
     }

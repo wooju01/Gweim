@@ -3,7 +3,7 @@ import { STATUS, SUPPLY, type SupplyKind } from "@/data/combat";
 import { ROOM_NAME, type RoomKind } from "@/data/dungeon";
 import { KEY_ITEMS } from "@/data/keyItems";
 import { getMonster } from "@/data/monsters";
-import { RANKS } from "@/data/ranks";
+import { stageName } from "@/data/ranks";
 import { getEvent, type Approach } from "@/data/events";
 import { CURRENCY } from "@/data/economy";
 import { getRelic } from "@/data/relics";
@@ -564,7 +564,7 @@ function OmenPanel({ exp, lines, onRetreat }: { exp: Expedition; lines: string[]
     <div className="flex flex-col items-start gap-2 rounded-sm border border-blood/60 bg-blood/10 p-4">
       <p className="font-bold text-blood">불길한 기운이 느껴진다…</p>
       <p className="text-sm">
-        다음 칸에서 감당하기 어려운 무언가가 기다린다.{level ? ` (권장 등급: ${RANKS[level].name})` : ""}
+        다음 칸에서 감당하기 어려운 무언가가 기다린다.{level ? ` (권장 등급: ${stageName(level)})` : ""}
       </p>
       {lines.length > 0 ? <Lines lines={lines} tone="ember" /> : <p className="text-xs text-ash">동료들이 서로 눈치를 본다…</p>}
       <Button variant="danger" onClick={onRetreat} title="얻은 것을 들고 돌아간다. 열쇠는 그대로 남는다">

@@ -351,6 +351,7 @@ function combine(main: MainFragment, subs: SubFragment[], levels: SubLevels, id:
     effects,
     ...(main.stat ? { stat: main.stat } : {}),
     ...(main.ultimate ? { ultimate: true } : {}),
+    ...(subs.find((s) => s.element) ? { element: subs.find((s) => s.element)!.element } : {}),
   };
   return { ...def, description: describeSkill(def) };
 }

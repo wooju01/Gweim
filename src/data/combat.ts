@@ -39,7 +39,8 @@ export type StatusKind =
 export type SupplyKind = "bandage" | "antidote" | "potion";
 
 /** 공격이 상태이상을 걸 확률 */
-export type OnHit = { status: StatusKind; chance: number };
+/** 공격이 맞으면 chance로 거는 상태이상. value: 세기 (중독 피해 등, 없으면 기본값). stack: 이미 걸려 있으면 세기가 더해진다 (최대 stack) */
+export type OnHit = { status: StatusKind; chance: number; value?: number; stack?: number };
 
 export type UnitStats = {
   hp: number;
@@ -130,6 +131,8 @@ export const RESIST = {
   stunStep: 0.4,
   /** 몬스터 등급별 기본 기절 저항 (용병은 0) */
   stunBase: { normal: 0.1, elite: 0.25, floorBoss: 0.4, dungeonBoss: 0.5 } as Record<string, number>,
+  /** 큰 기술을 준비(예고)하는 동안 기절 저항이 이만큼 낮아진다 (무방비. 기절로 끊을 틈) */
+  chargingOpen: 0.4,
 } as const;
 
 // ── 종족 패시브 수치 (data/passives.ts의 설명과 맞춘다) ──
@@ -180,14 +183,21 @@ export const REGION_SCALE = {
   bronze2: { hp: 2.2, atk: 1.4 },
   bronze1: { hp: 2.5, atk: 1.5 },
   silver3: { hp: 3.6, atk: 2.0 },
+  silver2: { hp: 3.9, atk: 2.15 },
+  silver1: { hp: 4.2, atk: 2.3 },
+  gold3: { hp: 5.4, atk: 2.9 },
 } as const;
 export type ScaleKey = keyof typeof REGION_SCALE;
+export function isScaleKey(key: string): key is ScaleKey {
+  return key in REGION_SCALE;
+}
 /** 몬스터 등급 배율: 체력 / 공격 (방어는 등급과 상관없다) */
 export const RANK_SCALE: Record<"normal" | "elite" | "floorBoss" | "dungeonBoss", { hp: number; atk: number }> = {
   normal: { hp: 1, atk: 1 },
   elite: { hp: 1.8, atk: 1.2 },
   floorBoss: { hp: 3.5, atk: 1.3 },
-  dungeonBoss: { hp: 5, atk: 1.4 },
+  // 던전 보스 체력 ×3.2 (2026-11-22, 보스전은 짧고 아프게 + 예고 패턴). 나무 거인처럼 따로 맞춘 보스는 monsters.ts의 rankHp
+  dungeonBoss: { hp: 3.2, atk: 1.4 },
 };
 /** 행동 순서를 정할 때 속도에 더하는 무작위 값의 최대 */
 export const SPEED_JITTER = 3;

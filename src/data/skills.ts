@@ -4,6 +4,7 @@
 // 엔진(combat/engine.ts)은 효과 종류별로 한 번씩만 처리하고, 미리보기와 설명 문장도 효과에서 만든다.
 import { STATUS, type StatusKind } from "./combat";
 import type { PowerStat } from "./growth";
+import type { Element } from "@/lib/schemas";
 
 export type SkillTarget = "enemy" | "ally" | "none";
 
@@ -90,6 +91,12 @@ export type SkillDef = {
   stat?: PowerStat;
   /** 궁극기: 금 등급부터, 한 번에 1개만 장착, 전투당 1번 (대기 시간 대신) */
   ultimate?: boolean;
+  /** 원소 조각이 붙은 스킬의 원소 (불 피해는 재생을 막는다) */
+  element?: Element;
+  /** 보스 예고 패턴: 쓰기 한 차례 전에 준비(예고)한다. 그사이 기절하면 끊긴다 */
+  telegraph?: boolean;
+  /** 예고할 때 나오는 문구 ({name}은 쓰는 몬스터 이름) */
+  warn?: string;
 };
 
 export type Skill = SkillDef & { description: string };
@@ -163,6 +170,7 @@ export function describeSkill(def: SkillDef): string {
         return [`${e.text} (준비 중)`];
     }
   });
+  if (def.telegraph) parts.unshift("한 차례 전에 예고한다 (그사이 기절시키면 끊긴다)");
   return parts.join(". ");
 }
 

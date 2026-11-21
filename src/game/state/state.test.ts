@@ -4,7 +4,7 @@ import { wageOf } from "@/game/merc/wages";
 import { promotionChoices } from "@/game/merc/promotion";
 import { knownFragments, ownerOf } from "@/game/merc/skillhall";
 import { getFragment } from "@/data/fragments";
-import { XP_TO_NEXT } from "@/data/growth";
+import { PROMOTE_BONUS, XP_TO_NEXT } from "@/data/growth";
 import { fragmentsFor, skillKey } from "@/game/skills";
 import { act, living } from "@/game/combat/engine";
 import { battleSpoils, finishBattle } from "@/game/dungeon/expedition";
@@ -344,6 +344,10 @@ describe("승급 (상태)", () => {
     expect(after.kind === "random" && after.seed.level).toBe("silver");
     expect(done.progress[id]).toMatchObject({ lv: 0, xp: 0, wage: wageOf(mercOf(after)) });
     expect(done.progress[id].wage).toBeGreaterThan(wageOf(mercOf(entry)));
+    // 승급 보너스: 체력 포인트와 단련 기회
+    const before = s.progress[id];
+    expect(done.progress[id].stats.hp ?? 0).toBe((before.stats.hp ?? 0) + PROMOTE_BONUS.hp);
+    expect(done.progress[id].trainable).toBe(before.trainable + PROMOTE_BONUS.trainable);
     // 단계가 모자라면 승급할 수 없다
     expect(gameReducer({ ...s, progress: { ...s.progress, [id]: { ...s.progress[id], lv: 1 } } }, { type: "promote", mercId: id, passive: passives[0] }).gold).toBe(100);
   });

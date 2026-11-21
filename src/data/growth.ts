@@ -86,6 +86,13 @@ export const XP_GOAL_BONUS = 3;
 
 // 승급 비용은 data/ranks.ts의 promoteCost
 
+/**
+ * 승급 보너스 (등급이 바뀔 때만. 같은 등급 안의 레벨업은 성장표 +3과 단련장 +3뿐).
+ * 다음 등급 구역은 몬스터 체력 배율이 크게 뛰어서(동1 2.5 → 은3 3.6) 그 차이를 메운다. 수치는 초안 (2026-11-22)
+ * hp: 체력 포인트 (1점 = 최대 체력 +3), trainable: 단련 기회 추가 (1번 = 포인트 3, 금화는 따로 든다)
+ */
+export const PROMOTE_BONUS = { hp: 5, trainable: 1 } as const;
+
 /** 단련장: 레벨업 1번마다 기회 1번. 금화를 내고 스탯을 직접 배분한다 */
 export const TRAINING_POINTS = 3;
 export const TRAINING_COST = 10;

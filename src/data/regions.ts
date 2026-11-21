@@ -7,11 +7,11 @@
 import type { MercLevel } from "@/lib/schemas";
 import type { KeyItemId } from "./keyItems";
 import { getMonster } from "./monsters";
-import { RANKS } from "./ranks";
-import type { ScaleKey } from "./combat";
+import { parseStage, stageName, type StageKey } from "./ranks";
+import { REGION_SCALE, isScaleKey, type ScaleKey } from "./combat";
 
 /** 목적지 보스 후보. warn: 이 보스로 정해지면 보스 직전 칸에서 경고한다 (warnLevel: 경고에 보이는 권장 등급) */
-export type BossPick = { monsterId: string; weight: number; warn?: boolean; warnLevel?: MercLevel };
+export type BossPick = { monsterId: string; weight: number; warn?: boolean; warnLevel?: StageKey };
 
 export type Region = {
   id: string;
@@ -19,8 +19,8 @@ export type Region = {
   name: string;
   /** 층 (1부터) */
   depth: number;
-  /** 권장 등급 [낮은 쪽, 높은 쪽]. 경험치 배율은 높은 쪽과 비교한다 (등급 단위, 단계는 무시) */
-  recommended: readonly [MercLevel, MercLevel];
+  /** 권장 등급·단계 [낮은 쪽, 높은 쪽]. 경험치 배율은 높은 쪽의 등급과 비교한다 (단계는 무시) */
+  recommended: readonly [StageKey, StageKey];
   /** 짧은 소개 (갈래 고르는 화면에) */
   description: string;
   /** 나오는 적 (data/monsters.ts의 id)과 등장 가중치. elite면 이 지역에서는 늘 정예로 나온다. 비어 있으면 준비 중 */
@@ -29,7 +29,7 @@ export type Region = {
   size: readonly [number, number];
   /** 일반 적이 정예로 나올 확률 */
   eliteChance: number;
-  /** 몬스터 수치 배율 (구역 권장 등급, data/combat.ts의 REGION_SCALE). 없으면 배율 없음 */
+  /** 몬스터 수치 배율 (data/combat.ts의 REGION_SCALE). 없으면 권장 높은 쪽 (배율표에 없으면 배율 없음) */
   scale?: ScaleKey;
   /** 층 칸 수 범위. 없으면 층 기본값 (data/dungeon.ts의 FLOOR_CELLS) */
   cells?: { min: number; max: number };
@@ -91,8 +91,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "미지의 숲",
     depth: 1,
-    scale: "bronze3",
-    recommended: ["bronze", "bronze"],
+    recommended: ["bronze3", "bronze3"],
     description: "햇빛이 드는 얕은 숲. 고블린 졸개와 슬라임이 어슬렁거린다.",
     monsters: [
       { id: "goblin_grunt", weight: 5 },
@@ -110,8 +109,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "깊은 숲",
     depth: 2,
-    scale: "bronze2",
-    recommended: ["bronze", "bronze"],
+    recommended: ["bronze2", "bronze2"],
     description: "나무가 빽빽해 낮에도 어둑하다. 숲 한가운데 움직이는 거목이 있다는 소문이다.",
     monsters: [
       { id: "goblin_grunt", weight: 5 },
@@ -132,8 +130,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "미지의 동굴",
     depth: 2,
-    scale: "bronze2",
-    recommended: ["bronze", "bronze"],
+    recommended: ["bronze2", "bronze2"],
     description: "숲 바위틈으로 열린 동굴. 거미줄과 박쥐 날갯짓 소리가 가득하다.",
     monsters: [
       { id: "cave_spider", weight: 4 },
@@ -152,8 +149,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "고블린 마을",
     depth: 3,
-    scale: "bronze1",
-    recommended: ["bronze", "bronze"],
+    recommended: ["bronze1", "bronze1"],
     description: "고블린들이 엉성한 울타리를 두르고 사는 마을. 왕을 자칭하는 놈이 있다.",
     monsters: [
       { id: "goblin_warrior", weight: 5 },
@@ -172,8 +168,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "늪지대",
     depth: 3,
-    scale: "bronze1",
-    recommended: ["bronze", "silver"],
+    recommended: ["bronze1", "bronze1"],
     description: "발이 푹푹 빠지는 늪. 온갖 슬라임이 부글거리며 모여 산다.",
     monsters: [
       { id: "poison_slime", weight: 4 },
@@ -191,8 +186,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "더 깊은 숲",
     depth: 3,
-    scale: "silver3",
-    recommended: ["silver", "silver"],
+    recommended: ["bronze1", "silver3"],
     description: "고블린이 사라지고 오크의 발자국이 보이기 시작한다. 어디선가 숲이 수군거린다.",
     monsters: [
       { id: "orc_warrior", weight: 4 },
@@ -211,8 +205,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "오크 마을",
     depth: 4,
-    scale: "silver3",
-    recommended: ["silver", "silver"],
+    recommended: ["silver3", "silver3"],
     description: "북소리가 울리는 오크들의 마을. 그 한가운데 오크 킹의 천막이 있다.",
     monsters: [
       { id: "orc_warrior", weight: 4 },
@@ -230,8 +223,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "타락한 엘프의 숲",
     depth: 4,
-    scale: "silver3",
-    recommended: ["silver", "silver"],
+    recommended: ["silver2", "silver2"],
     description: "나무와 정령이 검게 물든 숲. 세계수의 가지가 이곳을 가리켰다.",
     monsters: [
       { id: "corrupted_ranger", weight: 4 },
@@ -259,8 +251,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "거미 둥지",
     depth: 3,
-    scale: "bronze1",
-    recommended: ["bronze", "silver"],
+    recommended: ["bronze1", "bronze1"],
     description: "동굴 벽이 온통 끈적한 거미줄이다. 알 주머니가 천장에 매달려 있다.",
     monsters: [
       { id: "cave_spider", weight: 4 },
@@ -278,8 +269,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "늑대 굴",
     depth: 3,
-    scale: "bronze1",
-    recommended: ["bronze", "bronze"],
+    recommended: ["bronze1", "bronze1"],
     description: "뼈가 굴러다니는 굴. 멀리서 우두머리의 울음소리가 들린다.",
     monsters: [
       { id: "cave_wolf", weight: 4 },
@@ -305,7 +295,6 @@ const pair = (a: string, b: string, chance = END_BOSS_CHANCE) => ({
 });
 const marsh = (r: Omit<Region, "dungeon" | "monsters" | "size" | "eliteChance">): Region => ({
   dungeon: "fog_marsh",
-  scale: "silver3",
   monsters: [],
   size: [3, 4],
   eliteChance: 0.2,
@@ -313,27 +302,29 @@ const marsh = (r: Omit<Region, "dungeon" | "monsters" | "size" | "eliteChance">)
 });
 
 const MARSH_REGIONS: Region[] = [
-  marsh({ id: "fm_marsh", name: "안개 낀 늪지", depth: 1, recommended: ["silver", "silver"], description: "한 치 앞이 안 보이는 안개 늪.", boss: pair("marsh_hydra", "mud_toad_lord", MID_BOSS_CHANCE), next: ["fm_graveyard", "fm_monastery"] }),
-  marsh({ id: "fm_graveyard", name: "잊혀진 공동묘지", depth: 2, recommended: ["silver", "silver"], description: "이름이 지워진 묘비들이 늘어선 묘지.", boss: pair("grave_revenant", "dullahan", MID_BOSS_CHANCE), next: ["fm_corpse_pit", "fm_bone_cave"] }),
-  marsh({ id: "fm_corpse_pit", name: "시체 구덩이", depth: 3, recommended: ["silver", "gold"], description: "버려진 것들이 쌓인 구덩이.", boss: pair("ghoul_lord", "flesh_golem"), next: [] }),
-  marsh({ id: "fm_bone_cave", name: "뼈 동굴", depth: 3, recommended: ["silver", "gold"], description: "벽이 온통 뼈로 된 동굴.", boss: pair("skeleton_centurion", "grave_hound", MID_BOSS_CHANCE), next: ["fm_dragon_tomb"] }),
-  marsh({ id: "fm_dragon_tomb", name: "용의 무덤", depth: 4, recommended: ["gold", "gold"], description: "거대한 용의 뼈가 잠든 곳.", boss: pair("bone_dragon", "skeleton_giant"), next: [] }),
-  marsh({ id: "fm_monastery", name: "역병의 수도원", depth: 2, recommended: ["silver", "silver"], description: "역병으로 버려진 수도원. 종소리가 가끔 혼자 울린다.", boss: pair("high_banshee", "gargoyle_lord", MID_BOSS_CHANCE), next: ["fm_chapel"] }),
-  marsh({ id: "fm_chapel", name: "오염된 예배당", depth: 3, recommended: ["silver", "gold"], description: "검게 그을린 예배당.", boss: pair("plague_doctor", "heretic_inquisitor", MID_BOSS_CHANCE), next: ["fm_cathedral"] }),
-  marsh({ id: "fm_cathedral", name: "금단의 대성당", depth: 4, recommended: ["gold", "gold"], description: "들어간 사람이 돌아오지 않는다는 대성당.", boss: pair("lich", "necromancer_lord"), next: [] }),
+  marsh({ id: "fm_marsh", name: "안개 낀 늪지", depth: 1, recommended: ["silver3", "silver3"], description: "한 치 앞이 안 보이는 안개 늪.", boss: pair("marsh_hydra", "mud_toad_lord", MID_BOSS_CHANCE), next: ["fm_graveyard", "fm_monastery"] }),
+  marsh({ id: "fm_graveyard", name: "잊혀진 공동묘지", depth: 2, recommended: ["silver2", "silver2"], description: "이름이 지워진 묘비들이 늘어선 묘지.", boss: pair("grave_revenant", "dullahan", MID_BOSS_CHANCE), next: ["fm_corpse_pit", "fm_bone_cave"] }),
+  marsh({ id: "fm_corpse_pit", name: "시체 구덩이", depth: 3, recommended: ["silver1", "silver1"], description: "버려진 것들이 쌓인 구덩이.", boss: pair("ghoul_lord", "flesh_golem"), next: [] }),
+  marsh({ id: "fm_bone_cave", name: "뼈 동굴", depth: 3, recommended: ["silver1", "silver1"], description: "벽이 온통 뼈로 된 동굴.", boss: pair("skeleton_centurion", "grave_hound", MID_BOSS_CHANCE), next: ["fm_dragon_tomb"] }),
+  marsh({ id: "fm_dragon_tomb", name: "용의 무덤", depth: 4, recommended: ["gold3", "gold3"], description: "거대한 용의 뼈가 잠든 곳.", boss: pair("bone_dragon", "skeleton_giant"), next: [] }),
+  marsh({ id: "fm_monastery", name: "역병의 수도원", depth: 2, recommended: ["silver2", "silver2"], description: "역병으로 버려진 수도원. 종소리가 가끔 혼자 울린다.", boss: pair("high_banshee", "gargoyle_lord", MID_BOSS_CHANCE), next: ["fm_chapel"] }),
+  marsh({ id: "fm_chapel", name: "오염된 예배당", depth: 3, recommended: ["silver1", "silver1"], description: "검게 그을린 예배당.", boss: pair("plague_doctor", "heretic_inquisitor", MID_BOSS_CHANCE), next: ["fm_cathedral"] }),
+  marsh({ id: "fm_cathedral", name: "금단의 대성당", depth: 4, recommended: ["gold3", "gold3"], description: "들어간 사람이 돌아오지 않는다는 대성당.", boss: pair("lich", "necromancer_lord"), next: [] }),
   marsh({
     id: "fm_vampire_castle",
     name: "뱀파이어 성",
     depth: 4,
-    recommended: ["gold", "gold"],
+    recommended: ["gold3", "gold2"],
+    // 금2 배율이 아직 없어서 금3 배율
+    scale: "gold3",
     description: "핏빛 초대장이 이끄는 성.",
     cells: { min: 12, max: 15 },
-    // 백작부인 7 / 뱀파이어 로드 3. 로드로 정해지면 보스 직전 칸에서 경고 (권장 미스릴)
+    // 백작부인 7 / 뱀파이어 로드 3. 로드로 정해지면 보스 직전 칸에서 경고 (권장 미스릴3)
     boss: {
       chance: 1,
       pool: [
         { monsterId: "vampire_countess", weight: 7 },
-        { monsterId: "vampire_lord", weight: 3, warn: true, warnLevel: "mithril" },
+        { monsterId: "vampire_lord", weight: 3, warn: true, warnLevel: "mithril3" },
       ],
     },
     hidden: { from: "fm_chapel", keyItem: "blood_invitation", triggerChance: HIDDEN_TRIGGER_CHANCE, event: "crimson_summons" },
@@ -384,10 +375,21 @@ export function hiddenFrom(regionId: string): Region[] {
   return REGIONS.filter((r) => r.hidden?.from === regionId);
 }
 
-/** 권장 등급 표시 ("동", "동~은") */
+/** 권장 등급 표시 ("동2", "동1~은3") */
 export function recommendedLabel(r: Region): string {
   const [lo, hi] = r.recommended;
-  return lo === hi ? RANKS[lo].name : `${RANKS[lo].name}~${RANKS[hi].name}`;
+  return lo === hi ? stageName(lo) : `${stageName(lo)}~${stageName(hi)}`;
+}
+
+/** 경험치 배율을 정하는 권장 등급 (높은 쪽의 등급) */
+export function recommendedGrade(r: Region): MercLevel {
+  return parseStage(r.recommended[1]).level;
+}
+
+/** 구역의 몬스터 배율: scale이 있으면 그것, 없으면 권장 높은 쪽 */
+export function scaleOf(r: Region): { hp: number; atk: number } | undefined {
+  const key = r.scale ?? r.recommended[1];
+  return isScaleKey(key) ? REGION_SCALE[key] : undefined;
 }
 
 /** 목적지 보스 후보 이름 (나올 수 있는 것만. 몬스터가 아직 없으면 계획된 이름) */

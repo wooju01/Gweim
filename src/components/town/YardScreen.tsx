@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CURRENCY } from "@/data/economy";
-import { STAT_EFFECT, STAT_NAME, STAT_ORDER, TRAINING_COST, TRAINING_POINTS, type StatBlock, type StatKey } from "@/data/growth";
+import { PER_POINT, PROMOTE_BONUS, STAT_EFFECT, STAT_NAME, STAT_ORDER, TRAINING_COST, TRAINING_POINTS, type StatBlock, type StatKey } from "@/data/growth";
 import { canPromote, xpToNext } from "@/game/merc/growth";
 import type { Merc } from "@/game/types";
 import { Button, Portrait } from "@/components/common/parts";
@@ -155,7 +155,7 @@ function Promotion({ offer, gold, onDone }: { offer: PromotionOffer; gold: numbe
   return (
     <div className="flex flex-col gap-3 rounded-sm border border-ember/40 bg-ember/5 p-3">
       <p className="text-sm">
-        <b className="text-ember">{offer.next}</b>(으)로 승급 · 3단계부터 다시 오르고, 보수도 오른다
+        <b className="text-ember">{offer.next}</b>(으)로 승급 · 최대 체력 +{PROMOTE_BONUS.hp * PER_POINT.hp}, 단련 기회 +{PROMOTE_BONUS.trainable} · 3단계부터 다시 오르고, 보수도 오른다
       </p>
       {offer.branches.length > 0 && (
         <div className="flex flex-col gap-1.5">

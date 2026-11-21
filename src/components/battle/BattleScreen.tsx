@@ -727,6 +727,11 @@ function Figure({
           {hp}/{unit.maxHp}
           {(unit.shield ?? 0) > 0 && <span className="ml-1 text-frost">◆{unit.shield}</span>}
         </span>
+        {unit.charging && (
+          <span className="animate-pulse rounded-sm bg-blood/30 px-1 text-[9px] font-bold text-blood" title="다음 차례에 쓴다. 기절시키면 끊긴다">
+            ⚠ {getSkill(unit.charging.skill)?.name ?? "준비"}
+          </span>
+        )}
         {unit.statuses.length > 0 && (
           <div className="flex gap-0.5">
             {unit.statuses.map((s) => (
@@ -803,6 +808,12 @@ function FoeStats({ unit, hp, preview, battle }: { unit: Unit; hp: number; previ
         <p>
           공격 {stats.attack[0]}~{stats.attack[1]} · 방어 {stats.defense} · 속도 {stats.speed} · 회피 {pct(stats.evadeChance)}
         </p>
+        {unit.charging && (
+          <p className="font-bold text-blood">
+            ⚠ 준비 중: {getSkill(unit.charging.skill)?.name}
+            {unit.charging.target ? ` → ${battle.units.find((u) => u.id === unit.charging!.target)?.name ?? ""}` : ""} · 다음 차례에 쓴다 (기절시키면 끊긴다)
+          </p>
+        )}
         {unit.statuses.length > 0 && (
           <p className="flex flex-wrap gap-1">
             {unit.statuses.map((s) => (

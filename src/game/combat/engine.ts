@@ -9,7 +9,6 @@ import {
   CRIT_CHANCE,
   CRIT_MULTIPLIER,
   RANK_SCALE,
-  REGION_SCALE,
   SPEED_JITTER,
   DEFAULT_STATS,
   GUARD_MULTIPLIER,
@@ -34,7 +33,7 @@ import { BOND } from "@/data/bond";
 import { JOB_STAT, PER_POINT, type PowerStat, type StatKey } from "@/data/growth";
 import { DEATH, survivalChance } from "@/data/death";
 import { ELITE_TRAITS, MAX_ENEMIES, getMonster, type Ability, type EliteTrait, type Monster, type MonsterRank, type MonsterTag } from "@/data/monsters";
-import type { Region } from "@/data/regions";
+import { scaleOf, type Region } from "@/data/regions";
 import type { MercLevel, Stage } from "@/lib/schemas";
 import { createRng, rollInt, type Rng } from "@/game/random";
 import { basicBuild, getSkill, resolveSkill, skillKey, validateUltimate } from "@/game/skills";
@@ -68,6 +67,8 @@ export type Unit = {
   cooldowns: Record<SkillId, number>;
   /** 막아서기 중 (자기 다음 차례가 오면 풀린다) */
   guarding: boolean;
+  /** 보스 예고: 다음 자기 차례에 쓸 스킬과 노린 대상. 그사이 기절하면 끊긴다 */
+  charging?: { skill: SkillId; target?: string };
   /** 보호막. 공격 피해를 체력보다 먼저 받아 낸다. 전투가 끝날 때까지 남는다 (상태이상 피해는 못 막는다) */
   shield?: number;
   /** 용병만: 종족 패시브 id (data/passives.ts) */
@@ -127,6 +128,8 @@ export type PassiveState = {
   ultimateUsed?: boolean;
   /** 기절에 걸린 횟수 (걸릴 때마다 기절 저항이 쌓인다) */
   stunCount?: number;
+  /** 지난 자기 차례 뒤로 불 피해를 받았다 (재생이 막힌다) */
+  scorched?: boolean;
   /** 숨통 끊기·전사의 긍지를 마지막으로 쓴 라운드 */
   biteRound?: number;
   prideRound?: number;
@@ -181,6 +184,12 @@ export type BattleEvent =
   | { type: "resist"; target: string; kind: StatusKind }
   /** 몬스터가 늘었다 (분열·부화·낳기·부르기). by: 원인이 된 유닛 */
   | { type: "spawn"; unit: string; by: string; how: "split" | "hatch" | "brood" | "summon" }
+  /** 보스가 큰 기술을 준비한다 (다음 차례에 쓴다) */
+  | { type: "charge"; unit: string; skill: SkillId; target?: string }
+  /** 준비하던 기술이 기절로 끊겼다 */
+  | { type: "interrupt"; unit: string; skill: SkillId }
+  /** 재생이 막혔다 */
+  | { type: "noRegen"; unit: string; why: "bleed" | "fire" }
   | { type: "end"; outcome: Outcome };
 
 export type Battle = {
@@ -426,7 +435,7 @@ export function enemyUnit(k: EnemyKind | Monster, id: string, name = k.name, sca
     guarding: false,
   };
   // 던전 몬스터: 기본 수치 × 구역 배율 × 등급 배율
-  return scale ? scaleUnit(u, { hp: scale.hp * RANK_SCALE[u.rank ?? "normal"].hp, atk: scale.atk * RANK_SCALE[u.rank ?? "normal"].atk, def: scale.atk }) : u;
+  return scale ? scaleUnit(u, { hp: scale.hp * (m?.rankHp ?? RANK_SCALE[u.rank ?? "normal"].hp), atk: scale.atk * RANK_SCALE[u.rank ?? "normal"].atk, def: scale.atk }) : u;
 }
 
 /** 수치에 배율을 곱한다 (체력은 가득 찬 채로) */
@@ -469,7 +478,7 @@ function nameUnits(kinds: (EnemyKind | Monster)[], scale?: { hp: number; atk: nu
 
 /** 구역의 몬스터 배율 */
 export function regionScale(region?: Region): { hp: number; atk: number } | undefined {
-  return region?.scale ? REGION_SCALE[region.scale] : undefined;
+  return region ? scaleOf(region) : undefined;
 }
 
 /**
@@ -742,7 +751,12 @@ function monsterTurn(b: Battle, rng: Rng, unit: Unit): boolean {
   unit.fx.age = (unit.fx.age ?? 0) + 1;
   // 재생: 차례마다 체력 회복 (나무 거인 등)
   const regen = ability(unit, "regen");
-  if (regen && unit.hp < unit.maxHp) heal(b, unit, regen.amount, unit.id);
+  if (regen && unit.hp < unit.maxHp) {
+    const blocked = hasStatus(unit, "bleed") ? "bleed" : unit.fx.scorched ? "fire" : null;
+    if (blocked) b.log.push({ type: "noRegen", unit: unit.id, why: blocked });
+    else heal(b, unit, Math.max(1, Math.round((regen.amount ?? 0) + (regen.pct ?? 0) * unit.maxHp)), unit.id);
+  }
+  unit.fx.scorched = false;
   const hatch = ability(unit, "hatch");
   if (hatch) {
     if (unit.fx.age >= hatch.turns) {
@@ -781,7 +795,8 @@ function monsterTurn(b: Battle, rng: Rng, unit: Unit): boolean {
     return true;
   }
   const brood = ability(unit, "brood");
-  if (brood && unit.fx.age % brood.every === 0 && living(b, "enemy").length < MAX_ENEMIES) {
+  const broodFull = brood?.max !== undefined && living(b, "enemy").filter((u) => u.kind === brood.into).length >= brood.max;
+  if (brood && !unit.charging && !broodFull && unit.fx.age % brood.every === 0 && living(b, "enemy").length < MAX_ENEMIES) {
     spawn(b, brood.into, brood.count, unit, "brood");
     return true;
   }
@@ -825,14 +840,17 @@ export function statusValue(u: Unit, kind: StatusKind): number {
  * 상태이상을 건다. 다시 걸리면 지속 시간은 새로 고치고 수치는 큰 쪽.
  * self: 자기 행동 중에 자신에게 건다 (그 행동이 끝날 때 줄지 않도록 1을 더한다)
  */
-function applyStatus(b: Battle, target: Unit, kind: StatusKind, opts: { value?: number; turns?: number; self?: boolean; source?: string } = {}) {
+function applyStatus(b: Battle, target: Unit, kind: StatusKind, opts: { value?: number; turns?: number; self?: boolean; source?: string; stack?: number } = {}) {
   let turns = (opts.turns ?? STATUS[kind].turns) + (opts.self && STATUS[kind].damage === 0 && kind !== "regen" ? 1 : 0);
   // 임기응변: 출혈·중독 지속 1턴 감소
   if (HARMFUL.includes(kind) && has(target, "improvise")) turns = Math.max(1, turns - 1);
   const existing = target.statuses.find((s) => s.kind === kind);
   if (existing) {
     existing.turns = turns;
-    if (opts.value !== undefined) existing.value = Math.max(existing.value ?? STATUS[kind].value ?? 0, opts.value);
+    const now = existing.value ?? STATUS[kind].value ?? STATUS[kind].damage;
+    // 누적: 세기가 더해진다 (최대 opts.stack)
+    if (opts.stack) existing.value = Math.min(opts.stack, now + (opts.value ?? STATUS[kind].damage));
+    else if (opts.value !== undefined) existing.value = Math.max(existing.value ?? STATUS[kind].value ?? 0, opts.value);
     if (opts.source) existing.source = opts.source;
   } else {
     target.statuses.push({ kind, turns, ...(opts.value !== undefined ? { value: opts.value } : {}), ...(opts.source ? { source: opts.source } : {}) });
@@ -848,7 +866,8 @@ export function resistOf(u: Unit, kind: ResistKind): number {
         (u.side === "enemy" ? (RESIST.stunBase[u.rank ?? "normal"] ?? 0) : 0) +
         (u.fx?.stunCount ?? 0) * RESIST.stunStep +
         statusValue(u, "stunResUp") -
-        statusValue(u, "shaken")
+        statusValue(u, "shaken") -
+        (u.charging ? RESIST.chargingOpen : 0)
       );
     case "bleed":
       return -statusValue(u, "bleedVuln");
@@ -1123,7 +1142,8 @@ function strike(b: Battle, rng: Rng, actor: Unit, target: Unit, base: number, op
   afterHit(b, target, amount);
   // 장인의 눈썰미: 20% 확률로 균열
   if (has(actor, "crafters_eye") && rng.next() < PASSIVE.crackChance) applyStatus(b, target, "crack");
-  if (onHit && actor.onHit && rng.next() < onHitChance(actor, target)) applyStatus(b, target, actor.onHit.status);
+  if (onHit && actor.onHit && rng.next() < onHitChance(actor, target))
+    applyStatus(b, target, actor.onHit.status, { ...(actor.onHit.value !== undefined ? { value: actor.onHit.value } : {}), ...(actor.onHit.stack ? { stack: actor.onHit.stack } : {}) });
   if (opts.perHit) tryStatus(b, rng, actor, target, opts.perHit);
   return amount;
 }
@@ -1242,6 +1262,7 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
         }
         break;
       case "damage": {
+        const logFrom = b.log.length;
         const opts: StrikeOptions = {
           onHit: e.onHit ?? true,
           enemiesAtStart,
@@ -1276,6 +1297,13 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
             if (others.length > 0) strike(b, rng, actor, others[Math.floor(rng.next() * others.length)], rollBase(rng, actor, e), { ...opts, aoe: true });
           }
         }
+        // 불 피해: 맞은 적의 다음 재생을 막는다
+        if (skill.element === "fire")
+          for (const ev of b.log.slice(logFrom))
+            if (ev.type === "attack" && ev.actor === actor.id) {
+              const hit = unitById(b, ev.target);
+              if (hit) hit.fx = { ...hit.fx, scorched: true };
+            }
         break;
       }
       case "applyStatus": {
@@ -1622,6 +1650,20 @@ function pickVictim(b: Battle, rng: Rng, unit: Unit): Unit | null {
  * 스킬이 없는 몬스터는 늘 공격한다 (난수를 더 쓰지 않는다).
  */
 function enemyTurn(b: Battle, rng: Rng, unit: Unit) {
+  // 예고했던 기술을 쓴다. 노린 대상이 쓰러졌으면 다시 고른다 (막아서기·감싸기는 그대로 통한다)
+  if (unit.charging) {
+    const { skill: id, target: aimed } = unit.charging;
+    unit.charging = undefined;
+    const skill = skillDef(unit, id);
+    if (skill) {
+      const was = aimed ? unitById(b, aimed) : undefined;
+      const target = skill.target === "enemy" ? (was && was.hp > 0 ? protector(b, was) : pickVictim(b, rng, unit)) : undefined;
+      if (skill.target !== "enemy" || target) {
+        castSkill(b, rng, unit, id, target ?? undefined);
+        return;
+      }
+    }
+  }
   // 쓸모없는 지원은 고르지 않는다: 다친 아군이 없으면 회복 스킬, 지켜 줄 동료가 없으면 감싸기
   const hurt = friends(b, unit).some((f) => f.hp < f.maxHp);
   const others = friends(b, unit).filter((f) => f !== unit);
@@ -1642,6 +1684,11 @@ function enemyTurn(b: Battle, rng: Rng, unit: Unit) {
           ? [...(covers ? others : friends(b, unit))].sort((x, y) => x.hp / x.maxHp - y.hp / y.maxHp)[0]
           : undefined;
     if (skill.target !== "enemy" || target) {
+      if (skill.telegraph) {
+        unit.charging = { skill: skill.id, ...(target ? { target: target.id } : {}) };
+        b.log.push({ type: "charge", unit: unit.id, skill: skill.id, ...(target ? { target: target.id } : {}) });
+        return;
+      }
       castSkill(b, rng, unit, skill.id, target ?? undefined);
       return;
     }
@@ -1684,6 +1731,11 @@ function advance(b: Battle, rng: Rng) {
     const skip = hasStatus(unit, "stun") ? "stun" : hasStatus(unit, "bind") ? "bind" : null;
     if (skip) {
       unit.statuses = unit.statuses.filter((s) => s.kind !== skip);
+      // 기절하면 준비하던 기술이 끊긴다 (속박은 끊지 못한다)
+      if (skip === "stun" && unit.charging) {
+        b.log.push({ type: "interrupt", unit: unit.id, skill: unit.charging.skill });
+        unit.charging = undefined;
+      }
       b.log.push(skip === "stun" ? { type: "stunned", target: unit.id } : { type: "bound", target: unit.id });
       endTurn(unit);
       continue;
