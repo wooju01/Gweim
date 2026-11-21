@@ -9,7 +9,7 @@ import { applyTone, clampStat, getStage } from "@/game/merc/affinity";
 import { createRng, rollInt } from "@/game/random";
 import { CURRENCY, PACK_LIMIT, PRICE, START_GOLD, START_PACK, START_STOCK, STOCK_RANGE } from "@/data/economy";
 import { getRelic } from "@/data/relics";
-import { addSalvage, getSalvage, salvageCount } from "@/data/loot";
+import { addSalvage, getSalvage, salvageCount, sellable } from "@/data/loot";
 import { WAGE } from "@/data/wages";
 import { STAT_NAME, TRAINING_COST, type StatBlock } from "@/data/growth";
 import { NO_GROWTH, addStats, canPromote, gainXp, statLine, validTraining, type Growth } from "@/game/merc/growth";
@@ -1055,7 +1055,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case "sellSalvage": {
       const item = getSalvage(action.id);
       const have = state.salvage[action.id] ?? 0;
-      if (state.expedition || !item || have <= 0) return state;
+      // 전수관 재료는 팔 수 없다
+      if (state.expedition || !item || have <= 0 || !sellable(action.id)) return state;
       const n = action.all ? have : 1;
       const salvage = { ...state.salvage, [action.id]: have - n };
       if (salvage[action.id] === 0) delete salvage[action.id];

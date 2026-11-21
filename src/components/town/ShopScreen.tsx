@@ -1,7 +1,7 @@
 import { SUPPLY, type SupplyKind } from "@/data/combat";
 import { CURRENCY, PACK_LIMIT, PRICE } from "@/data/economy";
 import { getRelic } from "@/data/relics";
-import { getSalvage } from "@/data/loot";
+import { getSalvage, sellable } from "@/data/loot";
 import { Button } from "@/components/common/parts";
 import { TownBar } from "./TownBar";
 
@@ -22,7 +22,8 @@ const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
 
 /** 상점: 원정 물자를 사서 짐에 넣고, 던전에서 가져온 유물을 판다 */
 export function ShopScreen({ day, gold, pack, stock, relics, salvage, onBuy, onSell, onSellSalvage, onBack }: Props) {
-  const salvageItems = Object.entries(salvage).filter(([, n]) => n > 0);
+  // 전수관 재료(기술 파편·계열 재료 등)는 팔지 않는다
+  const salvageItems = Object.entries(salvage).filter(([id, n]) => n > 0 && sellable(id));
   const packed = Object.values(pack).reduce((a, b) => a + b, 0);
   const total = relics.reduce((s, id) => s + (getRelic(id)?.value ?? 0), 0);
 
@@ -68,7 +69,7 @@ export function ShopScreen({ day, gold, pack, stock, relics, salvage, onBuy, onS
       <section aria-label="유실물" className="flex flex-col gap-2 rounded-sm border border-edge bg-panel p-4">
         <div className="flex items-baseline justify-between">
           <h2 className="font-bold">유실물 팔기</h2>
-          <span className="text-xs text-ash">나중에 대장간·전수관의 재료로도 쓰인다</span>
+          <span className="text-xs text-ash">대장간 재료로도 쓰인다. 전수관 재료는 팔 수 없다</span>
         </div>
         {salvageItems.length === 0 ? (
           <p className="text-sm text-ash">팔 유실물이 없다. 전투에서 쓰러뜨린 적에게서 얻는다.</p>

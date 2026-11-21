@@ -6,6 +6,7 @@ import { act, currentActor, living, rollEncounter } from "@/game/combat/engine";
 import { createRng } from "@/game/random";
 import { PLANNED_BOSSES, REGIONS, getDungeon, getRegion } from "@/data/regions";
 import { getMonster } from "@/data/monsters";
+import { sellable } from "@/data/loot";
 import type { Merc } from "@/game/types";
 import {
   battleFor,
@@ -303,7 +304,8 @@ describe("전투 유실물", () => {
       expect(b.units.filter((u) => u.side === "enemy").every((u) => !!u.kind)).toBe(true);
       const won = battleSpoils(exp, { ...b, outcome: "victory" }, seed);
       expect(won.exp.loot).toEqual([]);
-      salvage += Object.values(won.exp.salvage).reduce((a, n) => a + n, 0);
+      // 팔 수 있는 유실물만 센다 (전수관 재료는 data/drops.test.ts)
+      salvage += Object.entries(won.exp.salvage).reduce((a, [id, n]) => a + (sellable(id) ? n : 0), 0);
     }
     // 적 3~4마리 × (0.5 + 0.15) ≈ 한 번에 2개 남짓
     expect(salvage / 100).toBeGreaterThan(1.5);
@@ -471,13 +473,35 @@ describe("히든 층", () => {
     expect(chooseEvent(exp, "leave", 1).hiddenNext).toBeUndefined();
   });
 
-  it("나무 거인은 확률로 세계수의 가지를 떨어뜨린다", () => {
+  it("자폭·분열·부화로 사라진 적은 재료를 떨어뜨리지 않는다 (금화는 준다)", () => {
+    const { exp } = expeditionWithFirst("battle");
+    const boss = { ...battleFor(exp, mercs, 1, {}, "alpha_wolf"), outcome: "victory" as const };
+    const bossId = boss.units.find((u) => u.kind === "alpha_wolf")!.id;
+    expect(battleSpoils(exp, boss, 1).exp.salvage.boss_token).toBe(1);
+    const cases = [
+      { type: "explode" as const, unit: bossId },
+      { type: "spawn" as const, unit: bossId, by: "x", how: "split" as const },
+      { type: "spawn" as const, unit: "x", by: bossId, how: "hatch" as const },
+    ];
+    for (const e of cases) {
+      const got = battleSpoils(exp, { ...boss, log: [...boss.log, e] }, 1).exp;
+      expect(got.salvage.boss_token, e.type).toBeUndefined();
+      expect(got.gold).toBeGreaterThan(0);
+    }
+  });
+
+  it("던전 보스는 일반 몬스터보다 금화를 훨씬 많이 준다", () => {
+    const { exp } = expeditionWithFirst("battle");
+    const boss = { ...battleFor(exp, mercs, 1, {}, "alpha_wolf"), outcome: "victory" as const };
+    const onlyBoss = { ...boss, units: boss.units.filter((u) => u.side === "merc" || u.kind === "alpha_wolf") };
+    const asNormal = { ...onlyBoss, units: onlyBoss.units.map((u) => (u.side === "enemy" ? { ...u, rank: "normal" as const } : u)) };
+    expect(battleSpoils(exp, onlyBoss, 5).exp.gold).toBe(battleSpoils(exp, asNormal, 5).exp.gold * 10);
+  });
+
+  it("나무 거인은 세계수의 가지를 반드시 떨어뜨린다", () => {
     const { exp } = expeditionWithFirst("battle");
     const giant = { ...battleFor(exp, mercs, 1, {}, "tree_giant"), outcome: "victory" as const };
-    let found = 0;
-    for (let seed = 0; seed < 200; seed++) if (battleSpoils(exp, giant, seed).exp.keyFound?.includes("world_tree_branch")) found++;
-    expect(found / 200).toBeGreaterThan(0.35);
-    expect(found / 200).toBeLessThan(0.65);
+    for (let seed = 0; seed < 50; seed++) expect(battleSpoils(exp, giant, seed).exp.keyFound).toContain("world_tree_branch");
   });
 });
 

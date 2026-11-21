@@ -2,30 +2,73 @@
 // (유물은 사건·보물 칸에서만 나온다. data/relics.ts)
 import type { Rng } from "@/game/random";
 
+/**
+ * 전리품 종류. loot(유실물)만 상점에 판다. 나머지는 전수관 재료 (data/drops.ts가 떨어뜨린다)
+ * shard 기술 파편 / book 전술 교본 / material 계열 재료 / raceRelic 종족 유물 / bossToken 보스 증표
+ */
+export type ItemKind = "loot" | "shard" | "book" | "material" | "raceRelic" | "bossToken";
+
 export type Salvage = {
   id: string;
   name: string;
   description: string;
-  /** 상점에 팔 때 받는 금화 */
+  /** 상점에 팔 때 받는 금화 (유실물만 판다) */
   value: number;
+  /** 없으면 유실물 */
+  kind?: ItemKind;
+};
+
+export const kindOf = (s: Salvage): ItemKind => s.kind ?? "loot";
+/** 상점에 팔 수 있나 (유실물만) */
+export const sellable = (id: string): boolean => {
+  const s = getSalvage(id);
+  return !!s && kindOf(s) === "loot";
 };
 
 export const SALVAGE: Salvage[] = [
-  // ── 미지의 숲 ──
+  // ── 전수관 재료 (팔지 않는다) ──
+  { id: "tech_shard", kind: "shard", name: "기술 파편", description: "싸움의 요령이 깃든 작은 조각. 부 조각을 익히고 다듬는 데 쓴다.", value: 0 },
+  { id: "tactic_book", kind: "book", name: "전술 교본", description: "손때 묻은 전술서. 은 등급 메인 조각과 종족 메인 조각을 익히는 데 쓴다.", value: 0 },
+  { id: "boss_token", kind: "bossToken", name: "보스 증표", description: "던전의 주인을 쓰러뜨린 증거. 부 조각을 끝까지 다듬는 데 쓴다.", value: 0 },
+  { id: "mat_whetstone", kind: "material", name: "고블린 숫돌", description: "고블린이 날을 세우던 숫돌. 치명·위력 계열 조각의 재료.", value: 0 },
+  { id: "mat_jelly", kind: "material", name: "슬라임 젤", description: "끈적하게 늘어나는 젤. 둔화·회피 계열 조각의 재료.", value: 0 },
+  { id: "mat_fang", kind: "material", name: "늑대 송곳니", description: "피 냄새가 밴 송곳니. 출혈 계열 조각의 재료.", value: 0 },
+  { id: "mat_venom", kind: "material", name: "거미 독샘", description: "독이 고인 주머니. 독 계열 조각의 재료.", value: 0 },
+  { id: "mat_arrowhead", kind: "material", name: "단단한 화살촉", description: "벼려 둔 화살촉. 고정 피해 계열 조각의 재료.", value: 0 },
+  { id: "mat_sap", kind: "material", name: "빛나는 수액", description: "어둠 속에서 은은하게 빛나는 수액. 회복·보호 계열 조각의 재료.", value: 0 },
+  { id: "mat_mace", kind: "material", name: "오크 철퇴 조각", description: "부서진 철퇴의 머리. 기절·방어 감소 계열 조각의 재료.", value: 0 },
+  { id: "relic_crest", kind: "raceRelic", name: "빛바랜 기사 문장", description: "옛 기사단의 문장. 인간 전용 조각의 재료.", value: 0 },
+  { id: "relic_spirit", kind: "raceRelic", name: "정령석", description: "정령이 깃든 돌. 엘프 전용 조각의 재료.", value: 0 },
+  { id: "relic_rune", kind: "raceRelic", name: "룬석", description: "룬이 새겨진 돌. 드워프 전용 조각의 재료.", value: 0 },
+  { id: "relic_beastfang", kind: "raceRelic", name: "맹수의 송곳니", description: "무리의 우두머리가 지니던 송곳니. 수인 전용 조각의 재료.", value: 0 },
+  { id: "relic_totem", kind: "raceRelic", name: "조상의 뼈 토템", description: "뼈를 깎아 만든 토템. 바바리안 전용 조각의 재료.", value: 0 },
+
+  // ── 미지의 숲 유실물 ──
   { id: "soft_pelt", name: "부드러운 털가죽", description: "숲 짐승의 보드라운 털가죽. 덧대기 좋다.", value: 3 },
   { id: "slime_jelly", name: "슬라임 젤리", description: "말랑하고 차가운 젤리. 약재상이 반긴다.", value: 2 },
   { id: "crude_iron", name: "조잡한 쇠붙이", description: "고블린이 두들겨 만든 쇳조각. 녹이면 쓸 만하다.", value: 3 },
   { id: "spider_silk", name: "거미줄 실타래", description: "질기고 가벼운 실. 재봉사들이 탐낸다.", value: 3 },
   { id: "bat_wing", name: "박쥐 날개막", description: "얇고 질긴 막. 바람을 잘 탄다.", value: 3 },
-  { id: "wolf_fang", name: "늑대 송곳니", description: "날카롭게 휜 송곳니. 사냥꾼들의 자랑거리.", value: 4 },
+  // 계열 재료 "늑대 송곳니"(mat_fang)와 헷갈리지 않게 이름을 바꿨다 (id는 저장 호환으로 그대로)
+  { id: "wolf_fang", name: "부러진 늑대 이빨", description: "끝이 부러진 이빨. 사냥꾼들이 목걸이로 꿴다.", value: 4 },
   { id: "shiny_trinket", name: "고블린의 반짝이", description: "고블린이 모아 둔 반짝이는 잡동사니. 가끔 진짜 보석이 섞여 있다.", value: 6 },
   { id: "slime_core", name: "슬라임 핵", description: "슬라임 한가운데 있던 투명한 구슬. 손에 쥐면 말랑하게 떨린다.", value: 8 },
-  { id: "venom_gland", name: "독샘", description: "독거미나 독 슬라임에게서 나온 주머니. 조심해서 다뤄야 한다.", value: 6 },
+  // 계열 재료 "거미 독샘"(mat_venom)과 헷갈리지 않게
+  { id: "venom_gland", name: "독 주머니", description: "독거미나 독 슬라임에게서 나온 주머니. 약재상이 해독제를 만든다.", value: 6 },
   { id: "orc_tusk", name: "오크 엄니", description: "굵고 묵직한 엄니. 오크 전사의 훈장이다.", value: 7 },
   { id: "shaman_feather", name: "주술 깃털", description: "주술사가 지니던 알록달록한 깃털. 희미한 힘이 남아 있다.", value: 6 },
   { id: "chief_token", name: "우두머리의 증표", description: "무리의 우두머리가 지니던 장식. 길드에서 무용담의 증거로 쳐준다.", value: 15 },
-  { id: "glowing_sap", name: "빛나는 수액", description: "나무 거인의 상처에서 흘러나온 수액. 어둠 속에서 은은하게 빛난다.", value: 10 },
+  // 계열 재료 "빛나는 수액"(mat_sap)과 헷갈리지 않게
+  { id: "glowing_sap", name: "굳은 수액 덩어리", description: "나무 거인의 상처에서 흘러나와 굳은 수액. 향료상이 사 간다.", value: 10 },
   { id: "withered_petal", name: "시든 꽃잎", description: "타락한 숲에서 주운 검은 꽃잎. 손에 쥐면 서늘하다.", value: 6 },
+  { id: "rat_hide", name: "쥐 가죽", description: "작고 얇은 가죽. 헝겊 대신 덧대 쓴다.", value: 2 },
+  { id: "boar_hide", name: "멧돼지 가죽", description: "뻣뻣한 털이 박힌 두꺼운 가죽.", value: 4 },
+  { id: "boar_tusk", name: "멧돼지 엄니", description: "누렇게 휜 엄니. 손잡이 장식으로 쓴다.", value: 8 },
+  { id: "big_bat_wing", name: "큰 박쥐 날개", description: "펼치면 사람 키만 한 날개막.", value: 10 },
+  { id: "crystal_chip", name: "수정 조각", description: "거미 등딱지에서 떨어진 수정. 빛에 비추면 무지갯빛이 돈다.", value: 9 },
+  { id: "powder_pouch", name: "화약 주머니", description: "터지지 않은 고블린 화약. 조심해서 팔아야 한다.", value: 5 },
+  { id: "feather_hide", name: "깃털 가죽", description: "오울베어의 깃털이 붙은 가죽. 따뜻하고 가볍다.", value: 12 },
+  { id: "war_drum", name: "전투 북", description: "오크 군악병의 북. 아직 둥둥 울린다.", value: 10 },
   // ── 다음 던전용 (기존 적 5종) ──
   { id: "rat_fang", name: "쥐 이빨", description: "누렇게 변한 앞니. 갈아서 쓰는 사람이 있다.", value: 2 },
   { id: "ash_hide", name: "잿빛 가죽", description: "털이 빠진 질긴 가죽. 덧대기 좋다.", value: 4 },
@@ -66,7 +109,14 @@ export const DROPS: Record<string, { id: string; chance: number }[]> = {
   // ── 미지의 숲 몬스터 ──
   goblin_grunt: [c("crude_iron", 0.5), c("shiny_trinket", 0.1)],
   green_slime: [c("slime_jelly", 0.6), c("slime_core", 0.05)],
-  forest_rat: [c("soft_pelt", 0.5)],
+  forest_rat: [c("rat_hide", 0.5), c("soft_pelt", 0.2)],
+  forest_boar: [c("boar_hide", 0.5)],
+  giant_boar: [c("boar_hide", 1), c("boar_tusk", 1)],
+  giant_cave_bat: [c("big_bat_wing", 1), c("bat_wing", 1)],
+  crystal_spider: [c("crystal_chip", 0.6)],
+  goblin_bomber: [c("powder_pouch", 0.5)],
+  owlbear: [c("feather_hide", 0.6)],
+  orc_drummer: [c("war_drum", 0.4), c("orc_tusk", 0.2)],
   goblin_slinger: [c("crude_iron", 0.4), c("shiny_trinket", 0.15)],
   blue_slime: [c("slime_jelly", 0.6), c("slime_core", 0.15)],
   goblin_shaman: [c("shaman_feather", 0.4), c("shiny_trinket", 0.2)],

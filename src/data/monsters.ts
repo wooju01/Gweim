@@ -55,9 +55,8 @@ export const ELITE_TRAITS: EliteTrait[] = [
   { id: "leader", prefix: "우두머리", description: "같은 종류 아군 공격 +1", ability: { kind: "lead", bonus: 1 } },
 ];
 
-/** 정예·층 보스 보상 */
+/** 정예는 유실물을 두 번 굴린다 (전수관 재료·장신구는 data/drops.ts) */
 export const ELITE_DROP_ROLLS = 2;
-export const FLOOR_BOSS_TRINKET_CHANCE = 0.3;
 
 /** 한 전투에서 살아 있는 적이 이 수를 넘게 늘어나지 않는다 (분열·소환·부화) */
 export const MAX_ENEMIES = 6;
@@ -178,7 +177,7 @@ export const MONSTERS: Monster[] = [
   { id: "orc_drummer", name: "오크 전투 군악병", hp: 26, attack: [4, 7], defense: 1, speed: 3, ranged: true, skills: ["m_drumbeat"], tags: ["orc"], rank: "normal", note: "북을 두드려 동료 모두의 공격을 끌어올린다." },
 
   // ── 미지의 숲 2층 깊은 숲 보스 ──
-  { id: "tree_giant", name: "나무 거인", hp: 70, attack: [6, 9], defense: 3, speed: 0, skills: ["m_root_bind", "m_branch_sweep", "m_bark"], abilities: [{ kind: "regen", amount: 4 }], keyDrop: { item: "world_tree_branch", chance: 0.5 }, tags: ["plant"], rank: "floorBoss", note: "느리고 단단하다. 자기 차례마다 체력을 되찾고, 뿌리로 묶거나 가지로 휩쓴다." },
+  { id: "tree_giant", name: "나무 거인", hp: 70, attack: [6, 9], defense: 3, speed: 0, skills: ["m_root_bind", "m_branch_sweep", "m_bark"], abilities: [{ kind: "regen", amount: 4 }], keyDrop: { item: "world_tree_branch", chance: 1 }, tags: ["plant"], rank: "floorBoss", note: "느리고 단단하다. 자기 차례마다 체력을 되찾고, 뿌리로 묶거나 가지로 휩쓴다." },
 
   // ── [히든] 타락한 엘프의 숲 ──
   { id: "corrupted_ranger", name: "타락한 엘프 순찰자", hp: 24, attack: [7, 10], defense: 0, speed: 7, crit: 0.15, ranged: true, onHit: { status: "evadeDown", chance: 0.4 }, tags: ["spirit"], rank: "normal", note: "검게 물든 활을 쏜다. 급소를 잘 노리고, 맞으면 몸이 무거워진다 (회피 감소)." },

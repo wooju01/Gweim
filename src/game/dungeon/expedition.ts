@@ -30,7 +30,8 @@ import {
 import { rollRelic } from "@/data/relics";
 import { XP_GOAL_BONUS, XP_PER_SQUARE } from "@/data/growth";
 import { FIRST_DUNGEON, getDungeon, getRegion, hiddenFrom, type Region } from "@/data/regions";
-import { ELITE_DROP_ROLLS, FLOOR_BOSS_TRINKET_CHANCE, getMonster } from "@/data/monsters";
+import { ELITE_DROP_ROLLS, getMonster } from "@/data/monsters";
+import { RANK_DROPS, rollMonsterDrops } from "@/data/drops";
 import { KEY_ITEMS, isKeyItem, type KeyItemId } from "@/data/keyItems";
 import { RANK_ORDER } from "@/data/ranks";
 import { TREASURE_TRINKET_CHANCE, rollTrinket } from "@/data/trinkets";
@@ -549,16 +550,24 @@ export function battleSpoils(
   if (battle.outcome !== "victory") return { exp, lines: [] };
   const rng = createRng(seed);
   const next = structuredClone(exp);
-  // 달아난 적은 보상이 없다
+  // 보상이 없는 적: 달아난 적, 자폭한 적, 부화한 알, 분열로 생긴 적
+  const noDrop = new Set<string>();
+  for (const e of battle.log) {
+    if (e.type === "explode") noDrop.add(e.unit);
+    if (e.type === "spawn" && e.how === "hatch") noDrop.add(e.by);
+    if (e.type === "spawn" && e.how === "split") noDrop.add(e.unit);
+  }
   const enemies = battle.units.filter((u) => u.side === "enemy" && !u.fled);
+  const rewarded = enemies.filter((u) => !noDrop.has(u.id));
   // 쓰러뜨린 몬스터 기록 (직접 의뢰)
   for (const e of enemies) {
     if (!e.kind) continue;
     next.kills = { ...next.kills, [e.kind]: (next.kills?.[e.kind] ?? 0) + 1 };
     if (e.rank === "elite") next.eliteKills = { ...next.eliteKills, [e.kind]: (next.eliteKills?.[e.kind] ?? 0) + 1 };
   }
+  // 금화: 적 한 마리당 기본 금화 × 등급 배율 (자폭한 폭탄병 등도 금화는 준다)
   let gold = 0;
-  for (let i = 0; i < enemies.length; i++) gold += rollInt(rng.next, BATTLE_GOLD[0], BATTLE_GOLD[1]);
+  for (const enemy of enemies) gold += rollInt(rng.next, BATTLE_GOLD[0], BATTLE_GOLD[1]) * RANK_DROPS[enemy.rank ?? "normal"].gold;
   // 현상금: 황금 숲 쥐 등 (층 배율 없이)
   let bounty = 0;
   for (const enemy of enemies) {
@@ -567,26 +576,31 @@ export function battleSpoils(
   }
   const lines = gain(next, depthGold(exp.depth, gold) + bounty, 0, rng);
   const dropped: Record<string, number> = {};
-  for (const enemy of enemies) {
-    // 정예는 드롭을 두 번 굴린다
+  const materials: Record<string, number> = {};
+  for (const enemy of rewarded) {
+    // 유실물 (팔 것). 정예는 두 번 굴린다
     const rolls = enemy.rank === "elite" ? ELITE_DROP_ROLLS : 1;
     for (let r = 0; r < rolls; r++) for (const id of rollDrops(enemy.kind, rng)) dropped[id] = (dropped[id] ?? 0) + 1;
+    // 전수관 재료 (등급 기본 + 계열 재료·종족 유물·특수)
+    const drop = rollMonsterDrops(enemy.kind, enemy.rank, rng);
+    for (const [id, n] of Object.entries(drop.items)) materials[id] = (materials[id] ?? 0) + n;
     // 히든 열쇠 (나무 거인의 세계수의 가지 등)
     const key = getMonster(enemy.kind ?? "")?.keyDrop;
     if (key && isKeyItem(key.item) && rng.next() < key.chance) {
       next.keyFound = [...(next.keyFound ?? []), key.item];
       lines.push(`열쇠: ${KEY_ITEMS[key.item].name}`);
     }
-    // 층 보스는 장신구를 떨어뜨리기도 한다
-    if (enemy.rank === "floorBoss" && rng.next() < FLOOR_BOSS_TRINKET_CHANCE) {
+    // 장신구 (층 보스·던전 보스)
+    if (drop.trinket) {
       const t = rollTrinket(rng);
       next.trinkets = [...(next.trinkets ?? []), t.id];
       lines.push(`장신구: ${t.name}`);
     }
   }
-  next.salvage = addSalvage(next.salvage ?? {}, dropped);
-  const found = Object.entries(dropped).map(([id, n]) => `${getSalvage(id)?.name ?? id}${n > 1 ? ` ×${n}` : ""}`);
-  if (found.length) lines.push(`유실물: ${found.join(", ")}`);
+  next.salvage = addSalvage(addSalvage(next.salvage ?? {}, dropped), materials);
+  const names = (items: Record<string, number>) => Object.entries(items).map(([id, n]) => `${getSalvage(id)?.name ?? id}${n > 1 ? ` ×${n}` : ""}`);
+  if (Object.keys(materials).length) lines.push(`재료: ${names(materials).join(", ")}`);
+  if (Object.keys(dropped).length) lines.push(`유실물: ${names(dropped).join(", ")}`);
   return { exp: next, lines };
 }
 
