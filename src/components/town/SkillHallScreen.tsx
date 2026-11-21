@@ -29,6 +29,9 @@ type Props = {
 const UNLOCK_TEXT = { unknown: "없는 조각", forbidden: "쓸 수 없다", known: "이미 안다", gold: `${CURRENCY} 부족`, salvage: "유실물 부족" } as const;
 const UPGRADE_TEXT = { unknown: "모르는 조각", max: "최대 레벨", gold: `${CURRENCY} 부족`, salvage: "유실물 부족" } as const;
 
+/** "엘프 · 바드" (카드 태그의 종족·직업. 직업은 지금 등급의 직업 이름) */
+const raceJob = (merc: Merc) => (merc.tags ? merc.tags.slice(0, 2).join(" · ") : "");
+
 const costText = (cost: { gold: number; salvage: Record<string, number> }, salvage: Record<string, number>) =>
   [`${CURRENCY} ${cost.gold}`, ...Object.entries(cost.salvage).map(([id, n]) => `${getSalvage(id)?.name ?? id} ${salvage[id] ?? 0}/${n}`)].join(" · ");
 
@@ -62,7 +65,10 @@ export function SkillHallScreen({ day, gold, hired, progress, salvage, onUnlock,
                 }`}
               >
                 <Portrait merc={merc} size="sm" />
-                <span className="font-bold">{merc.name}</span>
+                <span className="flex flex-col leading-tight">
+                  <span className="font-bold">{merc.name}</span>
+                  <span className="text-[11px] text-ash">{raceJob(merc)}</span>
+                </span>
               </button>
             ))}
           </nav>
@@ -118,7 +124,8 @@ function MercHall({
     <article className="flex flex-col gap-4 rounded-sm border border-edge bg-panel p-4">
       <div className="flex items-baseline justify-between gap-3">
         <span className="font-bold">
-          {merc.name} <span className="text-xs font-normal text-ash">{merc.title}</span>
+          {merc.name} <span className="text-xs font-normal text-ember">{raceJob(merc)}</span>{" "}
+          <span className="text-xs font-normal text-ash">{merc.title}</span>
         </span>
         <span className="text-xs text-ash">
           {RANKS[seed.level].name} · 부 조각 {RANKS[seed.level].subLimit}개까지 · 아는 조각 {known.length} / {pool.length}

@@ -72,6 +72,7 @@ const STATUS_COLOR: Partial<Record<StatusKind, string>> = {
   stun: "bg-blood/20 text-bone",
   bind: "bg-edge/70 text-bone",
   regen: "bg-moss/30 text-moss",
+  duel: "bg-ember/20 text-ember",
 };
 const STATUS_STYLE = Object.fromEntries(
   (Object.keys(STATUS) as StatusKind[]).map((k) => [k, STATUS_COLOR[k] ?? (STATUS[k].debuff ? "bg-edge/70 text-ash" : "bg-frost/20 text-frost")]),
@@ -202,8 +203,12 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
   /** 대상을 골라야 하는 스킬을 겨누는 중 (스킬 id) */
   const [aiming, setAiming] = useState<string | null>(null);
   const [floats, setFloats] = useState<Float[]>([]);
-  /** 마우스를 올린 유닛, 스킬 버튼에 마우스를 올렸는지 */
+  /** 마우스를 올린 유닛 (스킬·물자 대상 미리보기), 스킬 버튼에 마우스를 올렸는지 */
   const [hover, setHover] = useState<string | null>(null);
+  /** 정보를 보는 적 (마지막으로 마우스를 올린 적) */
+  const [selected, setSelected] = useState<string | null>(null);
+  /** 마지막으로 마우스를 올린 유닛 (미리보기 대상. 마우스를 떼도 남는다) */
+  const [target, setTarget] = useState<string | null>(null);
   const [skillHover, setSkillHover] = useState<string | null>(null);
   const floatId = useRef(0);
   const logEnd = useRef<HTMLDivElement>(null);
@@ -251,7 +256,7 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
     }
   }
 
-  /** 무대 위 유닛을 눌렀을 때: 겨눈 스킬, 건넬 물자, 공격 순서로 처리한다 */
+  /** 무대 위 유닛을 눌렀을 때: 겨눈 스킬, 건넬 물자, 아무것도 고르지 않았으면 평타 */
   function clickUnit(u: Unit) {
     if (aiming && can({ type: "skill", skill: aiming, target: u.id })) return cast(aiming, u.id);
     if (item && can({ type: "guide", item, target: u.id })) return give(u.id);
@@ -263,32 +268,74 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
     if (item) return can({ type: "guide", item, target: u.id });
     return can({ type: "attack", target: u.id });
   }
+  /** 적은 마우스를 올리면 정보가 보인다 (마지막으로 올린 적을 기억한다) */
+  const selectable = (u: Unit) => u.side === "enemy" && hp[u.id] > 0;
+
+  /** 단축키 1~4: 그 칸의 스킬을 고른다 (대상이 없는 스킬은 바로 쓴다). 5: 궁극기. Esc: 취소 */
+  function onKey(key: string) {
+    if (!actor || play.playing) return;
+    if (key === "Escape") {
+      setAiming(null);
+      setItem(null);
+      return;
+    }
+    const n = Number(key);
+    if (!Number.isInteger(n) || n < 1 || n > SKILL_SLOTS + 1) return;
+    const id = n === SKILL_SLOTS + 1 ? actor.ultimate : actor.skills[n - 1];
+    if (!id) return;
+    if (id === actor.ultimate ? actor.fx?.ultimateUsed : (actor.cooldowns[id] ?? 0) > 0) return;
+    onSkillButton(id);
+  }
+  // 키 처리기는 매 렌더 새로 만들어지므로 ref로 최신 것을 부른다
+  const keyRef = useRef(onKey);
+  useEffect(() => {
+    keyRef.current = onKey;
+  });
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      keyRef.current(e.key);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const mercs = battle.units.filter((u) => u.side === "merc");
   const enemies = battle.units.filter((u) => u.side === "enemy");
 
-  // 미리보기: 겨눈 스킬이나 공격을 마우스를 올린 대상에게 썼을 때 (전체 스킬은 버튼에 올렸을 때)
+  // 미리보기: 겨눈 스킬이나 평타를 마우스를 올린 대상에게 썼을 때 (전체 스킬은 버튼에 올렸을 때)
+  // 마우스를 뗀 뒤에도 마지막으로 올렸던 대상의 예상 결과를 계속 보여 준다 (다른 대상에 올리면 바뀐다)
+  const aimAt = hover ?? target;
   const previewing: BattleAction | null = !actor
     ? null
-    : aiming && hover
-      ? { type: "skill", skill: aiming, target: hover }
-      : skillHover && def(skillHover)?.target === "none"
-        ? { type: "skill", skill: skillHover }
-        : !aiming && !item && hover
-          ? { type: "attack", target: hover }
+    : skillHover && def(skillHover)?.target === "none"
+      ? { type: "skill", skill: skillHover }
+      : aiming && aimAt
+        ? { type: "skill", skill: aiming, target: aimAt }
+        : !aiming && !item && aimAt
+          ? { type: "attack", target: aimAt }
           : null;
   const preview = previewing ? previewAction(battle, previewing) : null;
-  const hovered = hover ? battle.units.find((u) => u.id === hover) : undefined;
+  // 상대 정보: 마우스를 올린 적, 없으면 마지막으로 올렸던 적 (쓰러졌으면 지운다)
+  const hoveredEnemy = hover ? battle.units.find((u) => u.id === hover && u.side === "enemy") : undefined;
+  const picked = battle.units.find((u) => u.id === selected && u.side === "enemy" && hp[u.id] > 0);
+  const foe = hoveredEnemy ?? picked;
 
   const figureProps = (u: Unit) => ({
     unit: u,
     hp: hp[u.id],
     clickable: clickable(u),
+    selectable: selectable(u),
+    picked: u.id === foe?.id,
     motion: motionFor(u.id, play.current),
     motionKey: play.currentKey,
     floats: floats.filter((f) => f.unit === u.id),
     onClick: () => clickUnit(u),
-    onHover: (on: boolean) => setHover((h) => (on ? u.id : h === u.id ? null : h)),
+    onHover: (on: boolean) => {
+      setHover((h) => (on ? u.id : h === u.id ? null : h));
+      if (on) setTarget(u.id);
+      if (on && u.side === "enemy") setSelected(u.id);
+    },
     preview: preview?.damage.find((d) => d.target === u.id),
     bond: bonds?.[u.id],
   });
@@ -350,8 +397,6 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
             active={false}
           />
         ))}
-
-        {hovered && <InfoCard unit={hovered} hp={hp[hovered.id]} preview={preview} battle={battle} bond={bonds?.[hovered.id]} />}
 
         {play.current?.type === "round" && (
           <p key={play.currentKey} className="anim-banner pointer-events-none absolute inset-x-0 top-[14%] text-center text-xl text-bone/90">
@@ -427,11 +472,10 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
                 <p className="text-sm">
                   <span className="font-bold text-ember">{actor.name}</span>의 차례
                 </p>
-                <ActorStats battle={battle} unit={actor} />
                 <p className="text-xs text-ash">
                   {aiming
                     ? `${skill?.name}: 무대에서 ${skill?.target === "enemy" ? "적" : "아군"}을 누른다. 마우스를 올리면 예상 결과가 보인다.`
-                    : "무대의 적을 눌러 공격한다. 마우스를 올리면 예상 피해가 보인다."}
+                    : "적을 누르면 평타. 스킬은 버튼이나 숫자키(1~4, 궁극기 5)로 고른 뒤 대상을 누른다. Esc로 취소."}
                 </p>
                 <div className="grid grid-cols-2 gap-2">
                   {Array.from({ length: SKILL_SLOTS }, (_, i) => {
@@ -459,7 +503,10 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
                           onClick={() => onSkillButton(id)}
                           className="w-full text-left !px-3"
                         >
-                          <span className="block font-bold">{s.name}</span>
+                          <span className="block font-bold">
+                            <span className="mr-1.5 rounded-sm border border-edge px-1 text-[10px] font-normal text-ash">{i + 1}</span>
+                            {s.name}
+                          </span>
                           <span className="block text-[11px] text-ash">{wait > 0 ? `${wait}턴 뒤 사용 가능` : `대기 ${s.cooldown}턴`}</span>
                         </Button>
                         <div
@@ -495,7 +542,9 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
                       onClick={() => onSkillButton(actor.ultimate!)}
                       className="w-full !border-ember/60 text-left !px-3"
                     >
-                      <span className="block font-bold text-ember">★ {def(actor.ultimate)!.name}</span>
+                      <span className="block font-bold text-ember">
+                        <span className="mr-1.5 rounded-sm border border-ember/50 px-1 text-[10px] font-normal">{SKILL_SLOTS + 1}</span>★ {def(actor.ultimate)!.name}
+                      </span>
                       <span className="block text-[11px] text-ash">{actor.fx?.ultimateUsed ? "이번 전투에서 이미 썼다" : "궁극기 · 전투당 1번"}</span>
                     </Button>
                     <div
@@ -508,15 +557,21 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
                     </div>
                   </div>
                 )}
-                <Button disabled={!can({ type: "bandage" })} onClick={() => onAct({ type: "bandage" })}>
-                  붕대 감기 · 남은 {battle.supplies.bandage}
-                </Button>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button disabled={!can({ type: "bandage" })} onClick={() => onAct({ type: "bandage" })}>
+                    붕대 감기 · 남은 {battle.supplies.bandage}
+                  </Button>
+                  <Button disabled={play.playing} onClick={() => onAct({ type: "wait" })} title="아무것도 하지 않고 이번 차례를 넘긴다">
+                    차례 넘기기
+                  </Button>
+                </div>
               </>
             ) : (
               <p className="animate-pulse text-sm text-ash">…</p>
             )}
           </div>
 
+          <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-2 rounded-sm border border-edge bg-panel p-4">
             <p className="text-sm">
               <span className="font-bold">{GUIDE.role}</span>의 보조 <span className="text-xs text-ash">· 라운드마다 한 번</span>
@@ -547,6 +602,44 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
               </>
             )}
           </div>
+          {actor && (
+            <div className="flex flex-col gap-1.5 rounded-sm border border-ember/30 bg-panel p-3">
+              <p className="text-xs text-ash">
+                우리 팀 · <span className="font-bold text-ember">{actor.name}</span>
+                <span className="ml-1">
+                  체력 {hp[actor.id]}/{actor.maxHp}
+                  {(actor.shield ?? 0) > 0 && <span className="text-frost"> · 보호막 {actor.shield}</span>}
+                </span>
+              </p>
+              <ActorStats battle={battle} unit={actor} />
+              {preview && (preview.heal || preview.shield || (preview.cures && preview.cures.kinds.length > 0) || preview.failChance > 0) && (
+                <div className="rounded-sm border border-edge px-2.5 py-2 text-[11px] text-bone">
+                  {preview.heal && (
+                    <p className="text-moss">
+                      {battle.units.find((u) => u.id === preview.heal!.target)?.name} 체력 +{preview.heal.amount}
+                    </p>
+                  )}
+                  {preview.shield && (
+                    <p className="text-frost">
+                      {battle.units.find((u) => u.id === preview.shield!.target)?.name} 보호막 {preview.shield.amount}
+                    </p>
+                  )}
+                  {preview.cures && preview.cures.kinds.length > 0 && (
+                    <p className="text-moss">{preview.cures.kinds.map((k) => STATUS[k].name).join("·")} 해제</p>
+                  )}
+                  {preview.failChance > 0 && <p className="text-ash">실패 확률 {pct(preview.failChance)}</p>}
+                </div>
+              )}
+            </div>
+          )}
+          <div className="flex flex-col gap-1.5 rounded-sm border border-blood/30 bg-panel p-3">
+            {foe ? (
+              <FoeStats unit={foe} hp={hp[foe.id]} preview={preview} battle={battle} />
+            ) : (
+              <p className="text-xs text-ash">상대 · 무대의 적에게 마우스를 올리면 그 적의 정보가 보인다.</p>
+            )}
+          </div>
+          </div>
         </div>
       )}
     </main>
@@ -566,12 +659,18 @@ function Figure({
   onHover,
   preview,
   bond,
+  selectable,
+  picked,
 }: {
   unit: Unit;
   slot: { x: number; y: number; s: number };
   hp: number;
   active: boolean;
   clickable: boolean;
+  /** 눌러서 정보를 볼 수 있다 (빛나지 않는다) */
+  selectable: boolean;
+  /** 지금 정보를 보고 있는 적 */
+  picked: boolean;
   motion: string;
   motionKey: number;
   floats: Float[];
@@ -640,15 +739,15 @@ function Figure({
         onClick={onClick}
         onMouseEnter={() => onHover(true)}
         onMouseLeave={() => onHover(false)}
-        disabled={!clickable}
+        disabled={!clickable && !selectable}
         aria-label={`${unit.name} 체력 ${hp}`}
-        className={`relative mx-auto block disabled:cursor-default ${clickable ? "cursor-pointer" : ""}`}
+        className={`relative mx-auto block disabled:cursor-default ${clickable || selectable ? "cursor-pointer" : ""}`}
         style={{ width: height * 0.8, height }}
       >
         {/* 발밑 그림자, 차례인 용병은 빛난다 */}
         <span
           className={`absolute -bottom-1 left-1/2 h-3 w-[90%] -translate-x-1/2 rounded-[50%] ${
-            active ? "bg-ember/50 shadow-[0_0_18px_4px] shadow-ember/40" : clickable ? "bg-bone/25" : "bg-black/50"
+            active ? "bg-ember/50 shadow-[0_0_18px_4px] shadow-ember/40" : clickable ? "bg-bone/25" : picked ? "bg-blood/40 ring-1 ring-blood/60" : "bg-black/50"
           }`}
         />
         <span key={`${motionKey}-${motion}`} className={`absolute inset-0 block ${down ? "anim-fall" : motion}`}>
@@ -679,52 +778,47 @@ function Figure({
   );
 }
 
-/** 마우스를 올린 유닛 정보와 미리보기 (무대 왼쪽 위) */
-function InfoCard({
-  unit,
-  hp,
-  preview,
-  battle,
-  bond,
-}: {
-  unit: Unit;
-  hp: number;
-  preview: ActionPreview | null;
-  battle: Battle;
-  bond?: Stage;
-}) {
+/** 상대(적) 정보와, 겨눈 스킬의 미리보기 */
+function FoeStats({ unit, hp, preview, battle }: { unit: Unit; hp: number; preview: ActionPreview | null; battle: Battle }) {
   const stats = unitStats(unit);
   const p = preview?.damage.find((d) => d.target === unit.id);
   const applies = preview?.applies.filter((a) => a.target === unit.id) ?? [];
-  const mine = preview && (preview.heal?.target === unit.id || preview.shield?.target === unit.id || preview.cures?.target === unit.id);
   return (
-    <div className="pointer-events-none absolute left-3 top-3 z-[200] w-60 rounded-sm border border-edge bg-ink/95 p-3 text-xs leading-relaxed shadow-lg">
-      <p className="font-bold text-bone">
-        {unit.name}
-        {bond && <span className={`ml-2 text-[11px] font-normal ${BOND[bond].style}`}>{BOND[bond].name}</span>}
+    <div className="flex flex-col gap-1 text-[11px] leading-relaxed">
+      <p className="text-xs text-ash">
+        상대 · <span className="font-bold text-blood">{unit.name}</span>
+        <span className="ml-1">
+          체력 {hp}/{unit.maxHp}
+          {(unit.shield ?? 0) > 0 && <span className="text-frost"> · 보호막 {unit.shield}</span>}
+        </span>
       </p>
-      {unit.note && <p className="text-ash">{unit.note}</p>}
-      <p className="mt-1 text-bone/80">
-        체력 {hp}/{unit.maxHp}
-        {(unit.shield ?? 0) > 0 && <span className="text-frost"> · 보호막 {unit.shield}</span>}
-      </p>
-      <p className="text-bone/80">
-        공격 {stats.attack[0]}~{stats.attack[1]} · 방어 {stats.defense} · 속도 {stats.speed} · 회피 {pct(stats.evadeChance)}
-      </p>
-      {unit.statuses.length > 0 && (
-        <p className="text-ash">{unit.statuses.map((s) => `${STATUS[s.kind].name} ${s.turns}턴`).join(" · ")}</p>
-      )}
-      {unit.passives && unit.passives.length > 0 && (
-        <p className="text-ember/90">
-          {unit.passives.map((id) => {
-            const note = passiveNote(battle, unit, id);
-            return `${getPassive(id)?.name ?? id}${note && note !== "상시" ? ` (${note})` : ""}`;
-          }).join(" · ")}
+      <div className="flex flex-col gap-1 rounded-sm bg-ink/60 px-2.5 py-2 text-bone/80">
+        {unit.note && <p className="text-ash">{unit.note}</p>}
+        <p>
+          공격 {stats.attack[0]}~{stats.attack[1]} · 방어 {stats.defense} · 속도 {stats.speed} · 회피 {pct(stats.evadeChance)}
         </p>
-      )}
-
-      {(p || applies.length > 0 || mine) && preview && (
-        <div className="mt-2 border-t border-edge pt-2 text-bone">
+        {unit.statuses.length > 0 && (
+          <p className="flex flex-wrap gap-1">
+            {unit.statuses.map((s) => (
+              <span key={s.kind} className={`rounded-sm px-1 ${STATUS_STYLE[s.kind]}`}>
+                {STATUS[s.kind].name} {s.turns}턴
+              </span>
+            ))}
+          </p>
+        )}
+        {unit.passives && unit.passives.length > 0 && (
+          <p className="text-ember/90">
+            {unit.passives
+              .map((id) => {
+                const note = passiveNote(battle, unit, id);
+                return `${getPassive(id)?.name ?? id}${note && note !== "상시" ? ` (${note})` : ""}`;
+              })
+              .join(" · ")}
+          </p>
+        )}
+      </div>
+      {(p || applies.length > 0) && (
+        <div className="rounded-sm border border-edge px-2.5 py-2 text-bone">
           {p && (
             <>
               <p>
@@ -739,13 +833,7 @@ function InfoCard({
             </>
           )}
           {applies.length > 0 && <p className="text-ash">{applies.map((a) => `${STATUS[a.kind].name} ${a.chance >= 1 ? "확정" : pct(a.chance)}`).join(" · ")}</p>}
-          {preview.heal?.target === unit.id && <p className="text-moss">체력 +{preview.heal.amount}</p>}
-          {preview.shield?.target === unit.id && <p className="text-frost">보호막 {preview.shield.amount}</p>}
-          {preview.cures?.target === unit.id && preview.cures.kinds.length > 0 && (
-            <p className="text-moss">{preview.cures.kinds.map((k) => STATUS[k].name).join("·")} 해제</p>
-          )}
-          {preview.selfCost > 0 && <p className="text-blood">자기 체력 -{preview.selfCost}</p>}
-          {preview.failChance > 0 && <p className="text-ash">실패 확률 {pct(preview.failChance)}</p>}
+          {preview!.selfCost > 0 && <p className="text-blood">자기 체력 -{preview!.selfCost}</p>}
         </div>
       )}
     </div>

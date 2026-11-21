@@ -210,8 +210,8 @@ describe("조각 규칙", () => {
   });
 
   it("2단계 효과(later)는 데이터에만 있고 설명에 '준비 중'으로 나온다", () => {
-    const duel = getFragment("knight_duel") as MainFragment;
-    expect(duel.effects.every((e) => e.kind === "later")).toBe(true);
-    expect(resolveSkill({ main: "knight_duel", subs: [] })!.description).toContain("준비 중");
+    const vow = getFragment("guardian_vow") as MainFragment;
+    expect(vow.effects.every((e) => e.kind === "later")).toBe(true);
+    expect(resolveSkill({ main: "guardian_vow", subs: [] })!.description).toContain("준비 중");
   });
 });

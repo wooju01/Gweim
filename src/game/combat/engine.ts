@@ -39,7 +39,8 @@ import type { Merc } from "@/game/types";
 
 export type Side = "merc" | "enemy";
 /** value: 수치 (공격 -2, 회피 +15% 등). 없으면 STATUS의 기본값 */
-export type Status = { kind: StatusKind; turns: number; value?: number };
+/** source: 이 상태를 건 유닛 (결투 상대) */
+export type Status = { kind: StatusKind; turns: number; value?: number; source?: string };
 
 export type Unit = {
   id: string;
@@ -154,6 +155,8 @@ export type BattleEvent =
   | { type: "rescue"; target: string; via: "potion" | "bandage" }
   | { type: "survive"; target: string; chance: number }
   | { type: "death"; target: string; chance: number }
+  /** 차례를 넘겼다 */
+  | { type: "wait"; unit: string }
   /** 적대 단계 용병이 명령을 무시했다 */
   | { type: "disobey"; unit: string }
   /** 스킬이 실패했다 (정령이 답하지 않음 등) */
@@ -193,6 +196,8 @@ export type Battle = {
 
 export type BattleAction =
   | { type: "attack"; target: string }
+  /** 차례 넘기기 (쓸 스킬이 없을 때) */
+  | { type: "wait" }
   | { type: "bandage" }
   /** skill을 생략하면 첫 번째 칸의 스킬 */
   | { type: "skill"; skill?: SkillId; target?: string }
@@ -240,6 +245,8 @@ export function validate(b: Battle, action: BattleAction): string | null {
       if (!target || target.side === actor.side || target.hp <= 0) return "공격할 수 없는 대상";
       return null;
     }
+    case "wait":
+      return null;
     case "bandage":
       if (b.supplies.bandage <= 0) return "붕대가 없다";
       if (!hasStatus(actor, "bleed")) return "출혈이 없다";
@@ -534,7 +541,7 @@ export function act(battle: Battle, action: BattleAction): Battle {
   const enemiesBefore = foes(b, actor).length;
 
   // 적대 단계: 가끔 명령을 무시하고 아무 적이나 공격한다
-  if (action.type !== "guide" && actor.bond === "hostile" && rng.next() < BOND.disobeyChance) {
+  if (action.type !== "guide" && action.type !== "wait" && actor.bond === "hostile" && rng.next() < BOND.disobeyChance) {
     const others = foes(b, actor);
     b.log.push({ type: "disobey", unit: actor.id });
     action = { type: "attack", target: others[Math.floor(rng.next() * others.length)].id };
@@ -543,6 +550,9 @@ export function act(battle: Battle, action: BattleAction): Battle {
   switch (action.type) {
     case "attack":
       attack(b, rng, actor, unitById(b, action.target)!);
+      break;
+    case "wait":
+      b.log.push({ type: "wait", unit: actor.id });
       break;
     case "bandage":
       b.supplies.bandage--;
@@ -750,7 +760,7 @@ export function statusValue(u: Unit, kind: StatusKind): number {
  * 상태이상을 건다. 다시 걸리면 지속 시간은 새로 고치고 수치는 큰 쪽.
  * self: 자기 행동 중에 자신에게 건다 (그 행동이 끝날 때 줄지 않도록 1을 더한다)
  */
-function applyStatus(b: Battle, target: Unit, kind: StatusKind, opts: { value?: number; turns?: number; self?: boolean } = {}) {
+function applyStatus(b: Battle, target: Unit, kind: StatusKind, opts: { value?: number; turns?: number; self?: boolean; source?: string } = {}) {
   let turns = (opts.turns ?? STATUS[kind].turns) + (opts.self && STATUS[kind].damage === 0 && kind !== "regen" ? 1 : 0);
   // 임기응변: 출혈·중독 지속 1턴 감소
   if (HARMFUL.includes(kind) && has(target, "improvise")) turns = Math.max(1, turns - 1);
@@ -758,8 +768,9 @@ function applyStatus(b: Battle, target: Unit, kind: StatusKind, opts: { value?: 
   if (existing) {
     existing.turns = turns;
     if (opts.value !== undefined) existing.value = Math.max(existing.value ?? STATUS[kind].value ?? 0, opts.value);
+    if (opts.source) existing.source = opts.source;
   } else {
-    target.statuses.push({ kind, turns, ...(opts.value !== undefined ? { value: opts.value } : {}) });
+    target.statuses.push({ kind, turns, ...(opts.value !== undefined ? { value: opts.value } : {}), ...(opts.source ? { source: opts.source } : {}) });
   }
   b.log.push({ type: "status", target: target.id, kind });
 }
@@ -804,7 +815,7 @@ function tryStatus(b: Battle, rng: Rng, actor: Unit, target: Unit, roll: StatusR
     b.log.push({ type: "resist", target: target.id, kind: roll.status });
     return;
   }
-  applyStatus(b, target, roll.status, { value: roll.value, turns: roll.turns, self });
+  applyStatus(b, target, roll.status, { value: roll.value, turns: roll.turns, self, ...(roll.status === "duel" ? { source: actor.id } : {}) });
   if (roll.status === "stun" && !roll.sure && !self) {
     target.fx ??= {};
     target.fx.stunCount = (target.fx.stunCount ?? 0) + 1;
@@ -914,6 +925,9 @@ export function strikeFactors(b: Battle, actor: Unit, target: Unit, opts: Strike
   if (has(target, "rock_root")) reduce += PASSIVE.rockRootReduce;
   if (has(target, "pain_oblivion")) reduce += Math.round(PASSIVE.painOblivionMax * lostRatio(target));
   if (has(target, "adapt")) reduce += Math.min(PASSIVE.adaptMax, target.fx?.adapt?.[actor.id] ?? 0);
+  // 결투: 결투를 건 상대에게 받는 피해가 준다
+  const duel = actor.statuses.find((x) => x.kind === "duel" && x.source === target.id);
+  if (duel) reduce += duel.value ?? STATUS.duel.value ?? 0;
 
   return {
     bonus,
@@ -1499,6 +1513,10 @@ function protector(b: Battle, target: Unit): Unit {
 
 /** 적이 노릴 용병: 막아선 용병이 있으면 그쪽, 없으면 무작위 (전사의 긍지가 가로챌 수 있다) */
 function pickVictim(b: Battle, rng: Rng, unit: Unit): Unit | null {
+  // 결투: 결투를 건 상대가 살아 있으면 그 상대만 노린다
+  const duel = unit.statuses.find((x) => x.kind === "duel");
+  const rival = duel && foes(b, unit).find((u) => u.id === duel.source);
+  if (rival) return rival;
   const guards = foes(b, unit).filter((u) => u.guarding);
   const targets = guards.length > 0 ? guards : foes(b, unit);
   if (targets.length === 0) return null;

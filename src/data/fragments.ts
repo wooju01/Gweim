@@ -195,7 +195,7 @@ const KNIGHT = jobSet("knight", {
       name: "결투 신청",
       target: "enemy",
       wait: 2,
-      effects: [later("적 하나가 2턴 동안 기사만 공격하고, 그 적에게 받는 피해 -2")],
+      effects: [st("duel", { value: 2, turns: 2 })],
     },
     { id: "knight_charge", name: "돌진 베기", target: "enemy", wait: 1, effects: [hit(1.2)] },
   ],

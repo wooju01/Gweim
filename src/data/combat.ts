@@ -33,7 +33,8 @@ export type StatusKind =
   | "charge"
   | "pierceUp"
   | "regen"
-  | "healReduction";
+  | "healReduction"
+  | "duel";
 export type SupplyKind = "bandage" | "antidote" | "potion";
 
 /** 공격이 상태이상을 걸 확률 */
@@ -107,6 +108,8 @@ export const STATUS: Record<StatusKind, StatusInfo> = {
   /** 턴 시작에 회복 */
   regen: { name: "재생", damage: 0, turns: 2, debuff: false, value: 2, text: "턴마다 체력 {v} 회복" },
   /** 받는 회복량 감소 (저항 있음) */
+  /** 결투: 건 용병(source)만 공격하고, 그 용병이 받는 피해 -value */
+  duel: { name: "결투", damage: 0, turns: 2, debuff: true, value: 2, text: "결투 상대만 공격, 그 상대가 받는 피해 -{v}" },
   healReduction: { name: "치유 감소", damage: 0, turns: 2, debuff: true, value: 0.5, pct: true, text: "받는 회복 -{v}" },
 };
 

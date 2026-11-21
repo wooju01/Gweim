@@ -41,6 +41,7 @@ export function describe(event: BattleEvent, b: Battle): string {
       if (event.kind === "haste") return `${josa(name(event.target), "이", "가")} 다음 수를 노린다. (선제)`;
       if (event.kind === "bind") return `${josa(name(event.target), "이", "가")} 거미줄에 묶였다. 다음 차례를 쉰다.`;
       if (event.kind === "crack") return `${name(event.target)}의 몸에 균열이 갔다. 받는 피해가 늘어난다.`;
+      if (event.kind === "duel") return `${josa(name(event.target), "이", "가")} 결투를 받아들였다. 이제 결투 상대만 노린다.`;
       if (event.kind === "stun") return `${josa(name(event.target), "이", "가")} 기절했다. 다음 차례를 쉰다.`;
       if (event.kind === "charge") return `${josa(name(event.target), "이", "가")} 힘을 모은다. 다음 공격이 강해진다.`;
       if (event.kind === "regen") return `${name(event.target)}의 상처가 조금씩 아물기 시작한다. (재생)`;
@@ -86,6 +87,8 @@ export function describe(event: BattleEvent, b: Battle): string {
       return `${josa(name(event.target), "이", "가")} 숨을 거두었다.`;
     case "refresh":
       return `${name(event.actor)}의 ${josa(skillName(event.actor, event.skill), "을", "를")} 바로 다시 쓸 수 있다.`;
+    case "wait":
+      return `${josa(name(event.unit), "은", "는")} 숨을 고르며 차례를 넘겼다.`;
     case "disobey":
       return `${josa(name(event.unit), "은", "는")} 명령을 듣지 않고 제멋대로 움직인다.`;
     case "evade":

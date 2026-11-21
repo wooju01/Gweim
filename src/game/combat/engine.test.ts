@@ -1600,12 +1600,39 @@ describe("조각 스킬 (엔진 1단계)", () => {
     expect(b.log).toContainEqual({ type: "heal", target: elke.id, amount: 4, by: elke.id });
   });
 
+  it("차례 넘기기: 아무것도 하지 않고 다음 차례로, 적대 단계라도 명령 무시가 없다", () => {
+    let b = start(party, 1, [dummy("e0", 999)]);
+    const first = currentActor(b)!.id;
+    b = act(b, { type: "wait" });
+    expect(b.log).toContainEqual({ type: "wait", unit: first });
+    expect(currentActor(b)!.id).not.toBe(first);
+    expect(b.log.some((e) => e.type === "attack" && e.actor === first)).toBe(false);
+  });
+
   it("2단계 효과(later)는 전투에서 아무 일도 하지 않는다", () => {
-    let b = one({ job: "knight", skills: [build("knight_duel")] }, [dummy("e0", 999)]);
+    let b = one({ job: "guardian", skills: [build("guardian_vow")] }, [dummy("e0", 999)]);
     const before = structuredClone(unitById(b, "e0")!);
-    b = act(b, { type: "skill", skill: "knight_duel", target: "e0" });
-    expect(b.log.some((e) => e.type === "skill" && e.skill === "knight_duel")).toBe(true);
+    b = act(b, { type: "skill", skill: "guardian_vow" });
+    expect(b.log.some((e) => e.type === "skill" && e.skill === "guardian_vow")).toBe(true);
     expect(unitById(b, "e0")!.statuses).toEqual(before.statuses);
+  });
+
+  it("결투 신청: 2턴 동안 그 적은 결투를 건 기사만 노리고, 기사가 그 적에게 받는 피해 -2", () => {
+    // 바른(기사)이 결투, 카스·엘케도 파티에 있다. 적은 아무나 노릴 수 있다
+    for (let seed = 0; seed < 30; seed++) {
+      let b = start([{ ...varn, job: "knight", skills: [build("knight_duel")] }, kass, elke], seed, [dummy("e0", 999, { attack: [10, 10] })]);
+      b = act(b, { type: "skill", skill: "knight_duel", target: "e0" });
+      const duel = unitById(b, "e0")!.statuses.find((x) => x.kind === "duel");
+      expect(duel).toMatchObject({ source: varn.id, value: 2 });
+      // 두 라운드 동안 적의 공격은 모두 바른에게, 피해는 10 - 2 (치명타 15 - 2)
+      for (let i = 0; i < 6 && !b.outcome; i++) b = act(b, { type: "attack", target: "e0" });
+      const hits = b.log.filter((e): e is Extract<BattleEvent, { type: "attack" }> => e.type === "attack" && e.actor === "e0").slice(0, 2);
+      expect(hits).toHaveLength(2);
+      for (const h of hits) {
+        expect(h.target).toBe(varn.id);
+        expect([8, 13]).toContain(h.damage);
+      }
+    }
   });
 });
 
