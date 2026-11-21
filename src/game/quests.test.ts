@@ -1,20 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { BOARD_SIZE, QUESTS, getQuest } from "@/data/quests";
+import { BOARD_SIZE, QUESTS, QUEST_INFO, getQuest } from "@/data/quests";
+import { getRegion } from "@/data/regions";
+import { getEvent } from "@/data/events";
+import { getTrinket } from "@/data/trinkets";
 import { getMonster } from "@/data/monsters";
 import { getSalvage } from "@/data/loot";
 import { UPKEEP } from "@/data/clan";
-import { clanJoinChance, dispatchChance, objectiveDone, objectiveProgress, resolveDispatch, rollBoard, settlementsDue, upkeepCost } from "./quests";
+import { clanJoinChance, dispatchChance, fixedQuests, isDirect, objectiveDone, objectiveProgress, questOverdue, resolveDispatch, rewardBlocked, rollBoard, settlementsDue, upkeepCost } from "./quests";
 
 const member = (id: string, level: "bronze" | "silver" = "bronze", personalities: string[] = []) => ({ id, level, stats: {}, personalities });
 
 describe("의뢰 데이터", () => {
   it("직접 의뢰 목표는 있는 몬스터·유실물을 가리키고, 파견 의뢰는 위험도·일수·인원이 있다", () => {
     for (const q of QUESTS) {
-      if (q.kind === "direct") {
+      if (q.kind !== "dispatch") {
         const o = q.objective;
-        if (o.type === "collect") expect(getSalvage(o.itemId), q.id).toBeDefined();
-        else if (o.type === "killAnyBoss") for (const id of o.monsterIds) expect(getMonster(id), q.id).toBeDefined();
+        if (o.type === "collect" || o.type === "deliver") expect(getSalvage(o.itemId), q.id).toBeDefined();
+        else if (o.type === "killAnyBoss" || o.type === "killWithCondition") for (const id of o.monsterIds) expect(getMonster(id), q.id).toBeDefined();
+        else if (o.type === "reach" || o.type === "rescue") expect(getRegion(o.regionId), q.id).toBeDefined();
         else expect(getMonster(o.monsterId), q.id).toBeDefined();
+        if (o.type === "rescue") expect(getEvent(o.eventId)?.quest, q.id).toBe(true);
+        // 보상이 가리키는 것이 모두 있다. 승급 시험만 고정 보상, 나머지는 둘 중 하나
+        const rewards = [...(q.rewards.choices ?? []), ...(q.rewards.fixed ?? [])];
+        expect(q.exam ? !!q.rewards.fixed : q.rewards.choices?.length === 2, q.id).toBe(true);
+        for (const r of rewards) {
+          if (r.type === "material") expect(getSalvage(r.itemId), q.id).toBeDefined();
+          if (r.type === "accessory") expect(getTrinket(r.accessoryId)?.quest, q.id).toBe(true);
+          if (r.type === "info") expect(QUEST_INFO[r.infoId], q.id).toBeDefined();
+          if (r.type === "relic" && r.relicId !== "random") expect(getSalvage(r.relicId)?.kind, q.id).toBe("raceRelic");
+          // 장신구는 중요 의뢰 전용
+          if (r.type === "accessory") expect(q.important, q.id).toBe(true);
+        }
       } else {
         expect(q.days).toBeGreaterThan(0);
         expect(q.size[0]).toBeLessThanOrEqual(q.size[1]);
@@ -26,7 +42,7 @@ describe("의뢰 데이터", () => {
 describe("게시판", () => {
   it("종류별로 정해진 수만큼, 받아 둔 의뢰는 빼고, 같은 시드면 같다", () => {
     const board = rollBoard(5);
-    expect(board.filter((id) => getQuest(id)!.kind === "direct")).toHaveLength(BOARD_SIZE.direct);
+    expect(board.filter((id) => isDirect(getQuest(id)))).toHaveLength(BOARD_SIZE.direct);
     expect(board.filter((id) => getQuest(id)!.kind === "dispatch")).toHaveLength(BOARD_SIZE.dispatch);
     expect(rollBoard(5)).toEqual(board);
     expect(rollBoard(5, [board[0]])).not.toContain(board[0]);
@@ -99,5 +115,48 @@ describe("클랜", () => {
     expect(settlementsDue(1, 7)).toBe(0);
     expect(settlementsDue(1, 8)).toBe(1);
     expect(settlementsDue(1, 16)).toBe(2);
+  });
+});
+
+describe("게시판 개선", () => {
+  it("조건부 목표: 사제 없이 / 아무도 쓰러지지 않고", () => {
+    const base = { kills: {}, eliteKills: {}, salvage: {} };
+    const noPriest = { type: "killWithCondition" as const, monsterIds: ["slime_king"], noJob: "priest" };
+    expect(objectiveDone(noPriest, { ...base, feats: [{ monsterId: "slime_king", jobs: ["knight", "priest"], downed: false }] })).toBe(false);
+    expect(objectiveDone(noPriest, { ...base, feats: [{ monsterId: "slime_king", jobs: ["knight", "mage"], downed: true }] })).toBe(true);
+    const flawless = { type: "killWithCondition" as const, monsterIds: ["goblin_king", "alpha_wolf"], noDowned: true };
+    expect(objectiveDone(flawless, { ...base, feats: [{ monsterId: "goblin_king", jobs: [], downed: true }] })).toBe(false);
+    expect(objectiveDone(flawless, { ...base, feats: [{ monsterId: "alpha_wolf", jobs: [], downed: false }] })).toBe(true);
+  });
+
+  it("도달·구출·마릿수 목표", () => {
+    const t = { kills: { forest_rat: 6 }, eliteKills: {}, salvage: {}, regions: ["uf_forest", "uf_deeper_forest"], goals: ["uf_cave"], rescued: ["rescue_herbalist"] };
+    expect(objectiveDone({ type: "reach", regionId: "uf_cave", goal: true }, t)).toBe(true);
+    expect(objectiveDone({ type: "reach", regionId: "uf_deeper_forest", goal: true }, t)).toBe(false);
+    expect(objectiveDone({ type: "reach", regionId: "uf_deeper_forest", goal: false }, t)).toBe(true);
+    expect(objectiveDone({ type: "rescue", eventId: "rescue_herbalist", regionId: "uf_deep_forest" }, t)).toBe(true);
+    expect(objectiveDone({ type: "killCount", monsterId: "forest_rat", count: 6 }, t)).toBe(true);
+  });
+
+  it("기한: 받은 날 + 기한을 넘기면 초과", () => {
+    const q = getQuest("q_rats")!; // 기한 5일
+    expect(questOverdue(q, 1, 6)).toBe(false);
+    expect(questOverdue(q, 1, 7)).toBe(true);
+    expect(questOverdue(getQuest("q_exam_silver")!, 1, 99)).toBe(false);
+  });
+
+  it("주간 제한: 전술 교본·종족 유물은 이번 주에 받았으면 고를 수 없다", () => {
+    expect(rewardBlocked({ type: "tacticBook", count: 1 }, { book: true, relic: false })).toBeTruthy();
+    expect(rewardBlocked({ type: "relic", relicId: "random" }, { book: false, relic: true })).toBeTruthy();
+    expect(rewardBlocked({ type: "gold", amount: 10 }, { book: true, relic: true })).toBeNull();
+  });
+
+  it("명성 조건: 도전·지명 의뢰는 명성이 모자라면 붙지 않고, 지명 의뢰는 이름난부터 고정으로 붙는다", () => {
+    const ids = new Set(Array.from({ length: 60 }, (_, seed) => rollBoard(seed, [], { guildGrade: "bronze", fame: 0, explored: [] })).flat());
+    expect(ids.has("q_no_priest")).toBe(false);
+    expect(ids.has("q_spider_queen")).toBe(false);
+    expect(fixedQuests({ guildGrade: "bronze", fame: 0, explored: [] }, [], [], [])).not.toContain("q_orc_captain");
+    expect(fixedQuests({ guildGrade: "bronze", fame: 60, explored: [] }, [], [], [])).toContain("q_orc_captain");
+    expect(fixedQuests({ guildGrade: "bronze", fame: 60, explored: [] }, [], [], ["q_orc_captain"])).not.toContain("q_orc_captain");
   });
 });

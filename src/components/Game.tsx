@@ -11,7 +11,7 @@ import { nodeById } from "@/game/dungeon/map";
 import { getStage } from "@/game/merc/affinity";
 import { DialogueScreen } from "@/components/dialogue/DialogueScreen";
 import { GuildScreen } from "@/components/guild/GuildScreen";
-import { entryId, gameReducer, guildPromotionBlocks, hiredCount, promotionBlocks, initialState, mercOf, type TownPlace } from "@/game/state/state";
+import { entryId, forgeDiscounted, gameReducer, questSlots, guildPromotionBlocks, hiredCount, promotionBlocks, initialState, mercOf, type TownPlace } from "@/game/state/state";
 import { GateScreen } from "@/components/town/GateScreen";
 import { ReportScreen } from "@/components/town/ReportScreen";
 import { YardScreen } from "@/components/town/YardScreen";
@@ -184,12 +184,25 @@ export function Game() {
     void send(state.screen.mercId, action);
   }
 
+  // 의뢰 보상 "용병 합류": 모집 API로 동 등급 한 명을 만들어 고용비 없이 합류시킨다
+  const joining = useRef(false);
+  useEffect(() => {
+    if (!state.booted || state.pendingJoins <= 0 || joining.current) return;
+    joining.current = true;
+    postRecruit({ count: 1, avoidNames: state.roster.map((e) => mercOf(e).name), guildGrade: "bronze", fame: 0 })
+      .then((res) => dispatch({ type: "joinedFree", seeds: res.seeds }))
+      .catch(() => {})
+      .finally(() => {
+        joining.current = false;
+      });
+  }, [state.booted, state.pendingJoins, state.roster]);
+
   async function recruit() {
     if (state.recruit.pending) return;
     dispatch({ type: "recruitStart" });
     try {
       const avoidNames = state.roster.map((e) => mercOf(e).name);
-      const res = await postRecruit({ avoidNames, guildGrade: state.guildGrade });
+      const res = await postRecruit({ avoidNames, guildGrade: state.guildGrade, fame: state.fame });
       dispatch({ type: "recruited", seeds: res.seeds });
     } catch (e) {
       dispatch({ type: "recruitFailed", error: e instanceof Error ? e.message : String(e) });
@@ -374,6 +387,23 @@ export function Game() {
     };
   }
 
+  // 용병 상태 창 (마을·숙소에서 용병을 누르면)
+  const sheetEntry = sheetId ? findEntry(sheetId) : undefined;
+  const sheetMerc = sheetEntry && state.progress[sheetId!] ? mercOf(sheetEntry) : undefined;
+  const sheet = sheetMerc && (
+    <MercSheet
+      merc={sheetMerc}
+      seed={sheetEntry!.kind === "random" ? sheetEntry!.seed : undefined}
+      progress={state.progress[sheetMerc.id]}
+      trinkets={state.trinkets}
+      onClose={() => setSheetId(null)}
+      onSwap={(change) => dispatch({ type: "swapSkill", mercId: sheetMerc.id, ...change })}
+      onForget={(key) => dispatch({ type: "forgetSkill", mercId: sheetMerc.id, key })}
+      onEquipTrinket={(index) => dispatch({ type: "equipTrinket", mercId: sheetMerc.id, index })}
+      onUnequipTrinket={(slot) => dispatch({ type: "unequipTrinket", mercId: sheetMerc.id, slot })}
+    />
+  );
+
   switch (state.screen.kind) {
     case "report":
       return state.report ? (
@@ -422,6 +452,8 @@ export function Game() {
       );
     case "inn":
       return (
+        <>
+        {sheet}
         <InnScreen
           day={state.day}
           gold={state.gold}
@@ -447,8 +479,10 @@ export function Game() {
           onTalkEnd={() => dispatch({ type: "homeTalkEnd" })}
           onProposeClan={(mercId) => void proposeClan(mercId)}
           onFoundClan={() => dispatch({ type: "foundClan" })}
+          onInspect={setSheetId}
           onBack={toTown}
         />
+        </>
       );
     case "board":
       return (
@@ -463,6 +497,15 @@ export function Game() {
           progress={state.progress}
           onAccept={(questId) => dispatch({ type: "acceptQuest", questId })}
           onAbandon={(questId) => dispatch({ type: "abandonQuest", questId })}
+          fame={state.fame}
+          slots={questSlots(state)}
+          questAccepted={state.questAccepted}
+          pendingRewards={state.pendingRewards}
+          weeklyRewards={state.weeklyRewards}
+          infos={state.infos}
+          salvage={state.salvage}
+          onDeliver={(questId) => dispatch({ type: "deliverQuest", questId, seed: roll() })}
+          onClaim={(questId, choice) => dispatch({ type: "claimQuestReward", questId, choice, seed: roll() })}
           onDispatch={(questId, members) => dispatch({ type: "dispatchQuest", questId, members })}
           onBack={toTown}
         />
@@ -490,7 +533,8 @@ export function Game() {
           onForge={(trinket) => dispatch({ type: "forgeTrinket", trinket })}
           onUpgrade={(where) => dispatch({ type: "upgradeTrinket", ...where })}
           onEquip={(mercId, index) => dispatch({ type: "equipTrinket", mercId, index })}
-          onUnequip={(mercId) => dispatch({ type: "unequipTrinket", mercId })}
+          onUnequip={(mercId, slot) => dispatch({ type: "unequipTrinket", mercId, slot })}
+          discounted={forgeDiscounted(state)}
           onBack={toTown}
         />
       );
@@ -529,23 +573,9 @@ export function Game() {
         />
       );
     default: {
-      const sheetEntry = sheetId ? findEntry(sheetId) : undefined;
-      const sheetMerc = sheetEntry && state.progress[sheetId!] ? mercOf(sheetEntry) : undefined;
       return (
         <>
-        {sheetMerc && (
-          <MercSheet
-            merc={sheetMerc}
-            seed={sheetEntry!.kind === "random" ? sheetEntry!.seed : undefined}
-            progress={state.progress[sheetMerc.id]}
-            trinkets={state.trinkets}
-            onClose={() => setSheetId(null)}
-            onSwap={(change) => dispatch({ type: "swapSkill", mercId: sheetMerc.id, ...change })}
-            onForget={(key) => dispatch({ type: "forgetSkill", mercId: sheetMerc.id, key })}
-            onEquipTrinket={(index) => dispatch({ type: "equipTrinket", mercId: sheetMerc.id, index })}
-            onUnequipTrinket={() => dispatch({ type: "unequipTrinket", mercId: sheetMerc.id })}
-          />
-        )}
+        {sheet}
         <TownScreen
           day={state.day}
           gold={state.gold}

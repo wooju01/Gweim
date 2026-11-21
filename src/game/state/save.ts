@@ -1,7 +1,7 @@
 // 자동 저장. 브라우저(localStorage)에 한 칸만 두고, 상태가 바뀔 때마다 덮어쓴다 (되돌리기 없음).
 // 저장 데이터는 Zod 스키마로 검사하고 버전 번호를 붙인다. 버전이 다르면 읽지 않고 새 게임으로 시작한다
 // (형식이 크게 바뀔 때 변환하지 않고 초기화하기로 했다. 2026-11-20: 직업·등급·스킬 조각 개편 → 버전 3,
-// 2026-11-21: 시간·클랜·의뢰 → 버전 4, 2026-11-22: 길드 등급·용병 승급 증명 → 버전 5).
+// 2026-11-21: 시간·클랜·의뢰 → 버전 4, 2026-11-22: 길드 등급·용병 승급 증명 → 버전 5, 게시판 개선(명성·기한·보상 선택)·시작 용병 8명 → 버전 6).
 // 대화 화면·AI 응답 대기처럼 잠깐 거치는 상태는 저장하지 않는다.
 // 전투 중이면 전투 그대로 저장한다 (새로고침으로 도망칠 수 없게).
 import { z } from "zod";
@@ -12,7 +12,7 @@ import { entryId, initialState, mercOf, type GameState } from "./state";
 export const SAVE_KEY = "ashen-save";
 /** 읽지 못한 저장을 지우기 전에 옮겨 두는 곳 (직접 살펴볼 수 있게) */
 export const BROKEN_KEY = "ashen-save-broken";
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 
 const MercProgressSave = TalkState.extend({
   hired: z.boolean(),
@@ -25,6 +25,8 @@ const MercProgressSave = TalkState.extend({
   learned: z.array(SkillBuild).max(40).default([]),
   pieces: z.array(z.string().max(40)).default([]),
   levels: z.record(z.string().max(40), z.number().int().min(1).max(3)).default({}),
+  // 장신구 두 칸 (예전 저장의 한 칸 trinket은 읽을 때 옮긴다)
+  trinkets: z.array(z.object({ id: z.string().max(40), lv: z.number().int().min(1).max(3) })).max(2).default([]),
   trinket: z.object({ id: z.string().max(40), lv: z.number().int().min(1).max(3) }).optional(),
   kind: z.enum(["merc", "member"]).default("merc"),
   pledged: z.boolean().optional(),
@@ -76,7 +78,7 @@ export const SaveFile = z.object({
     screen: ScreenSave,
     expedition: ExpeditionSave.nullable(),
     notices: z.array(z.string()).default([]),
-    renown: z.number().default(0),
+    fame: z.number().min(0).default(0),
     reputation: z.number().default(0),
     day: z.number().int().min(1).default(1),
     memorial: z
@@ -117,6 +119,14 @@ export const SaveFile = z.object({
     homeScene: z.object({ ids: z.tuple([z.string(), z.string()]), text: z.string().nullable(), day: z.number().int() }).nullable().default(null),
     guildGrade: MercLevel.default("bronze"),
     guildExams: z.array(MercLevel).default([]),
+    questAccepted: z.record(z.string().max(40), z.number().int()).default({}),
+    questsDone: z.array(z.string().max(40)).default([]),
+    pendingRewards: z.array(z.string().max(40)).default([]),
+    weeklyRewards: z.object({ book: z.boolean(), relic: z.boolean() }).default({ book: false, relic: false }),
+    infos: z.array(z.string().max(40)).default([]),
+    discounts: z.array(z.object({ facility: z.literal("forge"), untilDay: z.number().int() })).default([]),
+    pendingJoins: z.number().int().min(0).max(5).default(0),
+    bossesSlain: z.array(z.string().max(40)).default([]),
   }),
 });
 export type SaveFile = z.infer<typeof SaveFile>;
@@ -141,7 +151,7 @@ export function toSave(state: GameState, now = new Date()): SaveFile {
       screen,
       expedition: state.expedition,
       notices: state.notices,
-      renown: state.renown,
+      fame: state.fame,
       reputation: state.reputation,
       day: state.day,
       memorial: state.memorial,
@@ -166,6 +176,14 @@ export function toSave(state: GameState, now = new Date()): SaveFile {
       homeScene: state.homeScene,
       guildGrade: state.guildGrade,
       guildExams: state.guildExams,
+      questAccepted: state.questAccepted,
+      questsDone: state.questsDone,
+      pendingRewards: state.pendingRewards,
+      weeklyRewards: state.weeklyRewards,
+      infos: state.infos,
+      discounts: state.discounts,
+      pendingJoins: state.pendingJoins,
+      bossesSlain: state.bossesSlain,
     } as SaveFile["state"],
   };
 }
@@ -201,13 +219,19 @@ export function fromSave(raw: unknown): { state: GameState } | { error: string }
     state: {
       ...base,
       roster: s.roster,
-      progress: s.progress,
+      // 예전 저장의 한 칸 장신구(trinket)는 두 칸 목록으로 옮긴다
+      progress: Object.fromEntries(
+        Object.entries(s.progress).map(([id, p]) => {
+          const { trinket, ...rest } = p;
+          return [id, { ...rest, trinkets: rest.trinkets.length ? rest.trinkets : trinket ? [trinket] : [] }];
+        }),
+      ),
       party: s.party,
       screen: (s.screen.kind === "guild" ? { kind: "town" } : s.screen) as GameState["screen"],
       day: s.day,
       expedition,
       notices: s.notices,
-      renown: s.renown,
+      fame: s.fame,
       reputation: s.reputation,
       // 마지막 말을 기다리다 끊겼으면 기본 문장 없이 비워 둔다
       memorial: s.memorial.map((f) => ({ ...f, words: f.words ?? "…" })),
@@ -232,6 +256,14 @@ export function fromSave(raw: unknown): { state: GameState } | { error: string }
       homeScene: s.homeScene,
       guildGrade: s.guildGrade,
       guildExams: s.guildExams,
+      questAccepted: s.questAccepted,
+      questsDone: s.questsDone,
+      pendingRewards: s.pendingRewards,
+      weeklyRewards: s.weeklyRewards,
+      infos: s.infos,
+      discounts: s.discounts,
+      pendingJoins: s.pendingJoins,
+      bossesSlain: s.bossesSlain,
       // 사건 칸에서 멈췄으면 AI 묘사 없이 기본 문장으로 이어 간다
       narration: room?.kind === "event" && !room.result ? { eventId: room.eventId, pending: false, data: null } : null,
     },

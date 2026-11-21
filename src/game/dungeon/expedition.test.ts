@@ -517,3 +517,29 @@ describe("보스 직전 경고", () => {
     expect(getRegion("fm_vampire_castle")!.boss!.pool.find((p) => p.monsterId === "vampire_lord")).toMatchObject({ warn: true, weight: 3 });
   });
 });
+
+describe("구출 의뢰 사건", () => {
+  it("의뢰 사건은 무작위 사건으로 나오지 않는다", () => {
+    for (let seed = 0; seed < 300; seed++) expect(getEvent(pickEvent(seed))?.quest).toBeFalsy();
+  });
+
+  it("구출 의뢰를 받았을 때만 그 지역 사건 칸에 나오고, 구하면 기록된다", () => {
+    const { exp, target } = expeditionWithFirst("event");
+    const here = exp.region!;
+    // 의뢰 없음: 의뢰 사건이 나오지 않는다
+    const plain = moveTo(exp, mercs, target, 1)!.exp;
+    expect(getEvent((plain.room as { eventId: string }).eventId)?.quest).toBeFalsy();
+    // 의뢰 있음 (이 지역): 의뢰 사건이 먼저 나온다
+    const withQuest = { ...exp, questEvents: [{ eventId: "rescue_herbalist", regionId: here }] };
+    const moved = moveTo(withQuest, mercs, target, 1)!.exp;
+    expect(moved.room).toMatchObject({ kind: "event", eventId: "rescue_herbalist" });
+    // 다른 지역 의뢰면 나오지 않는다
+    const elsewhere = moveTo({ ...exp, questEvents: [{ eventId: "rescue_herbalist", regionId: "uf_cave" }] }, mercs, target, 1)!.exp;
+    expect((elsewhere.room as { eventId: string }).eventId).not.toBe("rescue_herbalist");
+    // 구하는 선택 → 기록
+    const saved = chooseEvent(moved, "cut", 3);
+    expect(saved.rescued).toContain("rescue_herbalist");
+    const left = chooseEvent(moved, "leave", 3);
+    expect(left.rescued ?? []).not.toContain("rescue_herbalist");
+  });
+});

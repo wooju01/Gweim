@@ -145,6 +145,8 @@ export const RecruitRequest = z.object({
   avoidNames: z.array(z.string().max(20)).max(40).default([]),
   /** 길드 등급: 이 등급까지의 용병이 모인다 (data/guild.ts) */
   guildGrade: MercLevel.default("bronze"),
+  /** 명성: 좋은 등급 용병이 나올 확률 (data/fame.ts) */
+  fame: z.number().min(0).default(0),
 });
 export type RecruitRequest = z.infer<typeof RecruitRequest>;
 

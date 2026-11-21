@@ -71,6 +71,8 @@ export type Unit = {
   cooldowns: Record<SkillId, number>;
   /** 막아서기 중 (자기 다음 차례가 오면 풀린다) */
   guarding: boolean;
+  /** 용병만: 장신구 저항 (중독·기절) */
+  resist?: { poison?: number; stun?: number };
   /** 적만: 출혈·중독을 걸 때 쌓이는 양 (없으면 등급 기본값) */
   dot?: Partial<Record<DotKind, number>>;
   /** 보스 예고: 다음 자기 차례에 쓸 스킬과 노린 대상. 그사이 기절하면 끊긴다 */
@@ -384,7 +386,8 @@ export function mercUnit(merc: Merc): Unit {
     title: merc.title,
     hp: maxHp,
     maxHp,
-    attack: stats.attack,
+    attack: merc.gear?.attack ? [stats.attack[0] + merc.gear.attack, stats.attack[1] + merc.gear.attack] : stats.attack,
+    ...(merc.gear?.poisonRes || merc.gear?.stunRes ? { resist: { poison: merc.gear.poisonRes, stun: merc.gear.stunRes } } : {}),
     defense: stats.defense + g("defense"),
     speed: stats.speed + g("speed"),
     power: { str: g("str"), mag: g("mag"), faith: g("faith") },
@@ -897,14 +900,15 @@ export function resistOf(u: Unit, kind: ResistKind): number {
       return (
         (u.side === "enemy" ? (RESIST.stunBase[u.rank ?? "normal"] ?? 0) : 0) +
         (u.fx?.stunCount ?? 0) * RESIST.stunStep +
-        statusValue(u, "stunResUp") -
+        statusValue(u, "stunResUp") +
+        (u.resist?.stun ?? 0) -
         statusValue(u, "shaken") -
         (u.charging ? RESIST.chargingOpen : 0)
       );
     case "bleed":
       return -statusValue(u, "bleedVuln");
     case "poison":
-      return -statusValue(u, "poisonVuln");
+      return (u.resist?.poison ?? 0) - statusValue(u, "poisonVuln");
     case "healReduction":
       return 0;
   }

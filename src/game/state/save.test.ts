@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { BROKEN_KEY, SAVE_KEY, SAVE_VERSION, fromSave, loadGame, saveGame, toSave } from "./save";
-import { gameReducer, initialState, type GameState } from "./state";
+import { gameReducer, initialState as newGame, type GameState } from "./state";
+import { sampleSeeds } from "@/data/sampleRoster";
+
+/** 테스트는 고용하지 않은 샘플 명단으로 시작한다 */
+const initialState = () => newGame({ seeds: sampleSeeds(), hired: false });
 
 /** 테스트용 저장소 (localStorage 대신) */
 function memoryStore(init: Record<string, string> = {}) {
@@ -64,10 +68,21 @@ describe("저장", () => {
     expect(state.screen.kind).toBe("town");
   });
 
-  it("명성·평판 자리가 있고 저장된다", () => {
-    const s = { ...booted(initialState()), renown: 3, reputation: -2 };
+  it("예전 저장의 한 칸 장신구(trinket)는 두 칸 목록(trinkets)으로 옮겨진다", () => {
+    const s = booted(initialState());
+    const raw = JSON.parse(JSON.stringify(toSave(s)));
+    const id = Object.keys(raw.state.progress)[0];
+    delete raw.state.progress[id].trinkets;
+    raw.state.progress[id].trinket = { id: "t_warden_badge", lv: 2 };
+    const back = fromSave(raw) as { state: GameState };
+    expect(back.state.progress[id].trinkets).toEqual([{ id: "t_warden_badge", lv: 2 }]);
+    expect("trinket" in back.state.progress[id]).toBe(false);
+  });
+
+  it("명성·평판·의뢰 기록이 저장된다", () => {
+    const s = { ...booted(initialState()), fame: 23, reputation: -2, questAccepted: { q_rats: 3 }, pendingRewards: ["q_jelly"], weeklyRewards: { book: true, relic: false }, infos: ["info_cave_paths"], bossesSlain: ["giant_boar"] };
     const back = fromSave(JSON.parse(JSON.stringify(toSave(s)))) as { state: GameState };
-    expect(back.state).toMatchObject({ renown: 3, reputation: -2 });
+    expect(back.state).toMatchObject({ fame: 23, reputation: -2, questAccepted: { q_rats: 3 }, pendingRewards: ["q_jelly"], weeklyRewards: { book: true, relic: false }, infos: ["info_cave_paths"], bossesSlain: ["giant_boar"] });
   });
 
   it("읽지 못하는 저장은 따로 옮겨 두고 지운 뒤 이유를 알린다", () => {

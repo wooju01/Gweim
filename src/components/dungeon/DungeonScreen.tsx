@@ -88,8 +88,16 @@ export function DungeonScreen(props: Props) {
         <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ash">
           {props.activeQuests.map((id) => {
             const q = getQuest(id);
-            if (q?.kind !== "direct") return null;
-            const tally = { kills: exp.kills ?? {}, eliteKills: exp.eliteKills ?? {}, salvage: addSalvage(props.homeSalvage, exp.salvage ?? {}) };
+            if (!q || q.kind === "dispatch") return null;
+            const tally = {
+              kills: exp.kills ?? {},
+              eliteKills: exp.eliteKills ?? {},
+              salvage: addSalvage(props.homeSalvage, exp.salvage ?? {}),
+              regions: exp.regions,
+              goals: exp.goals,
+              feats: exp.feats,
+              rescued: exp.rescued,
+            };
             const [now, goal] = objectiveProgress(q.objective, tally);
             return (
               <span key={id} className={now >= goal ? "text-moss" : ""}>

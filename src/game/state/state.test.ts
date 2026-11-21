@@ -6,6 +6,8 @@ import { knownFragments, ownerOf } from "@/game/merc/skillhall";
 import { getFragment } from "@/data/fragments";
 import { PROMOTE_BONUS, XP_TO_NEXT } from "@/data/growth";
 import { GUILD_PROMOTION } from "@/data/guild";
+import { FAME } from "@/data/fame";
+import { FAME_BY_KIND, GOLD_L } from "@/data/quests";
 import { getQuest } from "@/data/quests";
 import { examQuest, objectiveDone, questGrade, rollBoard } from "@/game/quests";
 import { battleFor } from "@/game/dungeon/expedition";
@@ -14,7 +16,12 @@ import { tierOpen } from "@/game/merc/skillhall";
 import { fragmentsFor, skillKey } from "@/game/skills";
 import { act, living } from "@/game/combat/engine";
 import { battleSpoils, finishBattle } from "@/game/dungeon/expedition";
-import { entryId, gameReducer, guildPromotionBlocks, initialState, mercOf, promotionBlocks, type GameState } from "./state";
+import { entryId, gameReducer, guildPromotionBlocks, initialState as newGame, mercOf, promotionBlocks, type GameState } from "./state";
+import { sampleSeeds } from "@/data/sampleRoster";
+import { START_PARTY } from "@/data/startRoster";
+
+/** 테스트는 고용하지 않은 샘플 명단으로 시작한다 */
+const initialState = () => newGame({ seeds: sampleSeeds(), hired: false });
 
 /** 샘플 용병 중 넷을 동행시키고 던전에 들어간 상태 */
 function inDungeon(ids: string[], seed = 1): GameState {
@@ -390,6 +397,76 @@ describe("승급 (상태)", () => {
   });
 });
 
+describe("새 게임", () => {
+  it("숙소에 고용된 동 등급 8명으로 시작한다. 직업·종족×직업이 모두 다르고 호감은 30~80", () => {
+    const s = newGame();
+    const mercs = s.roster.map(mercOf);
+    expect(mercs).toHaveLength(8);
+    expect(mercs.every((m) => m.level === "bronze" && s.progress[m.id].hired && (s.progress[m.id].wage ?? 0) > 0)).toBe(true);
+    expect(new Set(mercs.map((m) => m.job)).size).toBe(8);
+    expect(new Set(mercs.map((m) => `${m.race}/${m.job}`)).size).toBe(8);
+    expect(mercs.every((m) => s.progress[m.id].affinity >= 30 && s.progress[m.id].affinity <= 80)).toBe(true);
+    expect(s.party).toEqual(START_PARTY);
+  });
+});
+
+describe("게시판 개선 (상태)", () => {
+  /** 받아 둔 의뢰가 있는 채로 원정에 나갔다가 바로 돌아온다 (day 만큼 지난 날) */
+  function returnOn(base: GameState, day: number): GameState {
+    let s: GameState = { ...base, party: ["s-bran"], progress: { ...base.progress, "s-bran": { ...base.progress["s-bran"], hired: true } } };
+    s = gameReducer(s, { type: "enterDungeon", seed: 1 });
+    s = { ...s, day };
+    return gameReducer(s, { type: "endExpedition", seed: 2 });
+  }
+
+  it("받을 수 있는 의뢰 수는 명성 단계를 따른다 (무명 2, 알려진 3)", () => {
+    let s: GameState = { ...initialState(), board: ["q_rats", "q_giant_boar", "q_jelly"] };
+    for (const id of ["q_rats", "q_giant_boar", "q_jelly"]) s = gameReducer(s, { type: "acceptQuest", questId: id });
+    expect(s.activeQuests).toEqual(["q_rats", "q_giant_boar"]);
+    expect(s.questAccepted["q_rats"]).toBe(s.day);
+    const known = gameReducer({ ...s, fame: 20 }, { type: "acceptQuest", questId: "q_jelly" });
+    expect(known.activeQuests).toContain("q_jelly");
+  });
+
+  it("기한을 넘기면 귀환할 때 실패하고 명성이 깎인다. 포기해도 깎인다", () => {
+    const s = { ...initialState(), fame: 10, activeQuests: ["q_rats"], questAccepted: { q_rats: 1 } };
+    const late = returnOn(s, 1 + 6); // 기한 5일
+    expect(late.activeQuests).not.toContain("q_rats");
+    expect(late.fame).toBe(10 + FAME.overdue);
+    const gaveUp = gameReducer(s, { type: "abandonQuest", questId: "q_rats" });
+    expect(gaveUp.fame).toBe(10 + FAME.fail);
+  });
+
+  it("납품: 창고의 재료를 내고 마치면 보상을 고른다. 고른 보상만 받는다", () => {
+    let s: GameState = { ...initialState(), gold: 0, activeQuests: ["q_jelly"], questAccepted: { q_jelly: 1 }, salvage: { mat_jelly: 5 } };
+    s = gameReducer(s, { type: "deliverQuest", questId: "q_jelly", seed: 1 });
+    expect(s.salvage.mat_jelly ?? 0).toBe(0);
+    expect(s.activeQuests).not.toContain("q_jelly");
+    expect(s.pendingRewards).toContain("q_jelly");
+    expect(s.fame).toBe(FAME_BY_KIND.collect);
+    const picked = gameReducer(s, { type: "claimQuestReward", questId: "q_jelly", choice: 1, seed: 1 }); // 해독제 2
+    expect(picked.pack.antidote).toBe(s.pack.antidote + 2);
+    expect(picked.gold).toBe(0);
+    expect(picked.pendingRewards).not.toContain("q_jelly");
+  });
+
+  it("주간 제한: 이번 주에 전술 교본을 받았으면 그 보상은 고를 수 없고, 정산 때 풀린다", () => {
+    const s = { ...initialState(), pendingRewards: ["q_goblin_king"], weeklyRewards: { book: true, relic: false } };
+    expect(gameReducer(s, { type: "claimQuestReward", questId: "q_goblin_king", choice: 1, seed: 1 })).toBe(s);
+    expect(gameReducer(s, { type: "claimQuestReward", questId: "q_goblin_king", choice: 0, seed: 1 }).gold).toBe(s.gold + GOLD_L);
+    // 7일 정산을 넘겨 돌아오면 풀린다
+    const after = returnOn({ ...s, lastSettlementDay: 1 }, 9);
+    expect(after.weeklyRewards).toEqual({ book: false, relic: false });
+  });
+
+  it("승급 시험은 고정 보상: 장신구를 바로 받고, 보상 고르기는 없다", () => {
+    const q = getQuest("q_exam_silver")!;
+    if (q.kind === "dispatch") throw new Error();
+    expect(q.rewards.choices).toBeUndefined();
+    expect(q.rewards.fixed?.[0]).toEqual({ type: "accessory", accessoryId: "t_silver_crest" });
+  });
+});
+
 describe("길드 등급", () => {
   it("처음은 동. 승급 시험(3층 던전 보스 아무나 하나)은 길드가 동이면 게시판에 붙는다", () => {
     const s = initialState();
@@ -401,7 +478,7 @@ describe("길드 등급", () => {
     expect(examQuest("bronze", ["silver"], [], [])).toBeNull();
     // 넷 중 아무나 하나를 잡으면 된다
     const q = getQuest("q_exam_silver")!;
-    if (q.kind !== "direct") throw new Error();
+    if (q.kind === "dispatch") throw new Error();
     expect(objectiveDone(q.objective, { kills: { spider_queen: 1 }, eliteKills: {}, salvage: {} })).toBe(true);
     expect(objectiveDone(q.objective, { kills: { orc_king: 1 }, eliteKills: {}, salvage: {} })).toBe(false);
   });
@@ -425,11 +502,11 @@ describe("길드 등급", () => {
 
   it("게시판에는 길드 등급 이하의 의뢰만 붙는다", () => {
     for (let seed = 0; seed < 30; seed++) {
-      const ids = rollBoard(seed, [], "bronze");
+      const ids = rollBoard(seed, [], { guildGrade: "bronze", fame: 0, explored: [] });
       expect(ids.every((id) => questGrade(getQuest(id)!) === "bronze")).toBe(true);
       expect(ids).not.toContain("q_exam_silver");
     }
-    const silver = new Set(Array.from({ length: 40 }, (_, seed) => rollBoard(seed, [], "silver")).flat());
+    const silver = new Set(Array.from({ length: 40 }, (_, seed) => rollBoard(seed, [], { guildGrade: "silver", fame: 0, explored: [] })).flat());
     expect([...silver].some((id) => questGrade(getQuest(id)!) === "silver")).toBe(true);
   });
 
@@ -453,6 +530,8 @@ describe("길드 등급", () => {
 
   it("고용 시장: 길드가 동이면 늘 동, 은이면 가끔 은", () => {
     expect(recruitLevel("bronze", () => 0)).toBe("bronze");
+    // 23번 오크 킹 토벌은 길드가 은이어야 붙는다
+    expect(questGrade(getQuest("q_orc_king")!)).toBe("silver");
     expect(recruitLevel("silver", () => 0)).toBe("silver");
     expect(recruitLevel("silver", () => 0.99)).toBe("bronze");
   });
@@ -534,13 +613,40 @@ describe("대장간 (상태)", () => {
     expect(gameReducer(s, { type: "equipTrinket", mercId: "s-durgan", index: 0 })).toBe(s);
     s = gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: 0 });
     expect(s.trinkets).toEqual([]);
-    expect(s.progress["s-bran"].trinket).toEqual({ id: "t_warden_badge", lv: 2 });
-    s = gameReducer(s, { type: "upgradeTrinket", mercId: "s-bran" });
-    expect(s.progress["s-bran"].trinket!.lv).toBe(3);
-    expect(gameReducer(s, { type: "upgradeTrinket", mercId: "s-bran" })).toBe(s);
-    s = gameReducer(s, { type: "unequipTrinket", mercId: "s-bran" });
-    expect(s.progress["s-bran"].trinket).toBeUndefined();
+    expect(s.progress["s-bran"].trinkets).toEqual([{ id: "t_warden_badge", lv: 2 }]);
+    s = gameReducer(s, { type: "upgradeTrinket", mercId: "s-bran", slot: 0 });
+    expect(s.progress["s-bran"].trinkets[0].lv).toBe(3);
+    expect(gameReducer(s, { type: "upgradeTrinket", mercId: "s-bran", slot: 0 })).toBe(s);
+    s = gameReducer(s, { type: "unequipTrinket", mercId: "s-bran", slot: 0 });
+    expect(s.progress["s-bran"].trinkets).toEqual([]);
     expect(s.trinkets).toEqual([{ id: "t_warden_badge", lv: 3 }]);
+  });
+
+  it("장신구는 두 칸: 둘까지 끼고, 같은 장신구 둘은 안 되고, 다 차면 바꿔 낀다. 누구나 끼는 의뢰 장신구도 있다", () => {
+    let s: GameState = {
+      ...hiredState(),
+      trinkets: [
+        { id: "t_warden_badge", lv: 1 },
+        { id: "t_rust_pauldron", lv: 1 },
+        { id: "t_silver_crest", lv: 1 },
+        { id: "t_warden_badge", lv: 2 },
+      ],
+    };
+    s = gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: 0 }); // 방패걸이
+    s = gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: 0 }); // 어깨받이
+    expect(s.progress["s-bran"].trinkets.map((t) => t.id)).toEqual(["t_warden_badge", "t_rust_pauldron"]);
+    // 같은 장신구는 둘 낄 수 없다 (보관함의 2단계 방패걸이)
+    const dup = s.trinkets.findIndex((t) => t.id === "t_warden_badge");
+    expect(gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: dup })).toBe(s);
+    // 다 찼으면 고른 칸과 바꾼다 (휘장은 누구나)
+    const crest = s.trinkets.findIndex((t) => t.id === "t_silver_crest");
+    s = gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: crest, slot: 1 });
+    expect(s.progress["s-bran"].trinkets.map((t) => t.id)).toEqual(["t_warden_badge", "t_silver_crest"]);
+    expect(s.trinkets.map((t) => t.id)).toContain("t_rust_pauldron");
+    // 대검사도 휘장은 낄 수 있다
+    const back = gameReducer(s, { type: "unequipTrinket", mercId: "s-bran", slot: 1 });
+    const i = back.trinkets.findIndex((t) => t.id === "t_silver_crest");
+    expect(gameReducer(back, { type: "equipTrinket", mercId: "s-durgan", index: i }).progress["s-durgan"].trinkets[0].id).toBe("t_silver_crest");
   });
 
   it("유실물이 모자라면 만들 수 없다", () => {
@@ -559,7 +665,7 @@ describe("대장간 (상태)", () => {
 
   function deathBattle(outcome: "victory" | "defeat") {
     let s = inDungeon(["s-bran", "s-mirel"]);
-    s = { ...s, progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], trinket: { id: "t_warden_badge", lv: 2 } } } };
+    s = { ...s, progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], trinkets: [{ id: "t_warden_badge", lv: 2 }] } } };
     const exp = s.expedition!;
     const battle = {
       round: 1, order: [], turn: 0, supplies: exp.supplies, depth: 1, walked: 1, guideUsed: false, rng: 1, outcome, log: [],

@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { STAT_NAME, STAT_ORDER, type StatKey } from "@/data/growth";
 import { getPassive } from "@/data/passives";
 import { RANKS, rankLabel } from "@/data/ranks";
-import { getTrinket, trinketStats, type OwnedTrinket } from "@/data/trinkets";
+import { TRINKET_SLOTS, getTrinket, trinketFits, trinketStats, trinketsBonus, trinketsStats, type OwnedTrinket } from "@/data/trinkets";
 import { CURRENCY } from "@/data/economy";
 import { mercUnit, resistOf, unitStats } from "@/game/combat/engine";
 import { getStage } from "@/game/merc/affinity";
@@ -37,7 +37,8 @@ type Props = {
   onForget: (key: string) => void;
   /** 보관함의 index번 장신구를 낀다 */
   onEquipTrinket: (index: number) => void;
-  onUnequipTrinket: () => void;
+  /** slot번 칸의 장신구를 뺀다 */
+  onUnequipTrinket: (slot: number) => void;
 };
 
 export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, onForget, onEquipTrinket, onUnequipTrinket }: Props) {
@@ -49,12 +50,13 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
   }, [onClose]);
 
   // 전투에서 쓰는 것과 같은 계산 (성장 스탯 + 장신구, 부 조각 레벨)
-  const unit = mercUnit({ ...merc, stats: addStats(p.stats, trinketStats(p.trinket)), subLevels: p.levels });
+  const unit = mercUnit({ ...merc, stats: addStats(p.stats, trinketsStats(p.trinkets)), subLevels: p.levels, gear: trinketsBonus(p.trinkets) });
   const stats = unitStats(unit);
   const stage = getStage(p.affinity);
   const need = xpToNext(p.lv);
-  const worn = p.trinket ? getTrinket(p.trinket.id) : undefined;
-  const fits = trinkets.map((t, index) => ({ t, index, def: getTrinket(t.id) })).filter((x) => x.def?.job === merc.job);
+  const worn = p.trinkets;
+  const full = worn.length >= TRINKET_SLOTS;
+  const fits = trinkets.map((t, index) => ({ t, index, def: getTrinket(t.id) })).filter((x) => trinketFits(x.def, merc.job) && !worn.some((w) => w.id === x.t.id));
   const steel = merc.passives?.includes("steel_heart");
 
   return (
@@ -149,24 +151,28 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
               )}
             </Box>
 
-            <Box title="장신구">
-              {worn && p.trinket ? (
-                <div className="flex items-start justify-between gap-2 rounded-sm bg-ember/5 px-3 py-2 text-xs">
-                  <span className="flex flex-col">
-                    <b className="text-ember">
-                      {worn.name} <span className="font-normal text-ash">{p.trinket.lv}단계</span>
-                    </b>
-                    <span className="text-bone/70">{statLine(trinketStats(p.trinket), STAT_NAME)}</span>
-                    <span className="text-ash">{worn.description}</span>
-                  </span>
-                  <Button className="shrink-0 !px-2.5 !py-0.5 text-xs" onClick={onUnequipTrinket}>
-                    빼기
-                  </Button>
-                </div>
-              ) : (
-                <p className="text-xs text-ash">끼고 있는 장신구가 없다.</p>
-              )}
-              <p className="mt-1 text-[11px] text-ash">보관함에서 낄 수 있는 것 (이 직업 전용{worn ? ", 누르면 지금 것과 바꾼다" : ""})</p>
+            <Box title={`장신구 ${worn.length} / ${TRINKET_SLOTS}`}>
+              {worn.length === 0 && <p className="text-xs text-ash">끼고 있는 장신구가 없다.</p>}
+              {worn.map((o, slot) => {
+                const def = getTrinket(o.id);
+                return (
+                  def && (
+                    <div key={slot} className="flex items-start justify-between gap-2 rounded-sm bg-ember/5 px-3 py-2 text-xs">
+                      <span className="flex flex-col">
+                        <b className="text-ember">
+                          {def.name} <span className="font-normal text-ash">{o.lv}단계</span>
+                        </b>
+                        <span className="text-bone/70">{bonusLine(o)}</span>
+                        <span className="text-ash">{def.description}</span>
+                      </span>
+                      <Button className="shrink-0 !px-2.5 !py-0.5 text-xs" onClick={() => onUnequipTrinket(slot)}>
+                        빼기
+                      </Button>
+                    </div>
+                  )
+                );
+              })}
+              <p className="mt-1 text-[11px] text-ash">보관함에서 낄 수 있는 것 (이 직업 전용이나 누구나{full ? ", 누르면 첫 칸과 바꾼다" : ""})</p>
               {fits.length === 0 ? (
                 <p className="text-xs text-ash">낄 수 있는 장신구가 없다. 대장간에서 만든다.</p>
               ) : (
@@ -180,8 +186,8 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
                       <b>
                         {def!.name} <span className="font-normal text-ash">{t.lv}단계</span>
                       </b>
-                      <span className="text-bone/70">{statLine(trinketStats(t), STAT_NAME)}</span>
-                      <span className="text-[11px] text-ember">{worn ? "바꿔 끼기" : "끼기"}</span>
+                      <span className="text-bone/70">{bonusLine(t)}</span>
+                      <span className="text-[11px] text-ember">{full ? "바꿔 끼기" : "끼기"}</span>
                     </button>
                   ))}
                 </div>
@@ -192,6 +198,20 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
       </div>
     </div>
   );
+}
+
+/** 장신구 효과 한 줄: 스탯 + 스탯 밖 효과 */
+function bonusLine(o: OwnedTrinket): string {
+  const b = getTrinket(o.id)?.bonus;
+  return [
+    statLine(trinketStats(o), STAT_NAME),
+    b?.attack ? `공격 +${b.attack}` : "",
+    b?.poisonRes ? `중독 저항 +${pct(b.poisonRes)}` : "",
+    b?.stunRes ? `기절 저항 +${pct(b.stunRes)}` : "",
+    b?.sellBonus ? `상점 판매가 +${pct(b.sellBonus)}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function Box({ title, children }: { title: string; children: React.ReactNode }) {

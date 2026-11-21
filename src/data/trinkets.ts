@@ -8,8 +8,12 @@ import type { StatBlock } from "./growth";
 export type Trinket = {
   id: string;
   name: string;
-  /** 낄 수 있는 직업 */
+  /** 낄 수 있는 직업 ("any"면 누구나) */
   job: string;
+  /** 의뢰 보상 장신구: 대장간에서 만들거나 강화할 수 없고, 보물 칸에서 나오지 않는다 (1단계 고정) */
+  quest?: boolean;
+  /** 스탯 밖의 효과 (의뢰 장신구) */
+  bonus?: TrinketBonus;
   description: string;
   /** 단계마다 붙는 스탯 포인트 (data/growth.ts의 PER_POINT로 효과가 정해진다) */
   perLevel: StatBlock;
@@ -17,10 +21,34 @@ export type Trinket = {
   material: { id: string; n: number };
 };
 
+/** 스탯 밖의 효과: 공격 +, 중독·기절 저항 +, 상점 판매가 + (낀 용병이 길드에 있으면) */
+export type TrinketBonus = { attack?: number; poisonRes?: number; stunRes?: number; sellBonus?: number };
+
 /** 가진 장신구 하나 (단계 1~3) */
 export type OwnedTrinket = { id: string; lv: number };
 
 export const TRINKET_MAX_LV = 3;
+
+/** 용병 한 명이 낄 수 있는 장신구 수 (2026-11-22: 1 → 2) */
+export const TRINKET_SLOTS = 2;
+
+/** 낀 장신구들의 스탯 합 */
+export function trinketsStats(worn: OwnedTrinket[] | undefined): StatBlock {
+  const out: StatBlock = {};
+  for (const o of worn ?? []) for (const [k, v] of Object.entries(trinketStats(o))) out[k as keyof StatBlock] = (out[k as keyof StatBlock] ?? 0) + (v ?? 0);
+  return out;
+}
+
+/** 낀 장신구들의 스탯 밖 효과 합 */
+export function trinketsBonus(worn: OwnedTrinket[] | undefined): TrinketBonus {
+  const out: TrinketBonus = {};
+  for (const o of worn ?? []) {
+    const b = getTrinket(o.id)?.bonus;
+    if (!b) continue;
+    for (const k of ["attack", "poisonRes", "stunRes", "sellBonus"] as const) if (b[k]) out[k] = (out[k] ?? 0) + b[k]!;
+  }
+  return out;
+}
 
 export const TRINKETS: Trinket[] = [
   // id는 저장 호환을 위해 그대로 둔다 (이름·재료는 미지의 숲 기준)
@@ -42,7 +70,26 @@ export const TRINKETS: Trinket[] = [
   { id: "t_husk_bell", name: "엄니 방울", job: "minstrel", perLevel: { evade: 1 }, material: { id: "orc_tusk", n: 1 }, description: "박자에 맞춰 짤랑거린다. 듣는 쪽 발걸음이 가벼워진다." },
   { id: "t_bone_focus", name: "주술 깃털 장식", job: "mage", perLevel: { mag: 1 }, material: { id: "shaman_feather", n: 1 }, description: "지팡이 끝에 단 깃털. 주문이 한결 매끄럽다." },
   { id: "t_heart_stone", name: "슬라임 핵 반지", job: "mage", perLevel: { crit: 1 }, material: { id: "slime_core", n: 1 }, description: "말랑한 구슬을 깎아 만든 반지. 마력이 한곳에 모인다." },
+  // ── 의뢰 보상 장신구 (중요 의뢰 전용, 누구나 낄 수 있다) ──
+  { id: "t_queen_venom_ring", name: "여왕의 독낭 반지", job: "any", quest: true, perLevel: {}, bonus: { poisonRes: 0.3 }, material: { id: "mat_venom", n: 0 }, description: "거미 여왕의 독낭을 깎아 만든 반지. 웬만한 독은 몸에 스미지 않는다. (중독 저항 +30%)" },
+  { id: "t_guild_seal", name: "조합의 인장", job: "any", quest: true, perLevel: {}, bonus: { sellBonus: 0.1 }, material: { id: "mat_whetstone", n: 0 }, description: "상인 조합이 믿을 만한 길드에 내주는 인장. 상점이 값을 더 쳐준다. (상점 판매가 +10%)" },
+  { id: "t_silver_crest", name: "은빛 길드 휘장", job: "any", quest: true, perLevel: {}, bonus: { attack: 2, stunRes: 0.1 }, material: { id: "mat_whetstone", n: 0 }, description: "길드 본부가 승급 시험을 통과한 길드에 내리는 휘장. (공격 +2, 기절 저항 +10%)" },
+  // 효과는 나중에 정한다 (임시: 공격 +3)
+  { id: "t_orc_tusk_necklace", name: "오크 왕의 엄니 목걸이", job: "any", quest: true, perLevel: {}, bonus: { attack: 3 }, material: { id: "mat_whetstone", n: 0 }, description: "오크 킹의 엄니를 꿰어 만든 목걸이. 목에 걸면 피가 끓는다. (공격 +3)" },
 ];
+
+/** 이 직업이 낄 수 있나 */
+export function trinketFits(t: Trinket | undefined, job: string | undefined): boolean {
+  return !!t && (t.job === "any" || t.job === job);
+}
+
+/** 장신구의 최대 단계 (의뢰 장신구는 1) */
+export function trinketMaxLv(t: Trinket): number {
+  return t.quest ? 1 : TRINKET_MAX_LV;
+}
+
+/** 대장간에서 만들 수 있는 장신구 (의뢰 장신구 빼고) */
+export const FORGEABLE = (): Trinket[] => TRINKETS.filter((x) => !x.quest);
 
 export function getTrinket(id: string): Trinket | undefined {
   return TRINKETS.find((t) => t.id === id);
@@ -65,5 +112,9 @@ export function trinketStats(owned: OwnedTrinket | undefined): StatBlock {
 export const TREASURE_TRINKET_CHANCE = 0.1;
 
 export function rollTrinket(rng: Rng): Trinket {
-  return TRINKETS[Math.floor(rng.next() * TRINKETS.length)];
+  const pool = TRINKETS.filter((t) => !t.quest);
+  return pool[Math.floor(rng.next() * pool.length)];
 }
+
+/** 대장간 할인 (의뢰 보상) */
+export const FORGE_DISCOUNT = 0.3;

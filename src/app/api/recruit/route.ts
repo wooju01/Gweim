@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return Response.json({ error: "잘못된 요청", issues: parsed.error.issues }, { status: 400 });
   }
-  const { avoidNames, guildGrade } = parsed.data;
+  const { avoidNames, guildGrade, fame } = parsed.data;
   // 몇 명이 올지는 코드가 정한다 (게시판 공고에 매번 다른 수가 모인다)
   const count = parsed.data.count ?? rollRecruitCount(Math.random);
 
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   const batch = rollDistinct(count);
 
   // 프로필은 빠르게 하려고 동시에 만든다. 같은 요청 안에서 이름이 겹치면 그 한 명만 다시 만든다.
-  const drafts = await Promise.all(batch.map((traits) => recruitOne(traits, avoidNames, recruitLevel(guildGrade, Math.random))));
+  const drafts = await Promise.all(batch.map((traits) => recruitOne(traits, avoidNames, recruitLevel(guildGrade, Math.random, fame))));
   const taken = new Set(avoidNames);
   const results: { seed: MercSeed; mode: AIMode }[] = [];
   for (const draft of drafts) {

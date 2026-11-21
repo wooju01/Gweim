@@ -5,6 +5,7 @@ import { getPassive, passivesOf } from "@/data/passives";
 import { canBe, getBranch, jobTitle } from "@/data/jobs";
 import { RANKS, RANK_ORDER, RECRUIT_LEVEL, RECRUIT_PASSIVE_CHANCE } from "@/data/ranks";
 import { RECRUIT_TOP_CHANCE } from "@/data/guild";
+import { FAME_EFFECT, fameRank, fameTier } from "@/data/fame";
 import { validateLoadout, validateUltimate } from "@/game/skills";
 import { ChoiceTone, type Gender, type MercLevel, type MercSeed, type MercTraits } from "@/lib/schemas";
 import { clampStat } from "./affinity";
@@ -170,10 +171,11 @@ export function pickImpression(id: string, traits: Trait[]): string | undefined 
 /**
  * 고용 시장에 오는 용병의 등급: 길드 등급과 같은 등급은 RECRUIT_TOP_CHANCE, 아니면 한 등급 아래 (길드가 동이면 늘 동)
  */
-export function recruitLevel(guildGrade: MercLevel, rand: Rand): MercLevel {
+export function recruitLevel(guildGrade: MercLevel, rand: Rand, fame = 0): MercLevel {
   const i = RANK_ORDER.indexOf(guildGrade);
   if (i <= RANK_ORDER.indexOf(RECRUIT_LEVEL)) return RECRUIT_LEVEL;
-  return rand() < RECRUIT_TOP_CHANCE ? guildGrade : RANK_ORDER[i - 1];
+  // 명성이 높을수록 좋은 등급 용병이 잘 모인다
+  return rand() < RECRUIT_TOP_CHANCE + fameRank(fameTier(fame)) * FAME_EFFECT.recruitTopPerTier ? guildGrade : RANK_ORDER[i - 1];
 }
 
 /** 모집 시 패시브를 뽑는다: 50% 확률로 종족 패시브 하나 (등급과 상관없이) */

@@ -32,6 +32,7 @@ import {
 import { rollRelic } from "@/data/relics";
 import { XP_GOAL_BONUS, XP_PER_SQUARE } from "@/data/growth";
 import { FIRST_DUNGEON, getDungeon, getRegion, hiddenFrom, recommendedGrade, type Region } from "@/data/regions";
+import type { BossFeat } from "@/game/quests";
 import { ELITE_DROP_ROLLS, getMonster } from "@/data/monsters";
 import { RANK_DROPS, rollMonsterDrops } from "@/data/drops";
 import { KEY_ITEMS, isKeyItem, type KeyItemId } from "@/data/keyItems";
@@ -144,6 +145,14 @@ export type Expedition = {
   /** 이번 원정에서 쓰러뜨린 몬스터 (종류별)와 그중 정예 (직접 의뢰 목표) */
   kills?: Record<string, number>;
   eliteKills?: Record<string, number>;
+  /** 의뢰 기록: 들어선 지역, 끝 칸(목적지)까지 간 지역, 보스 전투(조건부 목표), 구출한 사건 */
+  regions?: string[];
+  goals?: string[];
+  feats?: BossFeat[];
+  rescued?: string[];
+  /** 받아 둔 구출 의뢰의 사건 (그 지역 사건 칸에 먼저 나온다) / 이미 나온 것 */
+  questEvents?: { eventId: string; regionId: string }[];
+  questOffered?: string[];
 };
 
 // ── 시작 ────────────────────────────────────────────────
@@ -155,6 +164,7 @@ export function startExpedition(
   pack: Record<SupplyKind, number> = START_SUPPLIES,
   dungeonId: string = FIRST_DUNGEON,
   keys: KeyItemId[] = [],
+  questEvents: { eventId: string; regionId: string }[] = [],
 ): Expedition {
   const dungeon = getDungeon(dungeonId) ?? getDungeon(FIRST_DUNGEON)!;
   const region = getRegion(dungeon.entry)!;
@@ -191,6 +201,12 @@ export function startExpedition(
     dungeon: dungeon.id,
     region: region.id,
     goal: planGoal(region, seed),
+    regions: [region.id],
+    goals: [],
+    feats: [],
+    rescued: [],
+    questEvents,
+    questOffered: [],
   };
 }
 
@@ -248,10 +264,10 @@ export function canMove(exp: Expedition, nodeId: string): boolean {
   return nodeById(exp.map, exp.at)?.next.includes(nodeId) ?? false;
 }
 
-/** 이벤트 칸에 들어갈 때 어떤 사건이 나올지. 같은 시드면 같은 사건 (히든 사건은 빼고) */
+/** 이벤트 칸에 들어갈 때 어떤 사건이 나올지. 같은 시드면 같은 사건 (히든 사건·의뢰 사건은 빼고) */
 export function pickEvent(seed: number): string {
   const rng = createRng(seed);
-  const pool = EVENTS.filter((e) => !e.hidden);
+  const pool = EVENTS.filter((e) => !e.hidden && !e.quest);
   return pool[Math.floor(rng.next() * pool.length)].id;
 }
 
@@ -319,9 +335,14 @@ export function moveTo(
       next.room = { kind: "treasure", lines: treasure(next, rng) };
       break;
     case "event": {
+      // 받아 둔 구출 의뢰의 사건이 이 지역에 있으면 먼저 나온다 (의뢰를 받은 상태에서만)
+      const rescue = next.questEvents?.find((q) => q.regionId === next.region && !next.questOffered?.includes(q.eventId));
       // 열쇠가 있으면 히든 사건이 나올 수 있다 (층마다 한 번)
       const hidden = hiddenEventFor(next);
-      if (hidden && rng.next() < hidden.hidden!.triggerChance) {
+      if (rescue) {
+        next.questOffered = [...(next.questOffered ?? []), rescue.eventId];
+        next.room = { kind: "event", eventId: rescue.eventId, result: null };
+      } else if (hidden && rng.next() < hidden.hidden!.triggerChance) {
         next.hiddenOffered = true;
         next.room = { kind: "event", eventId: hidden.hidden!.event, result: null };
       } else {
@@ -330,6 +351,8 @@ export function moveTo(
       break;
     }
     case "goal": {
+      // 끝 칸 도달 기록 (탐사 의뢰)
+      if (next.region && !next.goals?.includes(next.region)) next.goals = [...(next.goals ?? []), next.region];
       // 목적지: 보스 전투 / 정예 전투 (이기면 finishBattle에서 목적지 처리) / 보물
       const goal = next.goal ?? { kind: "treasure" };
       if (goal.kind === "boss" && !next.cleared)
@@ -389,6 +412,7 @@ export function descend(exp: Expedition, seed: number, regionId: string): Expedi
     visited: [map.startId],
     depth: region.depth,
     region: region.id,
+    regions: [...(exp.regions ?? []), region.id],
     room: null,
     cleared: false,
     goal: planGoal(region, seed),
@@ -561,6 +585,12 @@ export function battleSpoils(
   }
   const enemies = battle.units.filter((u) => u.side === "enemy" && !u.fled);
   const rewarded = enemies.filter((u) => !noDrop.has(u.id));
+  // 보스 전투 기록 (조건부 목표): 파티 직업, 이 전투에서 누가 쓰러졌나
+  const mercJobs = battle.units.filter((u) => u.side === "merc" && u.job).map((u) => u.job!);
+  const downed = battle.log.some((e) => e.type === "downed" || e.type === "death");
+  for (const e of enemies)
+    if (e.kind && (e.rank === "floorBoss" || e.rank === "dungeonBoss") && e.hp <= 0)
+      next.feats = [...(next.feats ?? []), { monsterId: e.kind, jobs: mercJobs, downed }];
   // 쓰러뜨린 몬스터 기록 (직접 의뢰)
   for (const e of enemies) {
     if (!e.kind) continue;
@@ -870,6 +900,8 @@ export function chooseEvent(
   lines.push(...applied.lines);
   // 히든 지역으로 가는 길이 열렸다: 이 층의 다음 갈래가 그 지역이 된다
   for (const u of choice.unlocks ?? []) if (u.kind === "hiddenRegion" && getRegion(u.region)) next.hiddenNext = u.region;
+  // 구출 의뢰: 이 선택으로 사람을 구했다
+  if (choice.rescue && !next.rescued?.includes(room.eventId)) next.rescued = [...(next.rescued ?? []), room.eventId];
   next.room = {
     kind: "event",
     eventId: room.eventId,

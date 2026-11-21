@@ -65,6 +65,8 @@ export type EventChoice = {
   /** 고르면 결과와 상관없이 받는 고정 보상 (나중에 아이템 보상도) */
   rewards?: EventEffect;
   unlocks?: EventUnlock[];
+  /** 구출 의뢰: 이 선택을 고르면 사람을 구한 것으로 친다 */
+  rescue?: boolean;
   outcomes: EventOutcome[];
 };
 
@@ -78,6 +80,8 @@ export type EventTemplate = {
   choices: EventChoice[];
   /** 히든 사건: 무작위 사건으로는 나오지 않고, 열쇠가 있을 때 정해진 지역에서만 나온다 */
   hidden?: boolean;
+  /** 의뢰 사건: 무작위 사건으로는 나오지 않고, 구출 의뢰를 받았을 때 정해진 지역에서만 나온다 (data/quests.ts) */
+  quest?: boolean;
 };
 
 const once = (text: string, effect: EventEffect = {}): EventOutcome[] => [{ weight: 1, text, effect }];
@@ -383,6 +387,33 @@ export const EVENTS: EventTemplate[] = [
     ],
   },
 
+  // ── 의뢰 사건 (구출 의뢰를 받았을 때만. data/quests.ts의 rescue 목표) ──
+  {
+    id: "rescue_herbalist",
+    title: "길 잃은 약초꾼",
+    quest: true,
+    intro: "덤불 너머에서 희미한 신음이 들린다. 약초 바구니를 끌어안은 사내가 발목을 감싸 쥐고 쓰러져 있다. 주위에 덩굴이 꿈틀거린다.",
+    facts: "가족이 찾던 약초꾼. 발목을 다쳐 걷지 못한다. 덩굴이 가까이 있어 오래 머물면 위험하다. 붕대로 발목을 감거나, 힘센 동료가 업거나, 덩굴을 베고 억지로 데려갈 수 있다.",
+    choices: [
+      { id: "bandage", text: "붕대로 발목을 단단히 감고 부축해 데려간다.", approach: "item", tone: "mercy", requires: { items: { bandage: 1 } }, consumes: { bandage: 1 }, rescue: true, outcomes: once("붕대를 감자 약초꾼이 일어섰다. 연신 고맙다며 약초 몇 줌을 쥐여 주었다.", { supply: { antidote: 1 } }) },
+      { id: "carry", text: "힘센 동료가 약초꾼을 업는다.", approach: "person", tone: "mercy", requires: { job: "guardian" }, rescue: true, outcomes: once("{helper}이(가) 약초꾼을 가볍게 들쳐 업었다. 약초꾼이 눈물을 글썽인다.") },
+      { id: "cut", text: "덩굴을 베어 길을 내고 억지로 데려간다.", approach: "risk", tone: null, rescue: true, outcomes: [{ weight: 2, text: "덩굴을 베어 내고 약초꾼을 끌어냈다.", effect: {} }, { weight: 1, text: "덩굴이 휘감겨 {who}이(가) 다쳤지만, 약초꾼은 구했다.", effect: { damageOne: 5 } }] },
+      leave("약초꾼을 두고 지나쳤다. 신음이 등 뒤로 멀어진다.", "지금은 구할 여유가 없다. 지나친다."),
+    ],
+  },
+  {
+    id: "rescue_apprentice",
+    title: "갇힌 견습생",
+    quest: true,
+    intro: "무너진 갱도 틈에서 망치 두드리는 소리가 들린다. 바위 사이로 앳된 얼굴이 보인다. 대장간 견습생이다.",
+    facts: "광석을 캐러 왔다가 낙석에 갇힌 대장간 견습생. 바위를 치우면 꺼낼 수 있지만 또 무너질 수 있다. 물약을 먹여 기운을 차리게 하거나, 드워프가 바위 결을 읽거나, 그냥 힘으로 치울 수 있다.",
+    choices: [
+      { id: "potion", text: "틈으로 물약을 건네 기운을 차리게 하고 함께 바위를 민다.", approach: "item", tone: "mercy", requires: { items: { potion: 1 } }, consumes: { potion: 1 }, rescue: true, outcomes: once("물약을 마신 견습생이 힘을 보태 바위가 굴러갔다. \"대장장이 어른께 꼭 말씀드릴게요!\"") },
+      { id: "dwarf", text: "드워프 동료가 바위 결을 읽어 무너지지 않게 치운다.", approach: "person", tone: null, requires: { race: "dwarf" }, rescue: true, outcomes: once("{helper}이(가) 바위 하나를 툭 치자 나머지가 얌전히 무너져 길이 났다.") },
+      { id: "force", text: "힘으로 바위를 치운다.", approach: "risk", tone: null, rescue: true, outcomes: [{ weight: 2, text: "바위를 치우고 견습생을 끌어냈다.", effect: {} }, { weight: 1, text: "돌이 쏟아져 모두 조금씩 다쳤지만, 견습생은 무사하다.", effect: { damageAll: 3 } }] },
+      leave("견습생을 두고 지나쳤다. 망치 소리가 점점 작아진다.", "지금은 구할 여유가 없다. 지나친다."),
+    ],
+  },
   // ── 히든 사건 (열쇠가 있을 때만. data/regions.ts의 hidden.event) ──
   {
     id: "whispering_grove",

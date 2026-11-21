@@ -27,6 +27,8 @@ type Props = {
   homeScene: GameState["homeScene"];
   settlement: { lastDay: number; arrearsWeeks: number; debt: number };
   onToggle: (mercId: string) => void;
+  /** 용병을 누르면 상태 창 (능력치·스킬·장신구) */
+  onInspect: (mercId: string) => void;
   onTalk: (mercId: string) => void;
   onTalkReply: (action: TalkAction) => void;
   onTalkEnd: () => void;
@@ -163,10 +165,14 @@ export function InnScreen(props: Props) {
                 key={merc.id}
                 className={`flex gap-3 rounded-sm border p-3 ${inParty ? "border-ember/60 bg-ember/5" : "border-edge bg-panel"}`}
               >
-                <Portrait merc={merc} size="sm" />
+                <button type="button" onClick={() => props.onInspect(merc.id)} title="상태 보기" className="shrink-0 self-start rounded-sm transition-opacity hover:opacity-80">
+                  <Portrait merc={merc} size="sm" />
+                </button>
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="font-bold">
-                    {merc.name}
+                    <button type="button" onClick={() => props.onInspect(merc.id)} className="underline decoration-edge underline-offset-4 hover:text-ember hover:decoration-ember" title="상태 보기">
+                      {merc.name}
+                    </button>
                     <span className={`ml-2 text-xs font-normal ${stage.style}`}>{stage.name}</span>
                     <span className={`ml-2 text-xs font-normal ${member ? "text-frost" : "text-ash"}`}>
                       {member ? "클랜원" : p.pledged ? "가입 의사 있음" : "용병"}
@@ -188,6 +194,9 @@ export function InnScreen(props: Props) {
                       onClick={() => onToggle(merc.id)}
                     >
                       {inParty ? "원정에서 빼기" : "원정에 데려가기"}
+                    </Button>
+                    <Button className="!px-3 !py-1 text-xs" onClick={() => props.onInspect(merc.id)}>
+                      상태 보기
                     </Button>
                     <Button className="!px-3 !py-1 text-xs" disabled={talksLeft <= 0 || !!talking || busy(merc.id)} onClick={() => onTalk(merc.id)}>
                       이야기하기

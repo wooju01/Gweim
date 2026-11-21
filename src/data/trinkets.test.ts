@@ -10,7 +10,7 @@ import { TRINKETS, forgeCost, trinketStats } from "./trinkets";
 describe("장신구 데이터", () => {
   it("모든 장신구는 있는 직업·유실물을 쓰고, 직업마다 2개씩", () => {
     for (const t of TRINKETS) {
-      expect(GROWTH[t.job], t.id).toBeDefined();
+      expect(t.quest ? t.job === "any" : !!GROWTH[t.job], t.id).toBe(true);
       expect(getSalvage(t.material.id), t.id).toBeDefined();
     }
     for (const job of Object.keys(GROWTH)) expect(TRINKETS.filter((t) => t.job === job)).toHaveLength(2);

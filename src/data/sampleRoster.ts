@@ -1,12 +1,10 @@
-// 개발·테스트용 샘플 용병. 길드가 이 용병들로 채워진 채 시작한다.
+// 테스트·시뮬레이션용 고정 명단 (고용하지 않은 상태). 새 게임은 data/startRoster.ts의 8명으로 시작한다.
 // 직업 9개와 종족 5개가 모두 한 번 이상 나오고, 패시브도 골고루 들어 있다.
 // 프로필은 AI 없이 직접 쓴 것이다. 실제 모집(모집 공고)은 그대로 AI로 만든다.
-// 끄려면 USE_SAMPLE_ROSTER를 false로 바꾼다.
 import { resolveTraits, rollStart, seededRandom } from "@/game/merc/generate";
 import { rollStartSkills } from "@/game/skills";
 import type { MercProfile, MercSeed, MercTraits } from "@/lib/schemas";
 
-export const USE_SAMPLE_ROSTER = true;
 
 type Sample = {
   id: string;
