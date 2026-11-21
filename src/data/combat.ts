@@ -168,6 +168,27 @@ export const PASSIVE = {
 } as const;
 
 export const CRIT_CHANCE = 0.1;
+
+/** 용병 평타의 위력 배율 (스킬 없이 치는 기본 공격). 몬스터 평타는 1 */
+export const BASIC_ATTACK_MULT = 0.8;
+
+// ── 몬스터 배율 (밸런스 2차, 2026-11-21) ──
+// 던전 몬스터 수치 = 기본 수치 × 구역 권장 등급 배율 × 몬스터 등급 배율. 구역은 data/regions.ts의 scale.
+/** 구역 권장 등급 배율: 체력 / 공격·방어 */
+export const REGION_SCALE = {
+  bronze3: { hp: 2.0, atk: 1.3 },
+  bronze2: { hp: 2.2, atk: 1.4 },
+  bronze1: { hp: 2.5, atk: 1.5 },
+  silver3: { hp: 3.6, atk: 2.0 },
+} as const;
+export type ScaleKey = keyof typeof REGION_SCALE;
+/** 몬스터 등급 배율: 체력 / 공격 (방어는 등급과 상관없다) */
+export const RANK_SCALE: Record<"normal" | "elite" | "floorBoss" | "dungeonBoss", { hp: number; atk: number }> = {
+  normal: { hp: 1, atk: 1 },
+  elite: { hp: 1.8, atk: 1.2 },
+  floorBoss: { hp: 3.5, atk: 1.3 },
+  dungeonBoss: { hp: 5, atk: 1.4 },
+};
 /** 행동 순서를 정할 때 속도에 더하는 무작위 값의 최대 */
 export const SPEED_JITTER = 3;
 export const CRIT_MULTIPLIER = 1.5;

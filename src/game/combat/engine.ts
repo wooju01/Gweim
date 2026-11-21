@@ -5,8 +5,11 @@
 // 길안내자는 싸우지 않고, 라운드마다 한 번 물자(붕대·해독제·물약)를 용병에게 건넬 수 있다.
 // 출혈·중독은 그 유닛의 턴이 시작될 때 피해를 준다.
 import {
+  BASIC_ATTACK_MULT,
   CRIT_CHANCE,
   CRIT_MULTIPLIER,
+  RANK_SCALE,
+  REGION_SCALE,
   SPEED_JITTER,
   DEFAULT_STATS,
   GUARD_MULTIPLIER,
@@ -192,6 +195,8 @@ export type Battle = {
   depth: number;
   /** 지역 이름 (화면 표시용) */
   place?: string;
+  /** 이 전투 몬스터의 구역 배율 (체력, 공격·방어). 전투 중에 생기는 몬스터에도 쓴다 */
+  scale?: { hp: number; atk: number };
   /** 이번 탐험에서 지나온 칸 수. 층 구조가 생기기 전까지 깊은 곳의 피가 쓴다 */
   walked: number;
   /** 이번 라운드에 길안내자가 이미 물자를 건넸나 */
@@ -395,9 +400,9 @@ function pickEnemy(rng: Rng): EnemyKind {
 }
 
 /** 적 종류(기존 적 또는 지역 몬스터) 하나를 유닛으로 */
-export function enemyUnit(k: EnemyKind | Monster, id: string, name = k.name): Unit {
+export function enemyUnit(k: EnemyKind | Monster, id: string, name = k.name, scale?: { hp: number; atk: number }): Unit {
   const m = "tags" in k ? k : undefined;
-  return {
+  const u: Unit = {
     id,
     side: "enemy",
     name,
@@ -420,6 +425,20 @@ export function enemyUnit(k: EnemyKind | Monster, id: string, name = k.name): Un
     cooldowns: {},
     guarding: false,
   };
+  // 던전 몬스터: 기본 수치 × 구역 배율 × 등급 배율
+  return scale ? scaleUnit(u, { hp: scale.hp * RANK_SCALE[u.rank ?? "normal"].hp, atk: scale.atk * RANK_SCALE[u.rank ?? "normal"].atk, def: scale.atk }) : u;
+}
+
+/** 수치에 배율을 곱한다 (체력은 가득 찬 채로) */
+function scaleUnit(u: Unit, k: { hp: number; atk: number; def: number }): Unit {
+  const hp = Math.max(1, Math.round(u.maxHp * k.hp));
+  return {
+    ...u,
+    hp,
+    maxHp: hp,
+    attack: [Math.round(u.attack[0] * k.atk), Math.round(u.attack[1] * k.atk)],
+    defense: Math.round(u.defense * k.def),
+  };
 }
 
 /** 일반 몬스터 유닛에 정예 특성을 붙인다 (이름 앞에 특성, 특징 줄에 효과) */
@@ -440,12 +459,17 @@ export function makeElite(u: Unit, trait: EliteTrait): Unit {
 }
 
 /** 같은 종류가 여럿이면 이름 뒤에 A, B…를 붙여 유닛으로 만든다 */
-function nameUnits(kinds: (EnemyKind | Monster)[]): Unit[] {
+function nameUnits(kinds: (EnemyKind | Monster)[], scale?: { hp: number; atk: number }): Unit[] {
   return kinds.map((k, i) => {
     const same = kinds.filter((o) => o.id === k.id);
     const suffix = same.length > 1 ? ` ${String.fromCharCode(65 + kinds.slice(0, i).filter((o) => o.id === k.id).length)}` : "";
-    return enemyUnit(k, `e${i}`, k.name + suffix);
+    return enemyUnit(k, `e${i}`, k.name + suffix, scale);
   });
+}
+
+/** 구역의 몬스터 배율 */
+export function regionScale(region?: Region): { hp: number; atk: number } | undefined {
+  return region?.scale ? REGION_SCALE[region.scale] : undefined;
 }
 
 /**
@@ -466,20 +490,23 @@ export function rollEncounter(rng: Rng, region?: Region, elites = 0): Unit[] {
   // 일반 몬스터는 지역의 정예 확률로 정예가 된다 (특성 하나 무작위). 지역에서 elite로 정한 몬스터는 늘 정예.
   // 앞에서 elites마리는 반드시 정예 (정예 목적지)
   let forced = 0;
-  return nameUnits(picks.map((p) => getMonster(p.id)!)).map((u, i) => {
+  const scale = regionScale(region);
+  return nameUnits(picks.map((p) => getMonster(p.id)!), scale).map((u, i) => {
     if (u.rank !== "normal") return u;
     const must = picks[i].elite || forced < elites;
     if (!must && !(region.eliteChance > 0 && rng.next() < region.eliteChance)) return u;
     if (must && !picks[i].elite) forced++;
-    return makeElite(u, ELITE_TRAITS[Math.floor(rng.next() * ELITE_TRAITS.length)]);
+    const elite = makeElite(u, ELITE_TRAITS[Math.floor(rng.next() * ELITE_TRAITS.length)]);
+    // 구역 배율이 있으면 정예 등급 배율도 (일반 → 정예)
+    return scale ? scaleUnit(elite, { hp: RANK_SCALE.elite.hp, atk: RANK_SCALE.elite.atk, def: 1 }) : elite;
   });
 }
 
 /** 보스 전투: 보스와 호위 */
-export function bossEncounter(bossId: string): Unit[] {
+export function bossEncounter(bossId: string, scale?: { hp: number; atk: number }): Unit[] {
   const boss = getMonster(bossId);
   if (!boss) return [];
-  return nameUnits([boss, ...(boss.escort ?? []).flatMap((id) => getMonster(id) ?? [])]);
+  return nameUnits([boss, ...(boss.escort ?? []).flatMap((id) => getMonster(id) ?? [])], scale);
 }
 
 /** 전투를 시작한다. 첫 용병의 차례까지 진행된 상태로 돌려준다 */
@@ -503,9 +530,11 @@ export function startBattleFrom(
   opts: { depth: number; supplies: Record<SupplyKind, number>; walked?: number; enemies?: Unit[]; region?: Region; boss?: string; elites?: number },
 ): Battle {
   const rng = createRng(seed);
-  const enemies = opts.enemies ?? (opts.boss ? bossEncounter(opts.boss) : rollEncounter(rng, opts.region, opts.elites));
+  const scale = regionScale(opts.region);
+  const enemies = opts.enemies ?? (opts.boss ? bossEncounter(opts.boss, scale) : rollEncounter(rng, opts.region, opts.elites));
   const b = begin([...mercs, ...enemies], rng, opts.depth, opts.supplies, opts.walked);
   if (opts.region) b.place = opts.region.name;
+  if (scale) b.scale = scale;
   return b;
 }
 
@@ -652,7 +681,7 @@ function spawn(b: Battle, kind: string, count: number, source: Unit, how: "split
   const m = getMonster(kind);
   if (!m) return;
   for (let n = 0; n < count && living(b, "enemy").length < MAX_ENEMIES; n++) {
-    const unit = enemyUnit(m, `e${b.units.length}`);
+    const unit = enemyUnit(m, `e${b.units.length}`, m.name, b.scale);
     b.units.splice(b.units.indexOf(source) + 1 + n, 0, unit);
     b.log.push({ type: "spawn", unit: unit.id, by: source.id, how });
   }
@@ -1060,7 +1089,8 @@ function strike(b: Battle, rng: Rng, actor: Unit, target: Unit, base: number, op
     }
     if (has(target, "beast_reflex") && !counter && actor.hp > 0 && target.hp > 0) {
       b.log.push({ type: "passive", unit: target.id, passive: "beast_reflex", target: actor.id });
-      strike(b, rng, target, actor, rollInt(rng.next, target.attack[0], target.attack[1]), { counter: true, scaling: [{ stat: "str", mult: 1 }] });
+      const basic = basicAttack(target);
+      strike(b, rng, target, actor, rollBase(rng, target, basic), { counter: true, scaling: [{ stat: "str", mult: basic.multiplier ?? 1 }] });
     }
     return 0;
   }
@@ -1112,8 +1142,10 @@ function afterHit(b: Battle, target: Unit, amount: number) {
   }
 }
 
-/** 기본 공격은 배율 1, 추가 0인 피해 효과와 같다 (힘을 따른다) */
+/** 기본 공격은 배율 1, 추가 0인 피해 효과와 같다 (힘을 따른다). 용병 평타는 BASIC_ATTACK_MULT배 */
 const BASIC_ATTACK: DamageEffect = { kind: "damage", stat: "str" };
+const MERC_BASIC_ATTACK: DamageEffect = { kind: "damage", stat: "str", multiplier: BASIC_ATTACK_MULT };
+const basicAttack = (u: Unit): DamageEffect => (u.side === "merc" ? MERC_BASIC_ATTACK : BASIC_ATTACK);
 
 /** 배율 합 (여러 스탯을 섞으면 더한다) */
 function totalMult(e: DamageEffect): number {
@@ -1156,9 +1188,10 @@ function takeCharge(actor: Unit): number {
 function attack(b: Battle, rng: Rng, actor: Unit, aimed: Unit) {
   const charge = takeCharge(actor);
   const target = coverFor(b, aimed);
-  strike(b, rng, actor, target, rollBase(rng, actor, BASIC_ATTACK), {
+  const basic = basicAttack(actor);
+  strike(b, rng, actor, target, rollBase(rng, actor, basic), {
     enemiesAtStart: foes(b, actor).length,
-    scaling: [{ stat: "str", mult: 1 }],
+    scaling: [{ stat: "str", mult: basic.multiplier ?? 1 }],
     charge,
   });
 }
@@ -1342,7 +1375,7 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
   const actor = currentActor(b)!;
   const target = action.target ? unitById(b, action.target) : undefined;
   const skill = action.type === "attack" ? null : skillDef(actor, skillOf(actor, action)!)!;
-  const effects = skill ? skill.effects : [BASIC_ATTACK];
+  const effects = skill ? skill.effects : [basicAttack(actor)];
   const enemiesAtStart = foes(b, actor).length;
   const charge = effects.some((e) => e.kind === "damage") ? statusValue(actor, "charge") : 0;
   const out: ActionPreview = { damage: [], applies: [], heal: null, shield: null, cures: null, taunt: false, selfCost: 0, failChance: 0 };
@@ -1362,22 +1395,31 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
               : target
                 ? Array.from({ length: hits }, () => target)
                 : [];
+        // 같은 대상을 여러 번 치면 앞 타격으로 체력이 깎여 있을 수 있다 (추격 본능 등 체력에 따른 보정).
+        // 그래서 처음 체력과 "앞 타격이 모두 최대로 들어간" 체력 두 경우를 계산해 범위를 넓힌다
+        const dealt: Record<string, number> = {};
         for (const t of targets) {
-          const f = strikeFactors(b, actor, t, {
+          const opts: StrikeOptions = {
             aoe: e.area === "all",
             enemiesAtStart,
             critBonus: e.critBonus,
-            scaling: skill ? scalingOf(skill, e, actor) : [{ stat: "str", mult: 1 }],
+            scaling: skill ? scalingOf(skill, e, actor) : [{ stat: "str", mult: e.multiplier ?? 1 }],
             pierce: e.pierce,
             charge,
-          });
+          };
+          const f = strikeFactors(b, actor, t, opts);
+          const hp0 = t.hp;
+          t.hp = Math.max(1, hp0 - (dealt[t.id] ?? 0));
+          const fLow = strikeFactors(b, actor, t, opts);
+          t.hp = hp0;
           const [lo, hi] = baseRange(actor, e);
+          const amt = (base: number, crit: boolean, pick: (a: number, b: number) => number) => pick(strikeAmount(base, f, crit), strikeAmount(base, fLow, crit));
           const p: TargetPreview = {
             target: t.id,
-            min: strikeAmount(lo, f, false),
-            max: strikeAmount(hi, f, false),
-            critMin: strikeAmount(lo, f, true),
-            critMax: strikeAmount(hi, f, true),
+            min: amt(lo, false, Math.min),
+            max: amt(hi, false, Math.max),
+            critMin: amt(lo, true, Math.min),
+            critMax: amt(hi, true, Math.max),
             critChance: f.critChance,
             hitChance: 1 - f.evadeChance,
             kill: "no",
@@ -1389,6 +1431,7 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
           if (has(actor, "crafters_eye")) p.statuses.push({ kind: "crack", chance: PASSIVE.crackChance });
           if (e.perHit) p.statuses.push({ kind: e.perHit.status, chance: statusChance(t, e.perHit) });
           out.damage.push(p);
+          dealt[t.id] = (dealt[t.id] ?? 0) + p.critMax;
           consume(b, actor, t, f, false);
         }
         break;

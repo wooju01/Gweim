@@ -8,7 +8,9 @@ import {
   COMBO_NAMES,
   FRAGMENTS,
   JOB_BASIC,
+  JOB_SIGNATURE,
   NEUTRAL_MAIN,
+  hasLater,
   START_SKILLS,
   START_SUB_CHANCE,
   SUB_CAPS,
@@ -392,23 +394,25 @@ export function getSkill(id: string): Skill | undefined {
 // ── 모집 ───────────────────────────────────────────────
 
 /**
- * 시작 스킬: 쓸 수 있는 메인 조각 중 무작위로 START_SKILLS개 (겹치지 않게),
- * 스킬마다 START_SUB_CHANCE 확률로 부 조각 하나 (등급 규칙 안에서)
+ * 시작 스킬: 직업 대표 메인(반드시) + 그 밖에 쓸 수 있는 메인 중 무작위 하나 (START_SKILLS개까지).
+ * 스킬마다 START_SUB_CHANCE 확률로 부 조각 하나 (등급 규칙 안에서).
+ * 아직 동작하지 않는 효과(준비 중)가 든 조각은 무작위로 뽑지 않는다
  */
 export function rollStartSkills(owner: SkillOwner, rand: () => number): SkillBuild[] {
-  const pool = fragmentsFor(owner);
-  const mains = pool.filter((f) => f.kind === "main").map((f) => f.id);
+  const pool = fragmentsFor(owner).filter((f) => !hasLater(f));
+  const signature = owner.job ? JOB_SIGNATURE[owner.job] : undefined;
+  const mains = pool.filter((f) => f.kind === "main" && f.id !== signature).map((f) => f.id);
   const subs = pool.filter((f) => f.kind === "sub").map((f) => f.id);
-  if (mains.length === 0) return [basicBuild(owner.job)];
-  const out: SkillBuild[] = [];
-  const left = [...mains];
-  while (out.length < START_SKILLS && left.length > 0) {
-    const main = left.splice(Math.floor(rand() * left.length), 1)[0];
+  const withSub = (main: string): SkillBuild => {
     const build: SkillBuild = { main, subs: [] };
     if (subs.length > 0 && RANKS[owner.level].subLimit > 0 && rand() < START_SUB_CHANCE) build.subs = [subs[Math.floor(rand() * subs.length)]];
-    out.push(normalize(build));
-  }
-  return out;
+    return normalize(build);
+  };
+  const out: SkillBuild[] = [];
+  if (signature && pool.some((f) => f.id === signature)) out.push(withSub(signature));
+  const left = [...mains];
+  while (out.length < START_SKILLS && left.length > 0) out.push(withSub(left.splice(Math.floor(rand() * left.length), 1)[0]));
+  return out.length ? out : [basicBuild(owner.job)];
 }
 
 /** 스킬 안에 든 조각 id (메인 + 부) */

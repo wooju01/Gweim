@@ -1,5 +1,5 @@
 // 전수관 규칙 (순수 함수): 용병이 아는 조각, 조각 해금, 부 조각 강화, 스킬 조립, 장착 바꾸기.
-import { CRAFT_COST, MAX_SUB_LEVEL, getFragment, upgradeCost } from "@/data/fragments";
+import { CRAFT_COST, JOB_SIGNATURE, MAX_SUB_LEVEL, getFragment, upgradeCost } from "@/data/fragments";
 import { LEARNED_SLOTS, SKILL_SLOTS } from "@/data/skills";
 import { canUseFragment, fragmentsFor, fragmentsIn, normalize, skillKey, validateSkill, type SkillOwner, type SubLevels } from "@/game/skills";
 import type { MercSeed, SkillBuild } from "@/lib/schemas";
@@ -16,6 +16,9 @@ export function ownedSkills(seed: MercSeed, learned: SkillBuild[]): SkillBuild[]
 /** 용병이 아는 조각: 가진 스킬 안에 든 조각 + 전수관에서 뚫은 조각 (쓸 수 있는 것만, 조각 목록 순서) */
 export function knownFragments(seed: MercSeed, learned: SkillBuild[], unlocked: string[]): string[] {
   const known = new Set(unlocked);
+  // 직업 대표 메인은 처음부터 안다
+  const signature = JOB_SIGNATURE[seed.traits.job];
+  if (signature) known.add(signature);
   for (const b of ownedSkills(seed, learned)) for (const id of fragmentsIn(b)) known.add(id);
   return fragmentsFor(ownerOf(seed))
     .filter((f) => known.has(f.id))

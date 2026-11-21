@@ -849,12 +849,28 @@ export const JOB_ULTIMATE: Record<string, FragmentId> = Object.fromEntries(
   FRAGMENTS.filter((f) => f.kind === "main" && f.ultimate && f.job).map((f) => [f.job!, f.id]),
 );
 
-/** 직업의 기본 조각 (스킬이 하나도 없는 용병이 쓴다): 공통 메인의 첫 번째 */
-export const JOB_BASIC: Record<string, FragmentId> = Object.fromEntries(
-  FRAGMENTS.filter((f) => f.kind === "main" && f.job && !f.race && !f.ultimate)
-    .reverse()
-    .map((f) => [f.job!, f.id]),
-);
+/**
+ * 직업 대표 메인 조각: 처음부터 해금되어 있고, 모집할 때 시작 스킬에 반드시 들어간다 (고정 칸은 아니라 빼거나 바꿀 수 있다).
+ * 스킬이 하나도 없는 용병의 기본 스킬이기도 하다
+ */
+export const JOB_SIGNATURE: Record<string, FragmentId> = {
+  knight: "knight_slash",
+  guardian: "guardian_bash",
+  greatsword: "gs_strike",
+  assassin: "as_throw",
+  monk: "monk_punch",
+  archer: "ar_rapid",
+  priest: "pr_heal",
+  mage: "mg_bolt",
+  minstrel: "mn_discord",
+};
+/** 예전 이름 */
+export const JOB_BASIC = JOB_SIGNATURE;
+
+/** 아직 엔진이 처리하지 않는 효과(later)가 들어 있나 (시작 스킬로 무작위로 뽑지 않는다) */
+export function hasLater(f: Fragment): boolean {
+  return f.kind === "main" ? f.effects.some((e) => e.kind === "later") : f.mods.some((m) => m.kind === "later");
+}
 
 /** 부 조각 수치를 레벨에 맞게 (Lv2는 Lv1과 Lv3의 가운데) */
 export function scaled(v: Scaled, lv: number): number {

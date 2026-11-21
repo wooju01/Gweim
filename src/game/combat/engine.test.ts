@@ -134,6 +134,8 @@ function start(
   return startBattleWithUnits([...units, ...enemies], seed, depth);
 }
 
+/** 용병 평타는 0.8배라서, 테스트에서 "평타 피해 5"를 만들려면 공격력 6 (6 × 0.8 = 4.8 → 5) */
+
 /** 테스트용 고정 적: 공격력이 낮아 금방 끝나지 않는다. 속도 -10이라 언제나 맨 마지막에 행동한다 */
 function dummy(id: string, hp = 30, overrides: Partial<Unit> = {}): Unit {
   return {
@@ -407,7 +409,7 @@ describe("스킬", () => {
 
   it("스킬이 없는 용병은 직업 기본 조각, 직업이 없으면 전력 공격", () => {
     expect(mercUnit({ ...varn, job: "knight" }).skills).toEqual(["knight_slash"]);
-    expect(mercUnit({ ...kass, job: "assassin" }).skills).toEqual(["as_flurry"]);
+    expect(mercUnit({ ...kass, job: "assassin" }).skills).toEqual(["as_throw"]);
     expect(mercUnit({ ...elke, job: "priest" }).skills).toEqual(["pr_heal"]);
     expect(mercUnit({ ...varn, job: undefined }).skills).toEqual(["power"]);
   });
@@ -696,7 +698,7 @@ describe("종족 패시브", () => {
     plainHit((seed) =>
       act(
         fix(start([P(passives), ...extra], seed, enemies, depth), "p1", {
-          attack: [5, 5],
+          attack: [6, 6],
           ...patch,
         }),
         {
@@ -744,7 +746,7 @@ describe("종족 패시브", () => {
         const units = [
           {
             ...mercUnit(P(["deep_blood"])),
-            attack: [5, 5] as const,
+            attack: [6, 6] as const,
             defense: 0,
             speed: 100,
           },
@@ -770,8 +772,9 @@ describe("종족 패시브", () => {
   });
 
   it("선제 일격: 첫 공격만 1.5배", () => {
+    // 평타 0.8배: 8 → 6
     let b = fix(start([P(["first_strike"])], 4, [dummy("e0", 999)]), "p1", {
-      attack: [6, 6],
+      attack: [8, 8],
     });
     b = act(b, { type: "attack", target: "e0" });
     b = act(b, { type: "attack", target: "e0" });
@@ -787,7 +790,7 @@ describe("종족 패시브", () => {
     let b = fix(
       start([P(["hunters_focus"])], 2, [dummy("e0", 999), dummy("e1", 999)]),
       "p1",
-      { attack: [5, 5] },
+      { attack: [6, 6] },
     );
     for (const t of ["e0", "e0", "e0", "e0", "e0", "e1"])
       b = act(b, { type: "attack", target: t });
@@ -862,7 +865,7 @@ describe("종족 패시브", () => {
     let b = fix(
       start([P(["rising_cheer"])], 5, [dummy("e0", 999, { attack: [1, 1] })]),
       "p1",
-      { attack: [5, 5] },
+      { attack: [6, 6] },
     );
     for (let i = 0; i < 5; i++) b = act(b, { type: "attack", target: "e0" });
     expect(
@@ -881,7 +884,7 @@ describe("종족 패시브", () => {
     let b = fix(
       start([P(["last_stand"])], 1, [dummy("e0", 999, { attack: [2, 2] })]),
       "p1",
-      { hp: 9, attack: [5, 5] },
+      { hp: 9, attack: [6, 6] },
     );
     b = act(b, { type: "attack", target: "e0" }); // 적에게 맞아 7 → 각성
     expect(hasStatus(unitById(b, "p1")!, "awaken")).toBe(true);
@@ -957,7 +960,7 @@ describe("종족 패시브", () => {
           dummy("e0", 999),
         ]),
         "p1",
-        { attack: [5, 5] },
+        { attack: [6, 6] },
       );
       b = act(b, { type: "attack", target: "e0" });
       const evaded = b.log.some((e) => e.type === "evade");
@@ -1001,7 +1004,7 @@ describe("종족 패시브", () => {
         dummy("e2", 999),
       ]),
       "p1",
-      { attack: [5, 5] },
+      { attack: [6, 6] },
     );
     b = act(b, { type: "attack", target: "e0" });
     expect(currentActor(b)!.id).toBe("p1");
@@ -1312,7 +1315,7 @@ describe("호감 단계", () => {
           ...mercUnit(varn),
           defense: 0,
           speed: 100,
-          attack: [5, 5] as const,
+          attack: [6, 6] as const,
           bond,
           ...extra,
         },

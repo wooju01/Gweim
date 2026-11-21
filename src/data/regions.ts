@@ -8,6 +8,7 @@ import type { MercLevel } from "@/lib/schemas";
 import type { KeyItemId } from "./keyItems";
 import { getMonster } from "./monsters";
 import { RANKS } from "./ranks";
+import type { ScaleKey } from "./combat";
 
 /** 목적지 보스 후보. warn: 이 보스로 정해지면 보스 직전 칸에서 경고한다 (warnLevel: 경고에 보이는 권장 등급) */
 export type BossPick = { monsterId: string; weight: number; warn?: boolean; warnLevel?: MercLevel };
@@ -28,6 +29,8 @@ export type Region = {
   size: readonly [number, number];
   /** 일반 적이 정예로 나올 확률 */
   eliteChance: number;
+  /** 몬스터 수치 배율 (구역 권장 등급, data/combat.ts의 REGION_SCALE). 없으면 배율 없음 */
+  scale?: ScaleKey;
   /** 층 칸 수 범위. 없으면 층 기본값 (data/dungeon.ts의 FLOOR_CELLS) */
   cells?: { min: number; max: number };
   /** 목적지 보스. 없거나 안 나오면 보물·정예 */
@@ -88,6 +91,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "미지의 숲",
     depth: 1,
+    scale: "bronze3",
     recommended: ["bronze", "bronze"],
     description: "햇빛이 드는 얕은 숲. 고블린 졸개와 슬라임이 어슬렁거린다.",
     monsters: [
@@ -106,6 +110,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "깊은 숲",
     depth: 2,
+    scale: "bronze2",
     recommended: ["bronze", "bronze"],
     description: "나무가 빽빽해 낮에도 어둑하다. 숲 한가운데 움직이는 거목이 있다는 소문이다.",
     monsters: [
@@ -127,6 +132,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "미지의 동굴",
     depth: 2,
+    scale: "bronze2",
     recommended: ["bronze", "bronze"],
     description: "숲 바위틈으로 열린 동굴. 거미줄과 박쥐 날갯짓 소리가 가득하다.",
     monsters: [
@@ -146,6 +152,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "고블린 마을",
     depth: 3,
+    scale: "bronze1",
     recommended: ["bronze", "bronze"],
     description: "고블린들이 엉성한 울타리를 두르고 사는 마을. 왕을 자칭하는 놈이 있다.",
     monsters: [
@@ -165,6 +172,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "늪지대",
     depth: 3,
+    scale: "bronze1",
     recommended: ["bronze", "silver"],
     description: "발이 푹푹 빠지는 늪. 온갖 슬라임이 부글거리며 모여 산다.",
     monsters: [
@@ -183,6 +191,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "더 깊은 숲",
     depth: 3,
+    scale: "silver3",
     recommended: ["silver", "silver"],
     description: "고블린이 사라지고 오크의 발자국이 보이기 시작한다. 어디선가 숲이 수군거린다.",
     monsters: [
@@ -202,6 +211,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "오크 마을",
     depth: 4,
+    scale: "silver3",
     recommended: ["silver", "silver"],
     description: "북소리가 울리는 오크들의 마을. 그 한가운데 오크 킹의 천막이 있다.",
     monsters: [
@@ -220,6 +230,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "타락한 엘프의 숲",
     depth: 4,
+    scale: "silver3",
     recommended: ["silver", "silver"],
     description: "나무와 정령이 검게 물든 숲. 세계수의 가지가 이곳을 가리켰다.",
     monsters: [
@@ -248,6 +259,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "거미 둥지",
     depth: 3,
+    scale: "bronze1",
     recommended: ["bronze", "silver"],
     description: "동굴 벽이 온통 끈적한 거미줄이다. 알 주머니가 천장에 매달려 있다.",
     monsters: [
@@ -266,6 +278,7 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "늑대 굴",
     depth: 3,
+    scale: "bronze1",
     recommended: ["bronze", "bronze"],
     description: "뼈가 굴러다니는 굴. 멀리서 우두머리의 울음소리가 들린다.",
     monsters: [
@@ -292,6 +305,7 @@ const pair = (a: string, b: string, chance = END_BOSS_CHANCE) => ({
 });
 const marsh = (r: Omit<Region, "dungeon" | "monsters" | "size" | "eliteChance">): Region => ({
   dungeon: "fog_marsh",
+  scale: "silver3",
   monsters: [],
   size: [3, 4],
   eliteChance: 0.2,
