@@ -3,6 +3,8 @@
 // 순수 함수만 둔다. 난수는 시드로 받는다.
 import {
   HARMFUL,
+  DOT,
+  isDot,
   POTION_HEAL,
   START_SUPPLIES,
   type SupplyKind,
@@ -817,10 +819,11 @@ function applyEffect(
   }
   if (effect.cureAll) for (const m of living) m.statuses = [];
   if (effect.status && target) {
-    const turns = effect.status === "bleed" ? 3 : 4;
+    // 출혈·중독은 수치가 쌓인다 (data/combat.ts의 DOT)
+    const was = target.statuses.find((s) => s.kind === effect.status)?.value ?? 0;
     target.statuses = [
       ...target.statuses.filter((s) => s.kind !== effect.status),
-      { kind: effect.status, turns },
+      { kind: effect.status, turns: 1, value: was + (isDot(effect.status) ? DOT[effect.status].stack : 0) },
     ];
     lines.push(`${target.name} ${effect.status === "bleed" ? "출혈" : "중독"}`);
   }

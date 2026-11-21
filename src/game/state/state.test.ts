@@ -268,6 +268,20 @@ describe("전투 중 후퇴 (상태)", () => {
     expect(fled.progress[id].affinity).toBe(before + 5); // 소심 +5
   });
 
+  it("후퇴하면 쓰러져 있던 용병은 남겨져 죽는다 (추모비에 오른다)", () => {
+    const s = inBattle(["s-bran", "s-mirel"]);
+    if (s.screen.kind !== "battle") throw new Error();
+    const battle = s.screen.battle;
+    const downed = {
+      ...battle,
+      units: battle.units.map((u) => (u.id === "s-bran" ? { ...u, hp: 0, downedTurnsLeft: 1, downedRound: battle.round } : u)),
+    };
+    const fled = gameReducer({ ...s, screen: { ...s.screen, battle: downed } }, { type: "fleeBattle", seed: 1 });
+    expect(fled.roster.some((e) => e.kind === "random" && e.seed.id === "s-bran")).toBe(false);
+    expect(fled.memorial.some((m) => m.id === "s-bran")).toBe(true);
+    expect(fled.roster.some((e) => e.kind === "random" && e.seed.id === "s-mirel")).toBe(true);
+  });
+
   it("전투가 이미 끝났거나 던전 밖이면 후퇴하지 않는다", () => {
     const s = initialState();
     expect(gameReducer(s, { type: "fleeBattle", seed: 1 })).toBe(s);

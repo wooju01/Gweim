@@ -60,6 +60,8 @@ export type SkillEffect =
   | ({ kind: "applyStatus"; area?: "one" | "all"; who?: "self" | "allies" } & StatusRoll)
   /** 회복. 회복량에는 쓰는 용병의 신성이 더해진다 */
   | { kind: "heal"; amount: number; who?: "self" | "allies" }
+  /** 쓰러진 아군 하나를 최대 체력의 pct로 일으킨다. 일으켰으면 이 스킬의 아군 전체 회복은 건너뛴다 (사제 궁극기 "기적") */
+  | { kind: "revive"; pct: number }
   /** 해제. kinds가 없으면 출혈·중독. count가 있으면 약화를 그 수만큼 */
   | { kind: "cure"; who?: "self"; kinds?: StatusKind[]; count?: number }
   /** 보호막. 겹쳐 쌓지 않고 큰 쪽으로 채운다 */
@@ -148,7 +150,9 @@ export function describeSkill(def: SkillDef): string {
       case "applyStatus":
         return [`${e.area === "all" ? "모든 적" : to(e)}에게 ${statusText(e)}`];
       case "heal":
-        return [`${to(e)}의 체력 ${e.amount} 회복`];
+        return [`${to(e)}의 체력 ${e.amount} 회복${!e.who && def.target === "ally" ? " (쓰러진 아군이면 그만큼으로 일으킨다)" : ""}`];
+      case "revive":
+        return [`쓰러진 아군 하나를 체력 ${pct(e.pct)}로 일으킨다 (쓰러진 아군이 없을 때만 아래 회복)`];
       case "cure": {
         const who = e.who === "self" ? "자신의 " : "";
         if (e.count) return [`${who}약화 ${e.count}개 해제`];

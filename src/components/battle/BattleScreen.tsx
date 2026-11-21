@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { STATUS, SUPPLY, type StatusKind, type SupplyKind } from "@/data/combat";
+import { STATUS, SUPPLY, isDot, type StatusKind, type SupplyKind } from "@/data/combat";
 import { SKILL_SLOTS } from "@/data/skills";
 import { getSkill } from "@/game/skills";
 import { getPassive } from "@/data/passives";
 import {
   currentActor,
+  isDowned,
   passiveNote,
   previewAction,
   skillDef,
@@ -20,7 +21,7 @@ import {
 } from "@/game/combat/engine";
 import type { Stage } from "@/lib/schemas";
 import { STAT_NAME } from "@/data/growth";
-import { describe } from "@/game/combat/text";
+import { describe, josa } from "@/game/combat/text";
 import { GUIDE } from "@/game/merc/party";
 import { displayedHp, usePlayback } from "./playback";
 import { EnemySilhouette, MercSilhouette } from "@/components/common/Silhouette";
@@ -153,12 +154,10 @@ function floatsFor(e: BattleEvent): Omit<Float, "id">[] {
       return [{ unit: e.target, text: "묶여 있다", tone: "info" }];
     case "spawn":
       return [{ unit: e.unit, text: e.how === "hatch" ? "부화" : e.how === "split" ? "분열" : "등장", tone: "gold" }];
-    case "dying":
-      return [{ unit: e.target, text: "빈사", tone: "crit" }];
+    case "downed":
+      return [{ unit: e.target, text: "쓰러짐", tone: "crit" }];
     case "rescue":
       return [{ unit: e.target, text: "구출!", tone: "heal" }];
-    case "survive":
-      return [{ unit: e.target, text: "버텼다", tone: "gold" }];
     case "death":
       return [{ unit: e.target, text: "사망", tone: "crit" }];
     case "skill":
@@ -367,7 +366,9 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
               variant="danger"
               className="!px-2 !py-1 text-xs"
               onClick={() => {
-                if (window.confirm("싸움을 버리고 던전을 빠져나간다. 원정은 여기서 끝나고, 동료들은 등을 보인 당신에게 실망할 수 있다. 후퇴할까?")) onFlee();
+                const left = battle.units.filter(isDowned).map((u) => u.name);
+                const warn = left.length > 0 ? `\n\n⚠ 쓰러진 ${left.join(", ")}${left.length > 1 ? "은(는)" : josa(left[0], "은", "는").slice(left[0].length)} 남겨진다 (사망).` : "";
+                if (window.confirm(`싸움을 버리고 던전을 빠져나간다. 원정은 여기서 끝나고, 동료들은 등을 보인 당신에게 실망할 수 있다. 후퇴할까?${warn}`)) onFlee();
               }}
             >
               후퇴한다
@@ -417,9 +418,9 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
             <p
               key={i}
               className={
-                event.type === "down" || event.type === "death" || event.type === "dying"
+                event.type === "down" || event.type === "death" || event.type === "downed"
                   ? "text-blood"
-                  : event.type === "end" || event.type === "rescue" || event.type === "survive"
+                  : event.type === "end" || event.type === "rescue"
                     ? "font-bold text-ember"
                     : "text-bone/75"
               }
@@ -699,11 +700,11 @@ function Figure({
       {/* 머리 위 정보 */}
       {down && unit.side === "merc" && (
         <p
-          className={`mb-1 w-24 text-center text-[11px] font-bold ${unit.dead ? "text-ash" : unit.stable ? "text-ember" : "animate-pulse text-blood"}`}
+          className={`mb-1 w-24 text-center text-[11px] font-bold ${unit.dead ? "text-ash" : "animate-pulse text-blood"}`}
         >
           {unit.name}
           <br />
-          {unit.dead ? "사망" : unit.stable ? "의식 없이 버티는 중" : unit.dying !== undefined ? `빈사 · ${unit.dying}라운드` : ""}
+          {unit.dead ? "사망" : unit.downedTurnsLeft !== undefined ? `쓰러짐 · ${unit.downedTurnsLeft}차례 뒤 사망` : ""}
         </p>
       )}
       <div className={`mb-1 flex w-24 flex-col items-center gap-0.5 transition-opacity ${down ? "hidden" : ""}`}>
@@ -737,7 +738,7 @@ function Figure({
             {unit.statuses.map((s) => (
               <span key={s.kind} className={`rounded-sm px-1 text-[9px] ${STATUS_STYLE[s.kind]}`}>
                 {STATUS[s.kind].name}
-                {s.turns}
+                {isDot(s.kind) ? s.value : s.turns}
               </span>
             ))}
           </div>
@@ -818,7 +819,7 @@ function FoeStats({ unit, hp, preview, battle }: { unit: Unit; hp: number; previ
           <p className="flex flex-wrap gap-1">
             {unit.statuses.map((s) => (
               <span key={s.kind} className={`rounded-sm px-1 ${STATUS_STYLE[s.kind]}`}>
-                {STATUS[s.kind].name} {s.turns}턴
+                {STATUS[s.kind].name} {isDot(s.kind) ? s.value : `${s.turns}턴`}
               </span>
             ))}
           </p>
@@ -877,7 +878,7 @@ function ActorStats({ battle, unit }: { battle: Battle; unit: Unit }) {
         <p className="flex flex-wrap gap-1">
           {unit.statuses.map((s) => (
             <span key={s.kind} className={`rounded-sm px-1 ${STATUS_STYLE[s.kind]}`}>
-              {STATUS[s.kind].name} {s.turns}턴
+              {STATUS[s.kind].name} {isDot(s.kind) ? s.value : `${s.turns}턴`}
             </span>
           ))}
         </p>

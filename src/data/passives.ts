@@ -41,7 +41,7 @@ export const PASSIVES: Passive[] = [
   { id: "last_stand", race: "human", name: "사선 돌파", description: "체력 25% 이하가 되면 한 번 각성 (2턴 동안 공격 +4)" },
   { id: "solidarity", race: "human", name: "결속", description: "파티 4명이 모두 살아 있으면 공격 +1" },
   { id: "in_sync", race: "human", name: "손발이 맞는다", description: "길안내자가 건넨 물자 효과 +50%" },
-  { id: "improvise", race: "human", name: "임기응변", description: "출혈·중독 지속 1턴 감소" },
+  { id: "improvise", race: "human", name: "임기응변", description: "출혈·중독이 쌓이는 양 -1" },
   { id: "adapt", race: "human", name: "적응", description: "같은 전투에서 같은 적에게 맞을 때마다 그 적에게 받는 피해 -1 (최대 -2)" },
 ];
 

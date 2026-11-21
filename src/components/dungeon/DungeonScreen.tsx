@@ -7,7 +7,8 @@ import { stageName } from "@/data/ranks";
 import { getEvent, type Approach } from "@/data/events";
 import { CURRENCY } from "@/data/economy";
 import { getRelic } from "@/data/relics";
-import { addSalvage, salvageCount } from "@/data/loot";
+import { getTrinket } from "@/data/trinkets";
+import { KIND_LABEL, UNSELLABLE_KINDS, addSalvage, carriedValue, salvageCount } from "@/data/loot";
 import { getQuest } from "@/data/quests";
 import { objectiveProgress } from "@/game/quests";
 import { objectiveText } from "@/components/town/BoardScreen";
@@ -74,10 +75,7 @@ export function DungeonScreen(props: Props) {
           </h1>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-ember" title="살아서 돌아와야 내 것이 된다. 전멸하면 잃는다">
-            {CURRENCY} {exp.gold} · 유물 {exp.loot.length} · 유실물 {salvageCount(exp.salvage ?? {})}
-            {(exp.keyFound?.length ?? 0) > 0 && ` · 열쇠 ${exp.keyFound!.map((k) => KEY_ITEMS[k].name).join(", ")}`}
-          </span>
+          <CarriedLoot exp={exp} />
           {!over && (
             <Button variant="danger" onClick={onEnd} title="지금까지 얻은 것을 들고 돌아간다">
               후퇴한다
@@ -538,7 +536,7 @@ function MemberCard({ member, stage, children }: { member: Member; stage?: Stage
               key={s.kind}
               className={`rounded-sm px-1.5 py-0.5 text-[11px] ${s.kind === "bleed" ? "bg-blood/20 text-blood" : "bg-moss/20 text-moss"}`}
             >
-              {STATUS[s.kind].name} {s.turns}
+              {STATUS[s.kind].name} {s.value ?? s.turns}
             </li>
           ))}
         </ul>
@@ -571,5 +569,34 @@ function OmenPanel({ exp, lines, onRetreat }: { exp: Expedition; lines: string[]
         지금 후퇴한다
       </Button>
     </div>
+  );
+}
+
+/** 들고 있는 전리품: 금화 + 팔 수 있는 것의 판매가 합, 팔 수 없는 것은 아이콘과 개수 (전멸하면 모두 잃는다) */
+function CarriedLoot({ exp }: { exp: Expedition }) {
+  const { value, unsellable } = carriedValue(exp.gold, exp.loot.map((id) => getRelic(id)?.value ?? 0), exp.salvage ?? {});
+  const trinkets = exp.trinkets ?? [];
+  const keys = exp.keyFound ?? [];
+  return (
+    <span className="flex flex-wrap items-center gap-2 text-sm text-ember" title="살아서 돌아와야 내 것이 된다. 전멸하면 모두 잃는다">
+      <span title={`금화 ${exp.gold} + 유물 ${exp.loot.length}개 + 유실물 판매가`}>
+        가치 {CURRENCY} {value}
+      </span>
+      {UNSELLABLE_KINDS.filter((k) => unsellable[k]).map((k) => (
+        <span key={k} className="text-xs text-bone/80" title={`${KIND_LABEL[k].name} (팔 수 없다)`}>
+          {KIND_LABEL[k].icon} {unsellable[k]}
+        </span>
+      ))}
+      {trinkets.length > 0 && (
+        <span className="text-xs text-bone/80" title={`장신구: ${trinkets.map((id) => getTrinket(id)?.name ?? id).join(", ")}`}>
+          💍 {trinkets.length}
+        </span>
+      )}
+      {keys.length > 0 && (
+        <span className="text-xs text-bone/80" title={`열쇠: ${keys.map((k) => KEY_ITEMS[k].name).join(", ")}`}>
+          🗝 {keys.length}
+        </span>
+      )}
+    </span>
   );
 }

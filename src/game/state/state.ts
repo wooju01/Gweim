@@ -20,7 +20,7 @@ import { FIRST_DUNGEON, getDungeon } from "@/data/regions";
 import { RANK_ORDER, stageOf } from "@/data/ranks";
 import { TRINKET_MAX_LV, forgeCost, getTrinket, trinketStats, type OwnedTrinket } from "@/data/trinkets";
 import { advanceCost, wageOf } from "@/game/merc/wages";
-import { act, giftsReceived, type Battle, type BattleAction } from "@/game/combat/engine";
+import { act, giftsReceived, isDowned, type Battle, type BattleAction } from "@/game/combat/engine";
 import {
   chooseEvent,
   finishBattle,
@@ -1139,8 +1139,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case "fleeBattle": {
       if (state.screen.kind !== "battle" || state.screen.battle.outcome || !state.expedition) return state;
-      const battle = state.screen.battle;
-      // 체력·쓰러짐·죽음을 반영하고 (빈사인 용병은 쓰러진 채로 데리고 나온다), 죽은 용병을 묻는다
+      // 쓰러진 용병은 남겨진다 (사망)
+      const battle = { ...state.screen.battle, units: state.screen.battle.units.map((u) => (isDowned(u) ? { ...u, dead: true, downedTurnsLeft: undefined } : u)) };
+      // 체력·쓰러짐·죽음을 반영하고, 죽은 용병을 묻는다
       let next: GameState = bury(
         { ...state, expedition: { ...finishBattle(state.expedition, battle), room: null }, screen: { kind: "dungeon" } },
         battle.units.filter((u) => u.side === "merc" && u.dead).map((u) => u.id),

@@ -172,3 +172,30 @@ export function addSalvage(a: Record<string, number>, b: Record<string, number>)
 }
 
 export const salvageCount = (s: Record<string, number>) => Object.values(s).reduce((a, b) => a + b, 0);
+
+/** 팔 수 없는 물건의 종류 (판매가 대신 아이콘으로 따로 보인다) */
+export const UNSELLABLE_KINDS: Exclude<ItemKind, "loot">[] = ["material", "shard", "book", "raceRelic", "bossToken"];
+export const KIND_LABEL: Record<Exclude<ItemKind, "loot">, { icon: string; name: string }> = {
+  material: { icon: "⚒", name: "재료" },
+  shard: { icon: "◆", name: "기술 파편" },
+  book: { icon: "📖", name: "전술 교본" },
+  raceRelic: { icon: "🗿", name: "종족 유물" },
+  bossToken: { icon: "🏅", name: "보스 증표" },
+};
+
+/**
+ * 들고 있는 것의 값: 금화 + 팔 수 있는 유실물·유물의 상점 판매가 합.
+ * 팔 수 없는 것(재료·파편·교본·종족 유물·보스 증표)은 종류별 개수로 따로.
+ */
+export function carriedValue(gold: number, relicValues: number[], salvage: Record<string, number>): { value: number; unsellable: Partial<Record<Exclude<ItemKind, "loot">, number>> } {
+  let value = gold + relicValues.reduce((a, b) => a + b, 0);
+  const unsellable: Partial<Record<Exclude<ItemKind, "loot">, number>> = {};
+  for (const [id, n] of Object.entries(salvage)) {
+    const item = getSalvage(id);
+    if (!item || n <= 0) continue;
+    const kind = kindOf(item);
+    if (kind === "loot") value += item.value * n;
+    else unsellable[kind] = (unsellable[kind] ?? 0) + n;
+  }
+  return { value, unsellable };
+}

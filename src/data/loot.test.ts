@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRng } from "@/game/random";
 import { ENEMIES } from "./combat";
-import { DROPS, SALVAGE, addSalvage, getSalvage, rollDrops } from "./loot";
+import { DROPS, SALVAGE, addSalvage, carriedValue, getSalvage, rollDrops } from "./loot";
 
 describe("유실물", () => {
   it("모든 적 종류에 드롭표가 있고, 드롭표의 유실물은 모두 있다", () => {
@@ -28,5 +28,14 @@ describe("유실물", () => {
 
   it("같은 종류는 묶어서 센다", () => {
     expect(addSalvage({ rat_fang: 2 }, { rat_fang: 1, spore_sac: 1 })).toEqual({ rat_fang: 3, spore_sac: 1 });
+  });
+});
+
+describe("들고 있는 전리품의 값", () => {
+  it("금화 + 유물 + 팔 수 있는 유실물 판매가를 합치고, 팔 수 없는 것은 종류별 개수로 따로 센다", () => {
+    const fang = getSalvage("wolf_fang")!;
+    const { value, unsellable } = carriedValue(10, [30, 25], { wolf_fang: 2, mat_jelly: 3, tech_shard: 4, boss_token: 1 });
+    expect(value).toBe(10 + 30 + 25 + fang.value * 2);
+    expect(unsellable).toEqual({ material: 3, shard: 4, bossToken: 1 });
   });
 });

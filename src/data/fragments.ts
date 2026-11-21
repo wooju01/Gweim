@@ -440,14 +440,13 @@ const ASSASSIN = jobSet("assassin", {
     {
       id: "as_bleed",
       name: "출혈", word: "피를 부르는",
-      mods: [{ kind: "status", roll: { status: "bleed", value: 2 }, to: "foe", when: "attack" }, { kind: "power", pct: -0.1 }],
+      mods: [{ kind: "status", roll: { status: "bleed" }, lv: [4, 6], to: "foe", when: "attack" }, { kind: "power", pct: -0.1 }],
     },
     {
       id: "as_venom",
       name: "맹독", word: "독 묻은",
       mods: [
-        { kind: "status", roll: { status: "poison", value: 4, turns: 2 }, to: "foe", when: "attack" },
-        { kind: "later", text: "중독이 매 턴 30% 약해진다" },
+        { kind: "status", roll: { status: "poison" }, lv: [2, 4], to: "foe", when: "attack" },
         { kind: "cooldown", turns: 1 },
       ],
     },
@@ -688,7 +687,7 @@ const PRIEST = jobSet("priest", {
     name: "기적",
     target: "none",
     wait: 0,
-    effects: [later("빈사인 아군 하나를 체력 50%로 일으킨다 (없으면 아래 회복)"), { kind: "heal", amount: 12, who: "allies" }],
+    effects: [{ kind: "revive", pct: 0.5 }, { kind: "heal", amount: 12, who: "allies" }],
   },
 });
 

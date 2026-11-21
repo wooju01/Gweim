@@ -16,6 +16,10 @@ import {
   ENEMIES,
   DEBUFFS,
   HARMFUL,
+  DOT,
+  RANK_DOT,
+  isDot,
+  type DotKind,
   PASSIVE,
   JOB_STATS,
   POTION_HEAL,
@@ -28,10 +32,10 @@ import {
   type StatusKind,
   type SupplyKind,
 } from "@/data/combat";
-import { SKILL_SLOTS, type DamageEffect, type Scaling, type Skill, type SkillId, type StatusRoll } from "@/data/skills";
+import { SKILL_SLOTS, type DamageEffect, type Scaling, type Skill, type SkillDef, type SkillId, type StatusRoll } from "@/data/skills";
 import { BOND } from "@/data/bond";
 import { JOB_STAT, PER_POINT, type PowerStat, type StatKey } from "@/data/growth";
-import { DEATH, survivalChance } from "@/data/death";
+import { DEATH, downedTurns } from "@/data/death";
 import { ELITE_TRAITS, MAX_ENEMIES, getMonster, type Ability, type EliteTrait, type Monster, type MonsterRank, type MonsterTag } from "@/data/monsters";
 import { scaleOf, type Region } from "@/data/regions";
 import type { MercLevel, Stage } from "@/lib/schemas";
@@ -67,6 +71,8 @@ export type Unit = {
   cooldowns: Record<SkillId, number>;
   /** 막아서기 중 (자기 다음 차례가 오면 풀린다) */
   guarding: boolean;
+  /** 적만: 출혈·중독을 걸 때 쌓이는 양 (없으면 등급 기본값) */
+  dot?: Partial<Record<DotKind, number>>;
   /** 보스 예고: 다음 자기 차례에 쓸 스킬과 노린 대상. 그사이 기절하면 끊긴다 */
   charging?: { skill: SkillId; target?: string };
   /** 보호막. 공격 피해를 체력보다 먼저 받아 낸다. 전투가 끝날 때까지 남는다 (상태이상 피해는 못 막는다) */
@@ -75,12 +81,12 @@ export type Unit = {
   passives?: string[];
   /** 용병만: 길안내자에 대한 호감 단계 (전투 시작 때 정해진다) */
   bond?: Stage;
-  /** 용병만: 등급 (생존 판정에 쓴다) */
+  /** 용병만: 등급 */
   level?: MercLevel;
-  /** 용병만: 빈사. 생존 판정까지 남은 라운드 시작 수 */
-  dying?: number;
-  /** 용병만: 생존 판정을 넘겨 의식 없이 버티는 중 (이기면 일어난다) */
-  stable?: boolean;
+  /** 용병만: 쓰러짐 (downed). 쓰러진 채 버틸 남은 차례 (0이 되면 사망) */
+  downedTurnsLeft?: number;
+  /** 용병만: 쓰러진 라운드 (그 라운드의 자기 차례는 세지 않는다) */
+  downedRound?: number;
   /** 용병만: 죽었다 (되돌릴 수 없다) */
   dead?: boolean;
   /** 적만: 정보에 보이는 특징 한 줄 */
@@ -158,11 +164,10 @@ export type BattleEvent =
   | { type: "evade"; actor: string; target: string }
   /** 처치해서 스킬 대기 시간이 초기화됐다 (조합 스킬 사냥) */
   | { type: "refresh"; actor: string; skill: SkillId }
-  /** 빈사 상태로 쓰러졌다 / 길안내자가 구했다 / 생존 판정을 넘겼다 / 죽었다 */
-  | { type: "dying"; target: string; rounds: number }
-  | { type: "rescue"; target: string; via: "potion" | "bandage" }
-  | { type: "survive"; target: string; chance: number }
-  | { type: "death"; target: string; chance: number }
+  /** 쓰러졌다 (turns 차례 안에 일으켜야 한다) / 일으켰다 / 죽었다 */
+  | { type: "downed"; target: string; turns: number }
+  | { type: "rescue"; target: string; via: "potion" | "skill" | "miracle"; by: Actor }
+  | { type: "death"; target: string }
   /** 차례를 넘겼다 */
   | { type: "wait"; unit: string }
   /** 달아났다 */
@@ -283,6 +288,8 @@ export function validate(b: Battle, action: BattleAction): string | null {
       const kind = skillDef(actor, id)!.target;
       const target = action.target ? unitById(b, action.target) : undefined;
       if (kind === "none") return action.target ? "대상을 고르지 않는 스킬" : null;
+      // 쓰러진 아군: 한 명 대상 회복 스킬로만 일으킨다
+      if (target && target.hp <= 0 && kind === "ally" && isDowned(target) && target.side === actor.side && revivesOne(skillDef(actor, id)!)) return null;
       if (!target || target.hp <= 0) return "대상을 골라야 한다";
       if (kind === "enemy" && target.side === actor.side) return "적에게만 쓸 수 있다";
       if (kind === "ally" && target.side !== actor.side) return "아군에게만 쓸 수 있다";
@@ -293,8 +300,8 @@ export function validate(b: Battle, action: BattleAction): string | null {
       if (b.supplies[action.item] <= 0) return "물자가 없다";
       const target = unitById(b, action.target);
       if (!target || target.side !== "merc" || target.dead) return "건넬 수 없는 대상";
-      // 빈사인 용병은 물약이나 붕대로 일으킬 수 있다
-      if (target.hp <= 0) return isDying(target) && action.item !== "antidote" ? null : "건넬 수 없는 대상";
+      // 쓰러진 용병은 물약으로만 일으킨다 (붕대·해독제는 안 된다)
+      if (target.hp <= 0) return isDowned(target) && action.item === "potion" ? null : "건넬 수 없는 대상";
       if (action.item === "bandage" && !hasStatus(target, "bleed")) return "출혈이 없다";
       if (action.item === "antidote" && !hasStatus(target, "poison")) return "중독이 없다";
       if (action.item === "potion" && target.hp >= target.maxHp) return "체력이 가득하다";
@@ -422,6 +429,7 @@ export function enemyUnit(k: EnemyKind | Monster, id: string, name = k.name, sca
     defense: k.defense,
     speed: k.speed,
     onHit: k.onHit,
+    ...(m?.poisonStack !== undefined || m?.bleedStack !== undefined ? { dot: { ...(m?.poisonStack !== undefined ? { poison: m.poisonStack } : {}), ...(m?.bleedStack !== undefined ? { bleed: m.bleedStack } : {}) } } : {}),
     note: k.note,
     kind: k.id,
     tags: m?.tags,
@@ -614,12 +622,8 @@ export function act(battle: Battle, action: BattleAction): Battle {
       b.supplies[action.item]--;
       b.guideUsed = true;
       if (target.hp <= 0) {
-        // 빈사 구출: 물약은 원래 회복량, 붕대는 조금
-        const amount = action.item === "potion" ? Math.round(POTION_HEAL * potionMultiplier(target)) : DEATH.bandageRevive;
-        heal(b, target, amount, "guide");
-        target.dying = undefined;
-        target.stable = undefined;
-        b.log.push({ type: "rescue", target: target.id, via: action.item === "potion" ? "potion" : "bandage" });
+        // 쓰러진 용병: 물약의 회복량으로 일어난다
+        revive(b, target, Math.round(POTION_HEAL * potionMultiplier(target)), "guide", "potion");
         break;
       }
       if (action.item === "bandage") cure(b, target, "bleed", "guide", "bandage");
@@ -635,7 +639,7 @@ export function act(battle: Battle, action: BattleAction): Battle {
   }
 
   if (action.type !== "guide") {
-    endTurn(actor);
+    endTurn(b, actor);
     // 숨통 끊기: 적을 쓰러뜨리면 라운드당 한 번 즉시 다시 행동
     const killed = foes(b, actor).length < enemiesBefore;
     if (killed && !b.outcome && actor.hp > 0 && has(actor, "finishing_bite") && actor.fx!.biteRound !== b.round) {
@@ -655,6 +659,8 @@ export function act(battle: Battle, action: BattleAction): Battle {
 function checkOutcome(b: Battle) {
   if (b.outcome) return;
   const outcome = living(b, "enemy").length === 0 ? "victory" : living(b, "merc").length === 0 ? "defeat" : null;
+  // 전멸: 서 있는 용병이 없으면 쓰러져 있던 용병도 모두 죽는다
+  if (outcome === "defeat") for (const u of b.units.filter(isDowned)) kill(b, u);
   if (outcome) {
     b.outcome = outcome;
     b.log.push({ type: "end", outcome });
@@ -666,10 +672,15 @@ function damage(b: Battle, target: Unit, amount: number) {
   if (target.hp === 0) {
     target.statuses = [];
     b.log.push({ type: "down", target: target.id });
-    // 용병은 바로 죽지 않고 빈사로 쓰러진다
+    // 용병은 바로 죽지 않고 쓰러진다 (downed)
     if (target.side === "merc" && !target.dead) {
-      target.dying = DEATH.dyingRounds;
-      b.log.push({ type: "dying", target: target.id, rounds: DEATH.dyingRounds });
+      const turns = downedTurns(target);
+      if (turns <= 0) kill(b, target);
+      else {
+        target.downedTurnsLeft = turns;
+        target.downedRound = b.round;
+        b.log.push({ type: "downed", target: target.id, turns });
+      }
     }
     // 몬스터: 쓰러지면 갈라지거나, 부리는 쪽이 다시 부른다 (승패 판정 전에)
     if (target.side === "enemy") onMonsterDown(b, target);
@@ -803,27 +814,38 @@ function monsterTurn(b: Battle, rng: Rng, unit: Unit): boolean {
   return false;
 }
 
-/** 빈사인가 (아직 구할 수 있다) */
-export function isDying(u: Unit): boolean {
-  return u.hp <= 0 && !u.dead && (u.dying !== undefined || !!u.stable);
+/** 쓰러져 있나 (아직 일으킬 수 있다) */
+export function isDowned(u: Unit): boolean {
+  return u.side === "merc" && u.hp <= 0 && !u.dead && u.downedTurnsLeft !== undefined;
 }
 
-/** 라운드 시작: 빈사 시간이 다 된 용병은 생존 판정 */
-function rollDeaths(b: Battle, rng: Rng) {
-  for (const u of b.units) {
-    if (u.side !== "merc" || u.hp > 0 || u.dead || u.dying === undefined) continue;
-    u.dying--;
-    if (u.dying > 0) continue;
-    u.dying = undefined;
-    const chance = survivalChance(u);
-    if (rng.next() < chance) {
-      u.stable = true;
-      b.log.push({ type: "survive", target: u.id, chance });
-    } else {
-      u.dead = true;
-      b.log.push({ type: "death", target: u.id, chance });
-    }
-  }
+/** 한 명 대상 회복이 있는 스킬 (쓰러진 아군을 일으킬 수 있다) */
+export function revivesOne(def: SkillDef): boolean {
+  return def.target === "ally" && def.effects.some((e) => e.kind === "heal" && !e.who);
+}
+
+/** 영구 사망 */
+function kill(b: Battle, u: Unit) {
+  u.dead = true;
+  u.downedTurnsLeft = undefined;
+  u.downedRound = undefined;
+  b.log.push({ type: "death", target: u.id });
+}
+
+/** 쓰러진 용병을 amount 체력으로 일으킨다 */
+function revive(b: Battle, u: Unit, amount: number, by: Actor, via: "potion" | "skill" | "miracle") {
+  u.hp = Math.max(1, Math.min(u.maxHp, amount));
+  u.downedTurnsLeft = undefined;
+  u.downedRound = undefined;
+  b.log.push({ type: "heal", target: u.id, amount: u.hp, by });
+  b.log.push({ type: "rescue", target: u.id, via, by });
+}
+
+/** 쓰러진 용병의 차례: 버티는 차례가 1 줄고, 0이면 죽는다 (쓰러진 그 라운드의 차례는 세지 않는다) */
+function downedTurn(b: Battle, u: Unit) {
+  if (u.downedRound !== undefined && b.round <= u.downedRound) return;
+  u.downedTurnsLeft = (u.downedTurnsLeft ?? 1) - 1;
+  if (u.downedTurnsLeft <= 0) kill(b, u);
 }
 
 function has(u: Unit, passive: string): boolean {
@@ -840,17 +862,21 @@ export function statusValue(u: Unit, kind: StatusKind): number {
  * 상태이상을 건다. 다시 걸리면 지속 시간은 새로 고치고 수치는 큰 쪽.
  * self: 자기 행동 중에 자신에게 건다 (그 행동이 끝날 때 줄지 않도록 1을 더한다)
  */
-function applyStatus(b: Battle, target: Unit, kind: StatusKind, opts: { value?: number; turns?: number; self?: boolean; source?: string; stack?: number } = {}) {
-  let turns = (opts.turns ?? STATUS[kind].turns) + (opts.self && STATUS[kind].damage === 0 && kind !== "regen" ? 1 : 0);
-  // 임기응변: 출혈·중독 지속 1턴 감소
-  if (HARMFUL.includes(kind) && has(target, "improvise")) turns = Math.max(1, turns - 1);
+function applyStatus(b: Battle, target: Unit, kind: StatusKind, opts: { value?: number; turns?: number; self?: boolean; source?: string } = {}) {
+  // 출혈·중독: 수치가 쌓인다 (임기응변: 쌓이는 양 -1)
+  if (isDot(kind)) {
+    const add = Math.max(1, (opts.value ?? DOT[kind].stack) - (has(target, "improvise") ? 1 : 0));
+    const now = target.statuses.find((s) => s.kind === kind);
+    if (now) now.value = (now.value ?? 0) + add;
+    else target.statuses.push({ kind, turns: 1, value: add });
+    b.log.push({ type: "status", target: target.id, kind });
+    return;
+  }
+  const turns = (opts.turns ?? STATUS[kind].turns) + (opts.self && STATUS[kind].damage === 0 && kind !== "regen" ? 1 : 0);
   const existing = target.statuses.find((s) => s.kind === kind);
   if (existing) {
     existing.turns = turns;
-    const now = existing.value ?? STATUS[kind].value ?? STATUS[kind].damage;
-    // 누적: 세기가 더해진다 (최대 opts.stack)
-    if (opts.stack) existing.value = Math.min(opts.stack, now + (opts.value ?? STATUS[kind].damage));
-    else if (opts.value !== undefined) existing.value = Math.max(existing.value ?? STATUS[kind].value ?? 0, opts.value);
+    if (opts.value !== undefined) existing.value = Math.max(existing.value ?? STATUS[kind].value ?? 0, opts.value);
     if (opts.source) existing.source = opts.source;
   } else {
     target.statuses.push({ kind, turns, ...(opts.value !== undefined ? { value: opts.value } : {}), ...(opts.source ? { source: opts.source } : {}) });
@@ -899,7 +925,8 @@ function tryStatus(b: Battle, rng: Rng, actor: Unit, target: Unit, roll: StatusR
     b.log.push({ type: "resist", target: target.id, kind: roll.status });
     return;
   }
-  applyStatus(b, target, roll.status, { value: roll.value, turns: roll.turns, self, ...(roll.status === "duel" || roll.status === "cover" ? { source: actor.id } : {}) });
+  const value = roll.value ?? (isDot(roll.status) ? dotStack(actor, roll.status) : undefined);
+  applyStatus(b, target, roll.status, { value, turns: roll.turns, self, ...(roll.status === "duel" || roll.status === "cover" ? { source: actor.id } : {}) });
   if (roll.status === "stun" && !roll.sure && !self) {
     target.fx ??= {};
     target.fx.stunCount = (target.fx.stunCount ?? 0) + 1;
@@ -1143,7 +1170,7 @@ function strike(b: Battle, rng: Rng, actor: Unit, target: Unit, base: number, op
   // 장인의 눈썰미: 20% 확률로 균열
   if (has(actor, "crafters_eye") && rng.next() < PASSIVE.crackChance) applyStatus(b, target, "crack");
   if (onHit && actor.onHit && rng.next() < onHitChance(actor, target))
-    applyStatus(b, target, actor.onHit.status, { ...(actor.onHit.value !== undefined ? { value: actor.onHit.value } : {}), ...(actor.onHit.stack ? { stack: actor.onHit.stack } : {}) });
+    applyStatus(b, target, actor.onHit.status, isDot(actor.onHit.status) ? { value: dotStack(actor, actor.onHit.status) } : {});
   if (opts.perHit) tryStatus(b, rng, actor, target, opts.perHit);
   return amount;
 }
@@ -1249,6 +1276,7 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
   }
   b.log.push({ type: "skill", actor: actor.id, skill: skill.id, ...(target ? { target: target.id } : {}) });
   const enemiesAtStart = foes(b, actor).length;
+  let revived = false;
   // 응축은 이 스킬이 공격일 때만 쓴다
   const charge = skill.effects.some((e) => e.kind === "damage") ? takeCharge(actor) : 0;
   const healPower = actor.power?.faith ?? 0;
@@ -1312,8 +1340,23 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
         break;
       }
       case "heal":
+        // 한 명 대상 회복을 쓰러진 아군에게: 그 회복량으로 일어난다
+        if (!e.who && target && isDowned(target) && target.side === actor.side) {
+          revive(b, target, Math.round((e.amount + healPower) * (1 - statusValue(target, "healReduction"))), actor.id, "skill");
+          break;
+        }
+        // 기적으로 일으켰으면 아군 전체 회복은 건너뛴다
+        if (e.who === "allies" && revived) break;
         for (const t of recipients(b, actor, target, e.who)) heal(b, t, e.amount + healPower, actor.id);
         break;
+      case "revive": {
+        const down = b.units.filter((u) => u.side === actor.side && isDowned(u)).sort((x, y) => (x.downedTurnsLeft ?? 0) - (y.downedTurnsLeft ?? 0))[0];
+        if (down) {
+          revive(b, down, Math.round(down.maxHp * e.pct), actor.id, "miracle");
+          revived = true;
+        }
+        break;
+      }
       case "cure": {
         const t = e.who === "self" ? actor : target;
         if (!t) break;
@@ -1555,9 +1598,30 @@ function recoil(b: Battle, actor: Unit, amount: number, skill?: SkillId) {
   }
 }
 
-/** 턴 시작에 효과를 내는 상태 (출혈·중독 피해, 재생 회복). 이 상태들은 턴 시작에 1턴 줄어든다 */
+/** 턴 시작에 효과를 내는 상태 (재생 회복). 이 상태는 턴 시작에 1턴 줄어든다. 출혈·중독은 차례가 끝날 때 (dotTick) */
 function ticks(kind: StatusKind): boolean {
-  return STATUS[kind].damage > 0 || kind === "regen";
+  return kind === "regen";
+}
+
+/** 출혈·중독을 걸 때 쌓이는 양: 적은 몬스터 값 → 등급 기본값, 용병(조각 수치가 없을 때)은 기본값 */
+export function dotStack(u: Unit, kind: DotKind): number {
+  if (u.side !== "enemy") return DOT[kind].stack;
+  return u.dot?.[kind] ?? RANK_DOT[u.rank ?? "normal"][kind];
+}
+
+/** 차례가 끝날 때: 출혈·중독 피해를 주고 수치가 줄어든다 (0이면 풀린다) */
+function dotTick(b: Battle, unit: Unit) {
+  for (const s of [...unit.statuses]) {
+    if (unit.hp <= 0 || b.outcome) break;
+    if (!isDot(s.kind)) continue;
+    const amount = s.value ?? 0;
+    if (amount > 0) {
+      b.log.push({ type: "tick", target: unit.id, kind: s.kind, damage: amount });
+      damage(b, unit, amount);
+    }
+    s.value = Math.floor(amount * (1 - DOT[s.kind].decay));
+  }
+  unit.statuses = unit.statuses.filter((s) => !isDot(s.kind) || (s.value ?? 0) > 0);
 }
 
 /** 턴 시작: 상태이상 피해, 재생 회복 */
@@ -1577,9 +1641,10 @@ function tick(b: Battle, unit: Unit) {
   unit.statuses = unit.statuses.filter((s) => s.turns > 0);
 }
 
-/** 행동을 마칠 때: 강화·약화 지속 1턴 감소 */
-function endTurn(unit: Unit) {
-  for (const s of unit.statuses) if (!ticks(s.kind)) s.turns--;
+/** 행동을 마칠 때: 출혈·중독 피해, 강화·약화 지속 1턴 감소 */
+function endTurn(b: Battle, unit: Unit) {
+  dotTick(b, unit);
+  for (const s of unit.statuses) if (!ticks(s.kind) && !isDot(s.kind)) s.turns--;
   unit.statuses = unit.statuses.filter((s) => s.turns > 0);
 }
 
@@ -1596,7 +1661,8 @@ export function speedOf(u: Unit): number {
 
 function newRound(b: Battle, rng: Rng) {
   b.round++;
-  const mercs = living(b, "merc");
+  // 쓰러진 용병도 차례가 돌아온다 (버티는 차례를 센다)
+  const mercs = b.units.filter((u) => u.side === "merc" && (u.hp > 0 || isDowned(u)));
   // 행동 순서: 속도 + 무작위(0~SPEED_JITTER)가 높은 순. 같으면 원래 속도가 높은 쪽, 그다음 용병이 먼저
   const rolled = [...mercs, ...living(b, "enemy")].map((u, i) => ({ u, i, init: speedOf(u) + rollInt(rng.next, 0, SPEED_JITTER) }));
   rolled.sort(
@@ -1610,7 +1676,6 @@ function newRound(b: Battle, rng: Rng) {
   b.turn = -1;
   b.guideUsed = false;
   b.log.push({ type: "round", round: b.round });
-  rollDeaths(b, rng);
   // 야생의 회복력: 라운드 시작마다 체력 회복
   for (const u of b.units) {
     if (u.hp > 0 && has(u, "wild_recovery") && u.hp < u.maxHp) heal(b, u, PASSIVE.wildRecovery, u.id);
@@ -1719,6 +1784,10 @@ function advance(b: Battle, rng: Rng) {
       continue;
     }
     const unit = unitById(b, b.order[b.turn]);
+    if (unit && isDowned(unit)) {
+      downedTurn(b, unit);
+      continue;
+    }
     if (!unit || unit.hp <= 0) continue;
 
     // 자기 차례가 오면 막아서기가 풀리고 스킬 대기가 줄어든다
@@ -1737,13 +1806,13 @@ function advance(b: Battle, rng: Rng) {
         unit.charging = undefined;
       }
       b.log.push(skip === "stun" ? { type: "stunned", target: unit.id } : { type: "bound", target: unit.id });
-      endTurn(unit);
+      endTurn(b, unit);
       continue;
     }
     if (unit.side === "merc") return; // 플레이어 입력을 기다린다
 
     if (!monsterTurn(b, rng, unit)) enemyTurn(b, rng, unit);
-    endTurn(unit);
+    endTurn(b, unit);
   }
   throw new Error("전투가 끝나지 않는다 (무한 루프 방지)");
 }

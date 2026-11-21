@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { POTION_HEAL, START_SUPPLIES, STATUS } from "@/data/combat";
 import { TEST_MERCS } from "@/test/fixtures";
 import { PASSIVES } from "@/data/passives";
-import { survivalChance } from "@/data/death";
 import { createRng } from "@/game/random";
 import type { Merc } from "@/game/types";
 import {
   act,
   currentActor,
+  dotStack,
   giftsReceived,
   mercenaryEnemy,
   mercUnit,
@@ -310,29 +310,51 @@ describe("길안내자 보조", () => {
 });
 
 describe("상태이상", () => {
-  it("턴 시작에 피해를 주고, 지속 시간이 끝나면 사라진다", () => {
-    let b = edit(start(party, 1, [dummy("e0", 999)]), (x) => {
-      unitById(x, kass.id)!.statuses.push({ kind: "poison", turns: 1 });
-    });
-    const hpBefore = unitById(b, kass.id)!.hp;
-    b = act(b, { type: "attack", target: "e0" }); // 바른 → 카스 차례 시작, 중독 피해
-    expect(unitById(b, kass.id)!.hp).toBe(hpBefore - STATUS.poison.damage);
-    expect(unitById(b, kass.id)!.statuses).toEqual([]);
-    expect(b.log).toContainEqual({
-      type: "tick",
-      target: kass.id,
-      kind: "poison",
-      damage: STATUS.poison.damage,
-    });
+  /** who의 출혈·중독 피해 기록 (차례가 끝날 때마다) */
+  const ticksOf = (b: Battle, who: string, kind: "poison" | "bleed") =>
+    b.log.filter((e) => e.type === "tick" && e.target === who && e.kind === kind).map((e) => (e as { damage: number }).damage);
+  /** 모두 공격만 하며 rounds 라운드 진행 */
+  const play = (b: Battle, rounds: number) => {
+    for (let i = 0; i < 200 && !b.outcome && b.round <= rounds; i++) b = act(b, { type: "attack", target: "e0" });
+    return b;
+  };
+
+  it("중독: 차례가 끝날 때 피해, 그 뒤 30% 줄어든다 (2 → 1 → 0, 총 3)", () => {
+    let b = start(party, 1, [dummy("e0", 9999, { attack: [0, 0] })]);
+    const me = currentActor(b)!.id;
+    b = edit(b, (x) => void unitById(x, me)!.statuses.push({ kind: "poison", turns: 1, value: 2 }));
+    b = play(b, 4);
+    expect(ticksOf(b, me, "poison")).toEqual([2, 1]);
+    expect(unitById(b, me)!.statuses.some((s) => s.kind === "poison")).toBe(false);
   });
 
-  it("상태이상으로 쓰러지면 그 턴은 건너뛴다", () => {
+  it("출혈: 차례가 끝날 때 피해, 그 뒤 절반 (4 → 2 → 1 → 0, 총 7)", () => {
+    let b = start(party, 1, [dummy("e0", 9999, { attack: [0, 0] })]);
+    const me = currentActor(b)!.id;
+    b = edit(b, (x) => void unitById(x, me)!.statuses.push({ kind: "bleed", turns: 1, value: 4 }));
+    b = play(b, 5);
+    expect(ticksOf(b, me, "bleed")).toEqual([4, 2, 1]);
+  });
+
+  it("반복해서 걸면 수치가 쌓인다 (일반 몬스터 중독 +2씩)", () => {
+    let b = start(party, 1, [dummy("e0", 9999, { attack: [1, 1], onHit: { status: "poison", chance: 1 }, rank: "normal", side: "enemy" })]);
+    b = play(b, 3);
+    const hits = b.log.filter((e) => e.type === "status" && e.kind === "poison").length;
+    expect(hits).toBeGreaterThan(1);
+    // 쌓이는 양: 일반 +2, 던전 보스 +4 (몬스터마다 덮어쓸 수 있다)
+    expect(dotStack({ ...dummy("x"), side: "enemy", rank: "normal" }, "poison")).toBe(2);
+    expect(dotStack({ ...dummy("x"), side: "enemy", rank: "dungeonBoss" }, "bleed")).toBe(6);
+    expect(dotStack({ ...dummy("x"), side: "enemy", rank: "dungeonBoss", dot: { poison: 9 } }, "poison")).toBe(9);
+  });
+
+  it("출혈·중독으로 쓰러질 수 있다 (차례가 끝날 때)", () => {
     let b = edit(start(party, 1, [dummy("e0", 999)]), (x) => {
       const k = unitById(x, kass.id)!;
       k.hp = 1;
-      k.statuses.push({ kind: "bleed", turns: 3 });
+      k.statuses.push({ kind: "bleed", turns: 1, value: 4 });
     });
-    b = act(b, { type: "attack", target: "e0" });
+    b = act(b, { type: "attack", target: "e0" }); // 바른
+    b = act(b, { type: "attack", target: "e0" }); // 카스: 차례가 끝날 때 출혈로 쓰러진다
     expect(unitById(b, kass.id)!.hp).toBe(0);
     expect(b.log).toContainEqual({ type: "down", target: kass.id });
     expect(currentActor(b)?.id).toBe(elke.id);
@@ -815,7 +837,7 @@ describe("종족 패시브", () => {
     expect(rate(["keen_eye"]) - rate([])).toBeGreaterThan(0.04);
   });
 
-  it("강철 심장: 출혈에 걸릴 확률 절반 / 임기응변: 출혈 지속 1턴 감소", () => {
+  it("강철 심장: 출혈에 걸릴 확률 절반 / 임기응변: 쌓이는 양 -1", () => {
     const bleedRate = (passives: string[]) => {
       let n = 0;
       for (let seed = 0; seed < 600; seed++) {
@@ -845,10 +867,10 @@ describe("종족 패시브", () => {
       ]),
       { type: "attack", target: "e0" },
     );
-    // 걸릴 때 1턴 줄고(3→2), 다음 자기 턴 시작에 한 번 피해를 입어 1이 남는다 (임기응변이 없으면 2)
-    expect(
-      unitById(b, "p1")!.statuses.find((s) => s.kind === "bleed")?.turns,
-    ).toBe(STATUS.bleed.turns - 2);
+    // 쌓일 때 1 줄어든다 (4 → 3). 차례가 끝나며 한 번 피해를 입었으면 절반
+    const left = unitById(b, "p1")!.statuses.find((s) => s.kind === "bleed")?.value;
+    const hit = b.log.some((e) => e.type === "tick" && e.target === "p1");
+    expect(left).toBe(hit ? 1 : 3);
   });
 
   it("적응: 같은 적에게 맞을수록 받는 피해가 줄어든다 (최대 -2)", () => {
@@ -1701,10 +1723,10 @@ describe("용병형 적", () => {
   });
 });
 
-describe("빈사와 죽음", () => {
-  /** 바른은 체력 1, 적은 공격력 5로 바로 쓰러뜨린다. 엘케가 함께 있어 전투가 이어진다 */
+describe("쓰러짐과 죽음", () => {
+  /** 바른은 체력 1, 적은 공격력 5로 바로 쓰러뜨린다. 엘케(사제, 기도·함께하는 기도)가 먼저 행동하고 체력이 많아 전투가 이어진다 */
   const setup = (seed: number, bond?: Unit["bond"]) => {
-    let b = start([varn, elke], seed, [dummy("e0", 999, { attack: [5, 5] })]);
+    let b = start([{ ...elke, kit: ["pray", "mend_all"] }, varn], seed, [dummy("e0", 999, { attack: [5, 5] })]);
     b = edit(b, (c) => {
       const v = unitById(c, varn.id)!;
       v.hp = 1;
@@ -1714,82 +1736,108 @@ describe("빈사와 죽음", () => {
     });
     return b;
   };
-  /** 적이 바른을 칠 때까지 진행 */
-  const untilDying = (b: Battle) => {
-    for (let i = 0; i < 20 && !unitById(b, varn.id)!.dying; i++) {
-      const actor = currentActor(b);
-      if (!actor) break;
-      b = act(b, { type: "attack", target: "e0" });
-    }
+  const varnOf = (b: Battle) => unitById(b, varn.id)!;
+  /** 적이 바른을 쓰러뜨릴 때까지 진행 */
+  const untilDown = (b: Battle) => {
+    for (let i = 0; i < 20 && varnOf(b).hp > 0 && !varnOf(b).dead; i++) b = act(b, { type: "attack", target: "e0" });
+    return b;
+  };
+  /** 바른이 죽거나 전투가 끝날 때까지 엘케는 공격만 */
+  const untilDeath = (b: Battle) => {
+    for (let i = 0; i < 30 && !b.outcome && !varnOf(b).dead; i++) b = act(b, { type: "attack", target: "e0" });
     return b;
   };
 
-  it("체력 0이 되면 죽지 않고 빈사로 쓰러진다", () => {
-    const b = untilDying(setup(1));
-    // 적의 차례에 쓰러지면, 다음 용병 차례가 올 때는 다음 라운드가 시작되어 1라운드가 남는다
-    expect(unitById(b, varn.id)!).toMatchObject({ hp: 0, dying: 1 });
-    expect(b.log).toContainEqual({ type: "dying", target: varn.id, rounds: 2 });
+  it("체력 0이 되면 바로 죽지 않고 쓰러진다 (기본 1차례 버틴다)", () => {
+    const b = untilDown(setup(1));
+    expect(varnOf(b)).toMatchObject({ hp: 0, downedTurnsLeft: 1 });
+    expect(b.log).toContainEqual({ type: "downed", target: varn.id, turns: 1 });
+    // 적은 쓰러진 용병을 노리지 않는다 (엘케만 맞는다)
+    const after = untilDeath(b);
+    const hitsOnVarn = after.log.slice(b.log.length).filter((e) => e.type === "attack" && e.target === varn.id);
+    expect(hitsOnVarn).toHaveLength(0);
   });
 
-  it("길안내자가 물약이나 붕대로 일으킬 수 있다 (해독제는 안 된다)", () => {
-    const b = untilDying(setup(1));
-    expect(
-      validate(b, { type: "guide", item: "antidote", target: varn.id }),
-    ).toBe("건넬 수 없는 대상");
+  it("자기 차례가 돌아오면 1 줄고, 0이면 죽는다. 신뢰 +1 (2차례), 적대 -1 (즉시 사망)", () => {
+    const died = untilDeath(untilDown(setup(1)));
+    expect(varnOf(died).dead).toBe(true);
+    expect(died.log).toContainEqual({ type: "death", target: varn.id });
+
+    // 신뢰: 2차례 버틴다
+    const t = untilDown(setup(1, "trusted"));
+    expect(varnOf(t).downedTurnsLeft).toBe(2);
+    const roundDown = t.round;
+    const td = untilDeath(t);
+    expect(varnOf(td).dead).toBe(true);
+    expect(td.round - roundDown).toBe(2);
+
+    // 적대: 쓰러지는 즉시 사망
+    const h = untilDown(setup(1, "hostile"));
+    expect(varnOf(h).dead).toBe(true);
+    expect(h.log.some((e) => e.type === "downed" && e.target === varn.id)).toBe(false);
+  });
+
+  it("물약으로 일으킨다 (회복량만큼). 붕대·해독제로는 못 일으킨다", () => {
+    const b = untilDown(setup(1));
+    expect(validate(b, { type: "guide", item: "antidote", target: varn.id })).toBe("건넬 수 없는 대상");
+    expect(validate(b, { type: "guide", item: "bandage", target: varn.id })).toBe("건넬 수 없는 대상");
     const p = act(b, { type: "guide", item: "potion", target: varn.id });
-    expect(unitById(p, varn.id)!.hp).toBe(12);
-    expect(unitById(p, varn.id)!.dying).toBeUndefined();
-    expect(p.log.some((e) => e.type === "rescue")).toBe(true);
-    const g = act(b, { type: "guide", item: "bandage", target: varn.id });
-    expect(unitById(g, varn.id)!.hp).toBe(3);
+    expect(varnOf(p).hp).toBe(12);
+    expect(varnOf(p).downedTurnsLeft).toBeUndefined();
+    expect(p.log.some((e) => e.type === "rescue" && e.via === "potion")).toBe(true);
   });
 
-  it("구하지 못하면 2라운드 뒤 생존 판정. 신뢰가 깊을수록 잘 버틴다", () => {
-    const deathRate = (bond: Unit["bond"]) => {
-      let died = 0;
-      for (let seed = 0; seed < 300; seed++) {
-        let b = untilDying(setup(seed, bond));
-        for (
-          let i = 0;
-          i < 30 &&
-          !b.outcome &&
-          !b.log.some(
-            (e) =>
-              (e.type === "death" || e.type === "survive") &&
-              e.target === varn.id,
-          );
-          i++
-        ) {
-          b = act(b, { type: "attack", target: "e0" });
-        }
-        if (unitById(b, varn.id)!.dead) died++;
-      }
-      return died / 300;
-    };
-    const hostile = deathRate("hostile");
-    const trusted = deathRate("trusted");
-    expect(hostile).toBeGreaterThan(0.6); // 생존 25%
-    expect(trusted).toBeLessThan(0.4); // 생존 75%
+  it("한 명 대상 회복 스킬로 일으킨다. 전체 회복은 쓰러진 아군을 일으키지 못한다", () => {
+    let b = untilDown(setup(1));
+    while (currentActor(b)?.id !== elke.id) b = act(b, { type: "attack", target: "e0" });
+    expect(validate(b, { type: "skill", skill: "pray", target: varn.id })).toBeNull();
+    const healed = act(b, { type: "skill", skill: "pray", target: varn.id });
+    expect(varnOf(healed).hp).toBeGreaterThan(0);
+    expect(healed.log.some((e) => e.type === "rescue" && e.via === "skill" && e.target === varn.id)).toBe(true);
+    // 아군 전체 회복 스킬
+    const all: Skill = { id: "all", name: "모두 회복", cooldown: 0, target: "none", effects: [{ kind: "heal", amount: 8, who: "allies" }], description: "" };
+    const withAll = edit(b, (c) => {
+      const e = unitById(c, elke.id)!;
+      e.skills = [...e.skills, "all"];
+      e.book = { ...e.book, all };
+    });
+    const after = act(withAll, { type: "skill", skill: "all" });
+    expect(varnOf(after).hp).toBe(0);
+  });
+
+  it("사제 궁극기 기적: 쓰러진 아군을 체력 50%로 일으킨다 (그때는 전체 회복을 건너뛴다)", () => {
+    let b = untilDown(setup(1));
+    while (currentActor(b)?.id !== elke.id) b = act(b, { type: "attack", target: "e0" });
+    const miracle: Skill = { id: "miracle", name: "기적", cooldown: 0, target: "none", ultimate: true, effects: [{ kind: "revive", pct: 0.5 }, { kind: "heal", amount: 12, who: "allies" }], description: "" };
+    b = edit(b, (c) => {
+      const e = unitById(c, elke.id)!;
+      e.ultimate = "miracle";
+      e.book = { ...e.book, miracle };
+      e.hp = 500;
+    });
+    const m = act(b, { type: "skill", skill: "miracle" });
+    expect(varnOf(m).hp).toBe(Math.round(varnOf(m).maxHp * 0.5));
+    expect(m.log.some((e) => e.type === "heal" && e.target === elke.id)).toBe(false);
+  });
+
+  it("전멸: 서 있는 용병이 없으면 쓰러진 용병도 모두 죽는다", () => {
+    let b = start([varn, elke], 1, [dummy("e0", 999, { attack: [50, 50] })]);
+    b = edit(b, (c) => {
+      for (const u of c.units.filter((x) => x.side === "merc")) u.hp = 1;
+    });
+    for (let i = 0; i < 20 && !b.outcome; i++) b = act(b, { type: "attack", target: "e0" });
+    expect(b.outcome).toBe("defeat");
+    expect(b.units.filter((u) => u.side === "merc").every((u) => u.dead)).toBe(true);
   });
 
   it("죽은 용병은 물자를 받을 수 없다", () => {
-    let b = untilDying(setup(1));
+    let b = untilDown(setup(1));
     b = edit(b, (c) => {
       const v = unitById(c, varn.id)!;
       v.dead = true;
-      v.dying = undefined;
+      v.downedTurnsLeft = undefined;
     });
-    expect(
-      validate(b, { type: "guide", item: "potion", target: varn.id }),
-    ).toBe("건넬 수 없는 대상");
-  });
-
-  it("생존 확률: 기본 50%, 호감·종족·등급으로 오르내리고 5~95% 안", () => {
-    expect(survivalChance({})).toBe(0.5);
-    expect(
-      survivalChance({ bond: "trusted", race: "barbarian", level: "radiant" }),
-    ).toBe(0.95);
-    expect(survivalChance({ bond: "hostile", race: "elf" })).toBeCloseTo(0.2);
+    expect(validate(b, { type: "guide", item: "potion", target: varn.id })).toBe("건넬 수 없는 대상");
   });
 });
 

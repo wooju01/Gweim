@@ -39,8 +39,7 @@ export type StatusKind =
 export type SupplyKind = "bandage" | "antidote" | "potion";
 
 /** 공격이 상태이상을 걸 확률 */
-/** 공격이 맞으면 chance로 거는 상태이상. value: 세기 (중독 피해 등, 없으면 기본값). stack: 이미 걸려 있으면 세기가 더해진다 (최대 stack) */
-export type OnHit = { status: StatusKind; chance: number; value?: number; stack?: number };
+export type OnHit = { status: StatusKind; chance: number };
 
 export type UnitStats = {
   hp: number;
@@ -75,8 +74,9 @@ export type StatusInfo = {
  * 자기 행동 중에 자신에게 건 상태는 그 행동이 끝날 때 줄지 않는다 (엔진이 1을 더해 건다).
  */
 export const STATUS: Record<StatusKind, StatusInfo> = {
-  bleed: { name: "출혈", damage: 3, turns: 3, debuff: true, text: "턴마다 피해 {v}" },
-  poison: { name: "중독", damage: 2, turns: 4, debuff: true, text: "턴마다 피해 {v}" },
+  // 출혈·중독: 수치가 쌓이고 차례가 끝날 때 그만큼 피해, 그 뒤 줄어든다 (DOT). damage는 기본 쌓이는 양, turns는 쓰지 않는다
+  bleed: { name: "출혈", damage: 4, turns: 1, debuff: true, text: "차례가 끝날 때 피해 {v}, 그 뒤 절반으로" },
+  poison: { name: "중독", damage: 2, turns: 1, debuff: true, text: "차례가 끝날 때 피해 {v}, 그 뒤 30% 감소" },
   /** 장인의 눈썰미·갑옷 부수기: 받는 피해 + */
   crack: { name: "균열", damage: 0, turns: 2, debuff: true, value: 2, text: "받는 피해 +{v}" },
   /** 포효: 공격력 - */
@@ -119,6 +119,26 @@ export const STATUS: Record<StatusKind, StatusInfo> = {
 
 /** 붕대·해독제로 치료하는 상태이상 (기본 정화 대상) */
 export const HARMFUL: StatusKind[] = ["bleed", "poison"];
+
+// ── 출혈·중독 (2026-11-22) ──
+// 상태 하나에 수치(value)만 쌓는다. 걸 때마다 value += 쌓이는 양.
+// 대상의 차례가 끝날 때 value만큼 피해 → value = floor(value × (1 - 감소율)) → 0이면 풀린다.
+// 예: 중독 2 → 1 → 0 (총 3), 출혈 4 → 2 → 1 → 0 (총 7)
+export type DotKind = "bleed" | "poison";
+export const DOT: Record<DotKind, { stack: number; decay: number }> = {
+  poison: { stack: 2, decay: 0.3 },
+  bleed: { stack: 4, decay: 0.5 },
+};
+/** 몬스터 등급별 쌓이는 양 (몬스터마다 poisonStack·bleedStack으로 덮어쓸 수 있다) */
+export const RANK_DOT: Record<"normal" | "elite" | "floorBoss" | "dungeonBoss", Record<DotKind, number>> = {
+  normal: { poison: 2, bleed: 4 },
+  elite: { poison: 3, bleed: 5 },
+  floorBoss: { poison: 3, bleed: 5 },
+  dungeonBoss: { poison: 4, bleed: 6 },
+};
+export function isDot(kind: StatusKind): kind is DotKind {
+  return kind === "bleed" || kind === "poison";
+}
 
 /** 약화 상태 (해제할 수 있는 것) */
 export const DEBUFFS = (Object.keys(STATUS) as StatusKind[]).filter((k) => STATUS[k].debuff);
