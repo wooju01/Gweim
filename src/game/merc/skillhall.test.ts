@@ -52,8 +52,10 @@ describe("용병별 조각", () => {
 });
 
 describe("조립과 장착", () => {
-  const main = pool.find((f) => f.kind === "main" && !f.race)!.id;
-  const subs = pool.filter((f) => f.kind === "sub" && !f.race).map((f) => f.id);
+  // 두르강이 아직 모르는 조각으로 (시작 스킬과 겹치지 않게)
+  const startKnown = knownFragments(base, [], []);
+  const main = pool.find((f) => f.kind === "main" && !f.race && !startKnown.includes(f.id))!.id;
+  const subs = pool.filter((f) => f.kind === "sub" && !f.race && !startKnown.includes(f.id)).map((f) => f.id);
   // 장착 4칸이 꽉 찬 용병
   const full = {
     ...base,
@@ -104,8 +106,10 @@ describe("조립과 장착", () => {
   });
 
   it("보관함은 4개까지: 꽉 차면 조립·빼기를 막고, 잊으면 다시 된다", () => {
-    const four = subs.slice(0, 4).map((sub) => ({ main, subs: [sub] }));
-    const unlocked = [main, ...subs];
+    // 메인이 모르는 조각이라 시작 스킬과 겹치지 않는다. 부 조각은 아는 것까지 4개
+    const allSubs = pool.filter((f) => f.kind === "sub" && !f.race).map((f) => f.id);
+    const four = allSubs.slice(0, 4).map((sub) => ({ main, subs: [sub] }));
+    const unlocked = [main, ...allSubs];
     // 장착 칸도 꽉 찼고 보관함도 4개면 조립할 수 없다
     const fifth = { main: pool.filter((f) => f.kind === "main")[4].id, subs: [] };
     expect(craftBlock(full, four, [...unlocked, fifth.main], 999, fifth)).toBe("보관함이 꽉 찼다 (4개)");

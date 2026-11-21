@@ -10,9 +10,8 @@ import {
   JOB_BASIC,
   JOB_SIGNATURE,
   NEUTRAL_MAIN,
-  hasLater,
   START_SKILLS,
-  START_SUB_CHANCE,
+  START_SUBS,
   SUB_CAPS,
   getFragment,
   scaled,
@@ -24,7 +23,7 @@ import {
 } from "@/data/fragments";
 import { getBranch } from "@/data/jobs";
 import { MONSTER_SKILLS } from "@/data/monsters";
-import { RANKS } from "@/data/ranks";
+import { RANKS, RANK_ORDER } from "@/data/ranks";
 import { SKILL_SLOTS, describeSkill, statusText, type DamageEffect, type Skill, type SkillDef, type SkillEffect, type StatusRoll } from "@/data/skills";
 import type { Element, MercLevel, SkillBuild } from "@/lib/schemas";
 
@@ -395,21 +394,35 @@ export function getSkill(id: string): Skill | undefined {
 
 /**
  * 시작 스킬: 직업 대표 메인(반드시) + 그 밖에 쓸 수 있는 메인 중 무작위 하나 (START_SKILLS개까지).
- * 스킬마다 START_SUB_CHANCE 확률로 부 조각 하나 (등급 규칙 안에서).
- * 아직 동작하지 않는 효과(준비 중)가 든 조각은 무작위로 뽑지 않는다
+ * 스킬마다 부 조각 START_SUBS개 (등급 한도 안에서, 무작위, 스킬끼리 겹치지 않게).
+ * 효과가 전부 준비 중(later)인 조각은 뽑지 않는다. 일부만 준비 중이면 동작하는 효과가 있으니 뽑는다 (맹독 등).
+ * 그 등급에서 아직 해금할 수 없는 조각(동 용병에게 은 조각)도 메인·부 모두 뽑지 않는다
  */
 export function rollStartSkills(owner: SkillOwner, rand: () => number): SkillBuild[] {
-  const pool = fragmentsFor(owner).filter((f) => !hasLater(f));
+  const open = (f: Fragment) => RANK_ORDER.indexOf(owner.level) >= RANK_ORDER.indexOf(f.tier ?? "bronze");
+  const onlyLater = (f: Fragment) => (f.kind === "main" ? f.effects.every((e) => e.kind === "later") : f.mods.every((m) => m.kind === "later"));
+  const pool = fragmentsFor(owner).filter((f) => !onlyLater(f) && open(f));
   const signature = owner.job ? JOB_SIGNATURE[owner.job] : undefined;
   const mains = pool.filter((f) => f.kind === "main" && f.id !== signature).map((f) => f.id);
   const subs = pool.filter((f) => f.kind === "sub").map((f) => f.id);
+  const subsLeft = [...subs];
   const withSub = (main: string): SkillBuild => {
     const build: SkillBuild = { main, subs: [] };
-    if (subs.length > 0 && RANKS[owner.level].subLimit > 0 && rand() < START_SUB_CHANCE) build.subs = [subs[Math.floor(rand() * subs.length)]];
+    const n = Math.min(START_SUBS, RANKS[owner.level].subLimit);
+    for (let i = 0; i < n; i++) {
+      // 다른 스킬에 이미 붙은 부 조각은 피한다 (다 떨어지면 다시 전체에서)
+      const from = subsLeft.length > 0 ? subsLeft : subs.filter((id) => !build.subs.includes(id));
+      if (from.length === 0) break;
+      const pick = from[Math.floor(rand() * from.length)];
+      build.subs.push(pick);
+      const at = subsLeft.indexOf(pick);
+      if (at >= 0) subsLeft.splice(at, 1);
+    }
     return normalize(build);
   };
   const out: SkillBuild[] = [];
-  if (signature && pool.some((f) => f.id === signature)) out.push(withSub(signature));
+  // 직업 대표 메인은 반드시 넣는다
+  if (signature && fragmentsFor(owner).some((f) => f.id === signature)) out.push(withSub(signature));
   const left = [...mains];
   while (out.length < START_SKILLS && left.length > 0) out.push(withSub(left.splice(Math.floor(rand() * left.length), 1)[0]));
   return out.length ? out : [basicBuild(owner.job)];

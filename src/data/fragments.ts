@@ -194,7 +194,7 @@ export const FRAGMENT_UNLOCK: Record<FragmentId, { tier: UnlockTier; material: s
   pr_radiance: S(SAP), pr_barrier: S(SAP), pr_punish: S(MACE),
   // 마법사
   mg_barrier: B(SAP), mg_water: B(JELLY), mg_wind: B(ARROW),
-  mg_burst: S(JELLY), mg_focus: S(WHET), mg_fire: S(WHET), mg_earth: S(MACE),
+  mg_burst: S(JELLY), mg_focus: S(WHET), mg_fire: B(WHET), mg_earth: B(JELLY),
   // 바드
   mn_courage: B(WHET), mn_chord: B(SAP), mn_tempo: B(JELLY),
   mn_guard: S(SAP), mn_lullaby: S(MACE), mn_encore: S(JELLY), mn_solo: S(WHET),
@@ -206,9 +206,12 @@ export const FRAGMENT_UNLOCK: Record<FragmentId, { tier: UnlockTier; material: s
   rc_barb_regen: B(SAP), rc_barb_roar: B(JELLY), rc_barb_sweep: B(WHET), rc_barb_swing: B(WHET),
 };
 
-/** 모집 때 받는 시작 스킬 수와, 스킬마다 부 조각이 하나 붙을 확률 */
+/**
+ * 모집 때 받는 시작 스킬: 직업 대표 메인 + 무작위 메인 하나 (START_SKILLS개).
+ * 스킬마다 무작위 부 조각 START_SUBS개 (동 용병은 한도가 1이라 1개씩, 모두 2개). 은 이상 조각은 동 용병에게 나오지 않는다
+ */
 export const START_SKILLS = 2;
-export const START_SUB_CHANCE = 0.5;
+export const START_SUBS = 1;
 
 // ── 만드는 도구 ────────────────────────────────────────
 
@@ -253,7 +256,7 @@ function raceSet(race: RaceId, mains: MainIn[]): Fragment[] {
 
 const KNIGHT = jobSet("knight", {
   mains: [
-    { id: "knight_slash", name: "검격", target: "enemy", wait: 0, effects: [hit(1)] },
+    { id: "knight_slash", name: "검격", target: "enemy", wait: 0, effects: [hit(1, { pierce: 0.1 })] },
     { id: "knight_bulwark", name: "방벽", target: "none", wait: 1, effects: [st("armorUp", { value: 3, turns: 2, who: "self" })] },
     {
       id: "knight_duel",
@@ -310,7 +313,7 @@ const GUARDIAN = jobSet("guardian", {
       id: "guardian_bash",
       name: "방패 강타",
       target: "enemy",
-      wait: 1,
+      wait: 0,
       stat: "str",
       effects: [hit(0.8), st("stun", { chance: 0.3 }), later("기절 확률이 힘에 비례")],
     },
@@ -375,7 +378,7 @@ const GUARDIAN = jobSet("guardian", {
 
 const GREATSWORD = jobSet("greatsword", {
   mains: [
-    { id: "gs_strike", name: "대검 일섬", target: "enemy", wait: 2, effects: [hit(1.4)] },
+    { id: "gs_strike", name: "대검 일섬", target: "enemy", wait: 1, effects: [hit(1.4)] },
     { id: "gs_whirl", name: "회전 베기", target: "none", wait: 3, effects: [hit(0.7, { area: "all" })] },
     { id: "gs_breaker", name: "갑옷 부수기", target: "enemy", wait: 2, effects: [hit(1), st("crack", { value: 2, turns: 3 })] },
     { id: "gs_stance", name: "자세 잡기", target: "none", wait: 2, effects: [st("charge", { value: 1, turns: 1, who: "self" })] },
@@ -424,7 +427,7 @@ const ASSASSIN = jobSet("assassin", {
   mains: [
     { id: "as_flurry", name: "연속 찌르기", target: "enemy", wait: 1, effects: [hit(0.5, { hits: 3 })] },
     { id: "as_vital", name: "급소 찌르기", target: "enemy", wait: 1, effects: [hit(0.9, { pierce: 0.2 })] },
-    { id: "as_throw", name: "단검 던지기", target: "enemy", wait: 0, effects: [hit(1.2, { critBonus: 0.1 })] },
+    { id: "as_throw", name: "단검 던지기", target: "enemy", wait: 0, effects: [hit(1, { critBonus: 0.2 })] },
     {
       id: "as_shadow",
       name: "그림자 걸음",
@@ -484,7 +487,7 @@ const ASSASSIN = jobSet("assassin", {
 
 const MONK = jobSet("monk", {
   mains: [
-    { id: "monk_punch", name: "정권 지르기", target: "enemy", wait: 0, effects: [hit(1.2)] },
+    { id: "monk_punch", name: "정권 지르기", target: "enemy", wait: 0, effects: [hit(0.6, { hits: 2 })] },
     { id: "monk_upper", name: "어퍼컷", target: "enemy", wait: 1, effects: [hit(0.8), st("stun", { chance: 1 })] },
     { id: "monk_counter", name: "카운터", target: "none", wait: 1, effects: [later("2턴 동안 공격받으면 반드시 1.2배로 반격")] },
     { id: "monk_breath", name: "호흡 가다듬기", target: "none", wait: 1, effects: [later("2턴 동안 공격 횟수 +1")] },
@@ -698,19 +701,19 @@ const MAGE = jobSet("mage", {
     { id: "mg_barrier", name: "마력 방벽", target: "ally", wait: 1, effects: [{ kind: "shield", amount: 5, stat: "mag" }] },
   ],
   subs: [
-    { id: "mg_fire", name: "불", word: "화염", element: "fire", mods: [{ kind: "power", pct: 0.1 }, { kind: "selfCost", pctMaxHp: 0.05 }] },
+    { id: "mg_fire", name: "불", word: "화염", element: "fire", mods: [{ kind: "power", pct: [0.05, 0.1] }, { kind: "selfCost", pctMaxHp: 0.05 }] },
     {
       id: "mg_water",
       name: "물", word: "물결",
       element: "water",
       mods: [
-        { kind: "status", roll: { status: "weaken", value: 2, turns: 2 }, to: "foe", when: "attack" },
-        { kind: "addHeal", amount: 3, to: "auto", when: "ally" },
+        { kind: "status", roll: { status: "weaken", turns: 2 }, lv: [1, 2], to: "foe", when: "attack" },
+        { kind: "addHeal", amount: [2, 4], to: "auto", when: "ally" },
         { kind: "power", pct: -0.1 },
       ],
     },
-    { id: "mg_wind", name: "바람", word: "바람", element: "wind", mods: [{ kind: "pierce", pct: 0.2 }] },
-    { id: "mg_earth", name: "흙", word: "대지", element: "earth", mods: [{ kind: "stunChance", pct: 1, when: "attack" }, { kind: "cooldown", turns: 1 }] },
+    { id: "mg_wind", name: "바람", word: "바람", element: "wind", mods: [{ kind: "pierce", pct: [0.1, 0.2] }] },
+    { id: "mg_earth", name: "흙", word: "대지", element: "earth", mods: [{ kind: "stunChance", pct: [0.4, 1], when: "attack" }, { kind: "cooldown", turns: 1 }] },
   ],
   races: {
     human: [

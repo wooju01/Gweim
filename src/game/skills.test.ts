@@ -106,14 +106,15 @@ describe("조각 합치기", () => {
     // 합치기는 직업 제한을 보지 않는다 (제한은 validateSkill). 그래서 여러 직업의 조각으로 상한을 시험한다
     const twoPower = resolveSkill({ main: "gs_strike", subs: ["gs_recoil", "gs_pierce"] })!;
     expect((twoPower.effects[0] as DamageEffect).multiplier).toBeCloseTo(1.4 * 1.2);
-    // 치명: 치명 노림(15%) + 정확한 자세 Lv3(20%) = 35% → 30%. 같은 용병이 낄 수는 없지만 합산 규칙은 같다
+    // 치명: 치명 노림(15%) + 정확한 자세 Lv3(20%) = 35% → 30%. 같은 용병이 낄 수는 없지만 합산 규칙은 같다 (단검 던지기 자체 +20%)
     const crit = dmg("as_throw", ["as_aim", "gs_human_sub"], { gs_human_sub: 3 });
-    expect(crit.critBonus).toBeCloseTo(0.1 + SUB_CAPS.crit);
+    expect(crit.critBonus).toBeCloseTo(0.2 + SUB_CAPS.crit);
     // 위력: 반동 강타(20%) + 급소 타격(20%) = 40% → 25%. 대가(-10%)는 자르지 않는다
+    // 정권 지르기는 0.6배 × 2회
     const power = dmg("monk_punch", ["monk_vital", "gs_recoil"]);
-    expect(power.multiplier).toBeCloseTo(1.2 * (1 + SUB_CAPS.power));
+    expect(power.multiplier).toBeCloseTo(0.6 * (1 + SUB_CAPS.power));
     const withCost = dmg("monk_punch", ["monk_vital", "as_aim"]);
-    expect(withCost.multiplier).toBeCloseTo(1.2 * (1 + 0.2 - 0.1));
+    expect(withCost.multiplier).toBeCloseTo(0.6 * (1 + 0.2 - 0.1));
     // 고정: 오러 Lv3(5) + 정밀 화살촉 Lv3(4) = 9 (상한 아래)
     expect(dmg("knight_slash", ["knight_human_sub", "ar_human_sub"], { knight_human_sub: 3, ar_human_sub: 3 }).bonus).toBe(9);
   });
@@ -141,8 +142,9 @@ describe("조각 합치기", () => {
 
   it("정령 공명: 원소 조각이 없으면 위력, 있으면 원소 수치가 오른다", () => {
     expect(dmg("mg_bolt", ["mg_elf_sub"]).multiplier).toBeCloseTo(1.05);
-    // 바람(방어 20% 무시) + 공명 Lv1(+10%) → 22%
-    expect(dmg("mg_bolt", ["mg_wind", "mg_elf_sub"]).pierce).toBeCloseTo(0.22);
+    // 바람 Lv1(방어 10% 무시) + 공명 Lv1(+10%) → 11%, 바람 Lv3(20%) → 22%
+    expect(dmg("mg_bolt", ["mg_wind", "mg_elf_sub"]).pierce).toBeCloseTo(0.11);
+    expect(dmg("mg_bolt", ["mg_wind", "mg_elf_sub"], { mg_wind: 3 }).pierce).toBeCloseTo(0.22);
   });
 
   it("이름: 정한 조합 이름, 없으면 첫 부 조각의 꾸밈말 + 메인", () => {
@@ -214,14 +216,43 @@ describe("조각 규칙", () => {
     expect(validateLoadout(owner, [s("knight_slash"), s("knight_slash")])).not.toBeNull();
   });
 
-  it("시작 스킬: 쓸 수 있는 메인 중에서 겹치지 않게, 부 조각은 0~1개", () => {
-    for (let i = 0; i < 50; i++) {
-      const owner: SkillOwner = { job: "archer", race: "elf", level: "bronze" };
-      const skills = rollStartSkills(owner, seededRandom(i));
-      expect(skills.length).toBeGreaterThan(0);
-      expect(validateLoadout(owner, skills)).toBeNull();
-      for (const b of skills) expect(b.subs.length).toBeLessThanOrEqual(1);
-    }
+  it("시작 스킬: 메인 2개(대표 + 무작위), 동 용병은 스킬마다 부 조각 1개씩 서로 다르게 (모두 2개)", () => {
+    for (const job of JOB_IDS)
+      for (const race of RACE_IDS) {
+        if (!canBe(race, job)) continue;
+        for (let i = 0; i < 20; i++) {
+          const owner: SkillOwner = { job, race, level: "bronze" };
+          const skills = rollStartSkills(owner, seededRandom(i));
+          expect(skills, `${race}/${job}`).toHaveLength(2);
+          expect(validateLoadout(owner, skills)).toBeNull();
+          for (const b of skills) expect(b.subs, `${race}/${job}`).toHaveLength(1);
+          expect(skills[0].subs[0], `${race}/${job}`).not.toBe(skills[1].subs[0]);
+        }
+      }
+  });
+
+  it("시작 스킬: 모든 직업은 대표 메인 조각을 반드시 갖고 시작한다 (준비 중 효과가 있어도)", () => {
+    for (const job of JOB_IDS)
+      for (const race of RACE_IDS) {
+        if (!canBe(race, job)) continue;
+        for (let i = 0; i < 10; i++)
+          expect(rollStartSkills({ job, race, level: "bronze" }, seededRandom(i)).map((b) => b.main), `${race}/${job}`).toContain(JOB_BASIC[job]);
+      }
+  });
+
+  it("시작 스킬: 동 용병은 은 조각(메인·부 모두)을 들고 시작하지 않는다. 은 용병은 은 조각도 나온다", () => {
+    let silverSeen = false;
+    for (const job of JOB_IDS)
+      for (const race of RACE_IDS) {
+        if (!canBe(race, job)) continue;
+        for (let i = 0; i < 30; i++) {
+          for (const b of rollStartSkills({ job, race, level: "bronze" }, seededRandom(i)))
+            for (const id of [b.main, ...b.subs]) expect(getFragment(id)!.tier, `${race}/${job} ${id}`).not.toBe("silver");
+          for (const b of rollStartSkills({ job, race, level: "silver" }, seededRandom(i)))
+            if ([b.main, ...b.subs].some((id) => getFragment(id)!.tier === "silver")) silverSeen = true;
+        }
+      }
+    expect(silverSeen).toBe(true);
   });
 
   it("2단계 효과(later)는 데이터에만 있고 설명에 '준비 중'으로 나온다", () => {

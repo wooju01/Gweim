@@ -354,6 +354,11 @@ describe("전수관 (상태)", () => {
     let s = initialState();
     const id = "s-durgan"; // 드워프 대검사
     const other = "s-bran"; // 인간 기사
+    // 시작 스킬이 동 부 조각을 다 갖고 오므로, 대표 메인 하나만 든 용병으로 바꿔 둔다
+    s = {
+      ...s,
+      roster: s.roster.map((e) => (e.kind === "random" && e.seed.id === id ? { ...e, seed: { ...e.seed, skills: [{ main: "gs_strike", subs: [] }] } } : e)),
+    };
     const entry = s.roster.find((e) => entryId(e) === id)!;
     if (entry.kind !== "random") throw new Error();
     const known = knownFragments(entry.seed, [], []);
