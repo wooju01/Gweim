@@ -1,8 +1,9 @@
 // 전수관 규칙 (순수 함수): 용병이 아는 조각, 조각 해금, 부 조각 강화, 스킬 조립, 장착 바꾸기.
-import { CRAFT_COST, JOB_SIGNATURE, MAX_SUB_LEVEL, getFragment, upgradeCost } from "@/data/fragments";
+import { CRAFT_COST, JOB_SIGNATURE, MAX_SUB_LEVEL, getFragment, upgradeCost, type UnlockTier } from "@/data/fragments";
+import { RANK_ORDER } from "@/data/ranks";
 import { LEARNED_SLOTS, SKILL_SLOTS } from "@/data/skills";
 import { canUseFragment, fragmentsFor, fragmentsIn, normalize, skillKey, validateSkill, type SkillOwner, type SubLevels } from "@/game/skills";
-import type { MercSeed, SkillBuild } from "@/lib/schemas";
+import type { MercLevel, MercSeed, SkillBuild } from "@/lib/schemas";
 
 export function ownerOf(seed: MercSeed): SkillOwner {
   return { job: seed.traits.job, race: seed.traits.race, level: seed.level, branch: seed.branch, elements: seed.elements };
@@ -33,18 +34,28 @@ function shortOf(cost: Cost, gold: number, salvage: Record<string, number>): "go
   return null;
 }
 
-/** 조각을 뚫을 수 없는 이유 (뚫을 수 있으면 null). forbidden: 이 용병의 직업·종족 조각이 아니다 */
+/** 이 해금 단계가 열렸나: 은 조각은 길드 등급(고용한 용병 중 최고 등급)이 은 이상이어야 한다 */
+export function tierOpen(tier: UnlockTier | undefined, guildRank: MercLevel): boolean {
+  return RANK_ORDER.indexOf(guildRank) >= RANK_ORDER.indexOf(tier ?? "bronze");
+}
+
+/**
+ * 조각을 뚫을 수 없는 이유 (뚫을 수 있으면 null). forbidden: 이 용병의 직업·종족 조각이 아니다.
+ * rank: 길드 등급이 그 조각의 해금 단계에 못 미친다
+ */
 export function unlockBlock(
   fragmentId: string,
   seed: MercSeed,
   known: string[],
   gold: number,
   salvage: Record<string, number>,
-): "unknown" | "forbidden" | "known" | "gold" | "salvage" | null {
+  guildRank: MercLevel,
+): "unknown" | "forbidden" | "known" | "rank" | "gold" | "salvage" | null {
   const f = getFragment(fragmentId);
   if (!f?.cost) return "unknown";
   if (!canUseFragment(ownerOf(seed), f)) return "forbidden";
   if (known.includes(fragmentId)) return "known";
+  if (!tierOpen(f.tier, guildRank)) return "rank";
   return shortOf(f.cost, gold, salvage);
 }
 

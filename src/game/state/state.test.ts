@@ -358,13 +358,13 @@ describe("전수관 (상태)", () => {
     if (entry.kind !== "random") throw new Error();
     const known = knownFragments(entry.seed, [], []);
     // 아직 모르는 대검사 부 조각 하나
-    const sub = fragmentsFor(ownerOf(entry.seed)).find((f) => f.kind === "sub" && !known.includes(f.id))!;
+    const sub = fragmentsFor(ownerOf(entry.seed)).find((f) => f.kind === "sub" && f.tier === "bronze" && !known.includes(f.id))!;
     const cost = getFragment(sub.id)!.cost!;
-    const material = Object.keys(cost.salvage)[0];
+    const material = sub.material!;
     s = {
       ...s,
       gold: 100,
-      salvage: { [material]: 10 },
+      salvage: { [material]: 10, tech_shard: 10 },
       progress: { ...s.progress, [id]: { ...s.progress[id], hired: true }, [other]: { ...s.progress[other], hired: true } },
     };
     const taught = gameReducer(s, { type: "unlockPiece", mercId: id, piece: sub.id });

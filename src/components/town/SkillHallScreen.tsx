@@ -7,7 +7,7 @@ import { LEARNED_SLOTS, SKILL_SLOTS } from "@/data/skills";
 import { craftBlock, knownFragments, ownedSkills, ownerOf, unlockBlock, upgradeBlock } from "@/game/merc/skillhall";
 import { describeFragment, fragmentsFor, parseKey, partsText, resolveSkill, skillKey, type SubLevels } from "@/game/skills";
 import type { Merc } from "@/game/types";
-import type { MercSeed, SkillBuild } from "@/lib/schemas";
+import type { MercLevel, MercSeed, SkillBuild } from "@/lib/schemas";
 import { Button, Portrait } from "@/components/common/parts";
 import type { MercProgress } from "@/game/state/state";
 import { TownBar } from "./TownBar";
@@ -19,6 +19,8 @@ type Props = {
   hired: { merc: Merc; seed: MercSeed }[];
   progress: Record<string, MercProgress>;
   salvage: Record<string, number>;
+  /** 길드 등급 (고용한 용병 중 최고 등급). 은 조각 해금 조건 */
+  guildRank: MercLevel;
   onUnlock: (mercId: string, piece: string) => void;
   onUpgrade: (mercId: string, piece: string) => void;
   onCraft: (mercId: string, build: SkillBuild) => void;
@@ -27,8 +29,8 @@ type Props = {
   onBack: () => void;
 };
 
-const UNLOCK_TEXT = { unknown: "없는 조각", forbidden: "쓸 수 없다", known: "이미 안다", gold: `${CURRENCY} 부족`, salvage: "유실물 부족" } as const;
-const UPGRADE_TEXT = { unknown: "모르는 조각", max: "최대 레벨", gold: `${CURRENCY} 부족`, salvage: "유실물 부족" } as const;
+const UNLOCK_TEXT = { unknown: "없는 조각", forbidden: "쓸 수 없다", known: "이미 안다", rank: "은 등급 필요", gold: `${CURRENCY} 부족`, salvage: "재료 부족" } as const;
+const UPGRADE_TEXT = { unknown: "모르는 조각", max: "최대 레벨", gold: `${CURRENCY} 부족`, salvage: "재료 부족" } as const;
 
 /** "엘프 · 바드" (카드 태그의 종족·직업. 직업은 지금 등급의 직업 이름) */
 const raceJob = (merc: Merc) => (merc.tags ? merc.tags.slice(0, 2).join(" · ") : "");
@@ -37,7 +39,7 @@ const costText = (cost: { gold: number; salvage: Record<string, number> }, salva
   [`${CURRENCY} ${cost.gold}`, ...Object.entries(cost.salvage).map(([id, n]) => `${getSalvage(id)?.name ?? id} ${salvage[id] ?? 0}/${n}`)].join(" · ");
 
 /** 전수관: 용병마다 조각을 가르치고, 부 조각을 강화하고, 아는 조각으로 스킬을 조립하고, 장착을 바꾼다 */
-export function SkillHallScreen({ day, gold, hired, progress, salvage, onUnlock, onUpgrade, onCraft, onSwap, onForget, onBack }: Props) {
+export function SkillHallScreen({ day, gold, hired, progress, salvage, guildRank, onUnlock, onUpgrade, onCraft, onSwap, onForget, onBack }: Props) {
   const [pickedId, setPickedId] = useState<string | null>(hired[0]?.merc.id ?? null);
   const picked = hired.find((h) => h.merc.id === pickedId) ?? hired[0];
 
@@ -48,7 +50,7 @@ export function SkillHallScreen({ day, gold, hired, progress, salvage, onUnlock,
         <h1 className="text-2xl font-bold">전수관</h1>
         <p className="text-sm text-ash">
           스킬은 메인 조각 하나에 부 조각을 끼워 만든다. 용병은 자기 직업과 종족의 조각만 쓸 수 있고, 자기 스킬 안에 든 조각은 처음부터 안다.
-          나머지는 {CURRENCY}과 유실물을 내고 한 사람씩 가르친다. 부 조각은 강화하면 수치가 오른다 (Lv{MAX_SUB_LEVEL}까지, 반드시 성공).
+          나머지는 {CURRENCY}과 재료(기술 파편·계열 재료 등)를 내고 한 사람씩 가르친다. 은 조각은 길드에 은 등급 이상 용병이 있어야 가르칠 수 있다. 부 조각은 강화하면 수치가 오른다 (Lv{MAX_SUB_LEVEL}까지, 반드시 성공).
         </p>
       </header>
 
@@ -80,6 +82,7 @@ export function SkillHallScreen({ day, gold, hired, progress, salvage, onUnlock,
             progress={progress[picked.merc.id]}
             gold={gold}
             salvage={salvage}
+            guildRank={guildRank}
             onUnlock={(piece) => onUnlock(picked.merc.id, piece)}
             onUpgrade={(piece) => onUpgrade(picked.merc.id, piece)}
             onCraft={(build) => onCraft(picked.merc.id, build)}
@@ -98,6 +101,7 @@ function MercHall({
   progress: p,
   gold,
   salvage,
+  guildRank,
   onUnlock,
   onUpgrade,
   onCraft,
@@ -109,6 +113,7 @@ function MercHall({
   progress: MercProgress;
   gold: number;
   salvage: Record<string, number>;
+  guildRank: MercLevel;
   onUnlock: (piece: string) => void;
   onUpgrade: (piece: string) => void;
   onCraft: (build: SkillBuild) => void;
@@ -145,6 +150,7 @@ function MercHall({
         sources={sources}
         gold={gold}
         salvage={salvage}
+        guildRank={guildRank}
         onUnlock={onUnlock}
         onUpgrade={onUpgrade}
       />
@@ -367,6 +373,7 @@ function FragmentBoard({
   sources,
   gold,
   salvage,
+  guildRank,
   onUnlock,
   onUpgrade,
 }: {
@@ -377,13 +384,14 @@ function FragmentBoard({
   sources: Record<string, string[]>;
   gold: number;
   salvage: Record<string, number>;
+  guildRank: MercLevel;
   onUnlock: (piece: string) => void;
   onUpgrade: (piece: string) => void;
 }) {
   const row = (f: Fragment) => {
     const isKnown = known.includes(f.id);
     const lv = levels[f.id] ?? 1;
-    const unlock = unlockBlock(f.id, seed, known, gold, salvage);
+    const unlock = unlockBlock(f.id, seed, known, gold, salvage, guildRank);
     const up = f.kind === "sub" && isKnown ? upgradeBlock(f.id, known, levels, gold, salvage) : null;
     const nextCost = f.kind === "sub" && lv < MAX_SUB_LEVEL ? upgradeCost(f, lv + 1) : null;
     return (
@@ -395,7 +403,8 @@ function FragmentBoard({
           <span>
             <b className={isKnown ? "text-ember" : ""}>{f.name}</b>
             {f.kind === "sub" && <span className="ml-1 text-ash">Lv{lv}</span>}
-            {f.race && <span className="ml-1 text-[10px] text-frost">종족</span>} <span className="text-bone/70">{describeFragment(f, lv)}</span>
+            {f.race && <span className="ml-1 text-[10px] text-frost">종족</span>}
+            {f.tier === "silver" && <span className="ml-1 text-[10px] text-ash">은</span>} <span className="text-bone/70">{describeFragment(f, lv)}</span>
           </span>
           <span className="text-[11px] text-ash">
             {!isKnown

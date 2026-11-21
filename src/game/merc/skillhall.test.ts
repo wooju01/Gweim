@@ -17,22 +17,33 @@ describe("용병별 조각", () => {
     expect(knownFragments(base, [], ["knight_slash"])).not.toContain("knight_slash");
   });
 
-  it("해금: 다른 직업 조각·궁극기·이미 아는 조각·모자란 금화와 유실물은 막는다", () => {
+  it("해금: 다른 직업 조각·궁극기·이미 아는 조각·모자란 금화와 재료는 막는다", () => {
     const known = knownFragments(base, [], []);
-    const unknown = pool.find((f) => !known.includes(f.id))!;
+    const unknown = pool.find((f) => !known.includes(f.id) && f.tier === "bronze")!;
     const enough = { ...unknown.cost!.salvage };
-    expect(unlockBlock(unknown.id, base, known, 999, enough)).toBeNull();
-    expect(unlockBlock(unknown.id, base, known, 0, enough)).toBe("gold");
-    expect(unlockBlock(unknown.id, base, known, 999, {})).toBe("salvage");
-    expect(unlockBlock(known[0], base, known, 999, enough)).toBe("known");
-    expect(unlockBlock("knight_slash", base, known, 999, { crude_iron: 9 })).toBe("forbidden");
-    expect(unlockBlock("ult_greatsword", base, known, 999, {})).toBe("unknown");
+    expect(unlockBlock(unknown.id, base, known, 999, enough, "bronze")).toBeNull();
+    expect(unlockBlock(unknown.id, base, known, 0, enough, "bronze")).toBe("gold");
+    expect(unlockBlock(unknown.id, base, known, 999, {}, "bronze")).toBe("salvage");
+    // 직업 대표 메인은 비용이 없다 (처음부터 안다). 비용이 있는 아는 조각은 "이미 안다"
+    const knownWithCost = known.find((id) => getFragment(id)?.cost)!;
+    expect(unlockBlock(knownWithCost, base, known, 999, enough, "bronze")).toBe("known");
+    expect(unlockBlock("knight_combo", base, known, 999, { tech_shard: 9, mat_whetstone: 9 }, "bronze")).toBe("forbidden");
+    expect(unlockBlock("ult_greatsword", base, known, 999, {}, "bronze")).toBe("unknown");
     expect(paySalvage({ a: 2, b: 1 }, { a: 2 })).toEqual({ b: 1 });
+  });
+
+  it("은 조각은 길드 등급이 은 이상이어야 뚫는다", () => {
+    const known = knownFragments(base, [], []);
+    const silver = pool.find((f) => !known.includes(f.id) && f.tier === "silver")!;
+    const enough = { ...silver.cost!.salvage };
+    expect(unlockBlock(silver.id, base, known, 999, enough, "bronze")).toBe("rank");
+    expect(unlockBlock(silver.id, base, known, 999, enough, "silver")).toBeNull();
+    expect(unlockBlock(silver.id, base, known, 999, enough, "gold")).toBeNull();
   });
 
   it("강화: 아는 부 조각만, Lv3까지", () => {
     const sub = pool.find((f) => f.kind === "sub")!;
-    const material = { wolf_fang: 99 };
+    const material = { tech_shard: 99, boss_token: 9, [sub.material!]: 99 };
     expect(upgradeBlock(sub.id, [], {}, 999, material)).toBe("unknown");
     expect(upgradeBlock(sub.id, [sub.id], {}, 999, material)).toBeNull();
     expect(upgradeBlock(sub.id, [sub.id], { [sub.id]: 3 }, 999, material)).toBe("max");

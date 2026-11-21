@@ -12,7 +12,7 @@
 import type { Element } from "@/lib/schemas";
 import type { StatusKind } from "./combat";
 import type { PowerStat } from "./growth";
-import { JOB_MATERIAL, RACE_MATERIAL, type JobId, type RaceId } from "./jobs";
+import type { JobId, RaceId } from "./jobs";
 import type { DamageEffect, SkillEffect, SkillTarget, StatusRoll } from "./skills";
 
 /** 부 조각 수치: 숫자 하나면 레벨과 상관없고, [Lv1, Lv3]면 Lv2는 그 가운데 */
@@ -80,8 +80,12 @@ type Base = {
   race?: RaceId;
   /** 화면용 한 줄 (없으면 효과에서 만든다) */
   hint?: string;
-  /** 전수관에서 뚫어 주는 비용 (그 용병에게만). 궁극기는 null (승급으로 얻는다) */
+  /** 전수관에서 뚫어 주는 비용 (그 용병에게만). 궁극기·직업 대표 메인은 null (승급으로 얻거나 처음부터 안다) */
   cost: { gold: number; salvage: Record<string, number> } | null;
+  /** 해금 단계 (cost가 있는 조각만) */
+  tier?: UnlockTier;
+  /** 강화·해금에 드는 재료: 계열 재료, 종족 전용 조각은 종족 유물 */
+  material?: string;
   maxLevel: 1 | 3;
 };
 
@@ -120,19 +124,86 @@ export const SUB_CAPS = { power: 0.25, pierce: 0.25, crit: 0.3, flat: 15 } as co
 /** 조립 비용 (금화) */
 export const CRAFT_COST = 10;
 
-/** 해금 비용: 금화와 재료 개수 (재료는 data/jobs.ts의 직업·종족 재료) */
+/**
+ * 해금 단계: 동 조각은 처음부터, 은 조각은 길드에 은 등급 이상 용병이 있어야 뚫을 수 있다 (길드 등급 = 고용한 용병 중 최고 등급).
+ * 종족 전용 조각(직업+종족)은 모두 은.
+ */
+export type UnlockTier = "bronze" | "silver";
+
+/**
+ * 해금 비용 (전수관, 그 용병에게만). 재료 id는 data/loot.ts.
+ * material: 그 조각의 계열 재료 (FRAGMENT_UNLOCK), relic: 그 종족의 유물 (RACE_RELIC)
+ */
 export const UNLOCK_COST = {
-  main: { gold: 10, job: 2, race: 0 },
-  sub: { gold: 8, job: 1, race: 0 },
-  raceMain: { gold: 15, job: 1, race: 2 },
-  raceSub: { gold: 12, job: 1, race: 1 },
-  raceCommon: { gold: 10, job: 0, race: 2 },
+  bronzeMain: { gold: 20, shard: 3, book: 0, material: 2, relic: 0 },
+  bronzeSub: { gold: 15, shard: 2, book: 0, material: 2, relic: 0 },
+  silverMain: { gold: 50, shard: 0, book: 1, material: 3, relic: 0 },
+  silverSub: { gold: 40, shard: 4, book: 0, material: 3, relic: 0 },
+  raceMain: { gold: 60, shard: 0, book: 1, material: 0, relic: 1 },
+  raceSub: { gold: 50, shard: 3, book: 0, material: 0, relic: 1 },
 } as const;
 
-/** 부 조각 강화 비용 (오를 레벨별). 재료는 그 조각의 재료 */
-export const UPGRADE_COST: Record<2 | 3, { gold: number; material: number }> = {
-  2: { gold: 12, material: 2 },
-  3: { gold: 25, material: 4 },
+/**
+ * 부 조각 강화 비용 (오를 레벨별). 재료는 그 조각의 계열 재료 (종족 전용 부 조각은 종족 유물).
+ * Lv3는 보스 증표가 든다 (던전 보스만 떨어뜨린다)
+ */
+export const UPGRADE_COST: Record<2 | 3, { gold: number; shard: number; material: number; bossToken: number }> = {
+  2: { gold: 12, shard: 2, material: 1, bossToken: 0 },
+  3: { gold: 25, shard: 4, material: 2, bossToken: 1 },
+};
+
+/** 종족 전용 조각의 재료 (종족 유물) */
+export const RACE_RELIC: Record<RaceId, string> = {
+  human: "relic_crest",
+  elf: "relic_spirit",
+  dwarf: "relic_rune",
+  beastfolk: "relic_beastfang",
+  barbarian: "relic_totem",
+};
+
+const B = (material: string) => ({ tier: "bronze" as const, material });
+const S = (material: string) => ({ tier: "silver" as const, material });
+const WHET = "mat_whetstone", JELLY = "mat_jelly", FANG = "mat_fang", VENOM = "mat_venom", ARROW = "mat_arrowhead", SAP = "mat_sap", MACE = "mat_mace";
+
+/**
+ * 직업 공통 조각과 종족 공통 조각의 해금 단계와 계열 재료.
+ * 직업 대표 메인(JOB_SIGNATURE)은 처음부터 알아서 없다. 종족 전용 조각은 RACE_RELIC로 정한다.
+ * 기절·방어 감소 계열(철퇴)은 은부터 (초반에 기절이 남발되지 않게)
+ */
+export const FRAGMENT_UNLOCK: Record<FragmentId, { tier: UnlockTier; material: string }> = {
+  // 기사
+  knight_bulwark: B(SAP), knight_grit: B(SAP), knight_combo: B(WHET),
+  knight_charge: S(WHET), knight_duel: S(MACE), knight_sweep: S(WHET), knight_chivalry: S(SAP),
+  // 가디언
+  guardian_wall: B(SAP), guardian_ward: B(SAP), guardian_resolve: B(JELLY),
+  guardian_vow: S(MACE), guardian_cover: S(SAP), guardian_sturdy: S(JELLY), guardian_thorns: S(ARROW),
+  // 대검사
+  gs_stance: B(WHET), gs_recoil: B(WHET), gs_vamp: B(FANG),
+  gs_whirl: S(WHET), gs_breaker: S(MACE), gs_pierce: S(ARROW), gs_shock: S(MACE),
+  // 암살자
+  as_flurry: B(FANG), as_bleed: B(FANG), as_venom: B(VENOM),
+  as_vital: S(ARROW), as_shadow: S(JELLY), as_aim: S(WHET), as_finisher: S(FANG),
+  // 무투가
+  monk_counter: B(JELLY), monk_vital: B(WHET), monk_breathe: B(SAP),
+  monk_upper: S(MACE), monk_breath: S(WHET), monk_iron: S(MACE), monk_chain: S(WHET),
+  // 궁수
+  ar_aimed: B(WHET), ar_multi: B(ARROW), ar_keep: B(JELLY),
+  ar_rain: S(ARROW), ar_focus: S(WHET), ar_pierce: S(ARROW), ar_mark: S(FANG),
+  // 사제
+  pr_smite: B(WHET), pr_purify: B(VENOM), pr_grace: B(SAP), pr_bless: B(WHET),
+  pr_radiance: S(SAP), pr_barrier: S(SAP), pr_punish: S(MACE),
+  // 마법사
+  mg_barrier: B(SAP), mg_water: B(JELLY), mg_wind: B(ARROW),
+  mg_burst: S(JELLY), mg_focus: S(WHET), mg_fire: S(WHET), mg_earth: S(MACE),
+  // 바드
+  mn_courage: B(WHET), mn_chord: B(SAP), mn_tempo: B(JELLY),
+  mn_guard: S(SAP), mn_lullaby: S(MACE), mn_encore: S(JELLY), mn_solo: S(WHET),
+  // 종족 공통 (동 메인과 같은 비용, 재료는 효과 계열)
+  rc_human_aid: B(SAP), rc_human_sweep: B(WHET), rc_human_cut: B(WHET), rc_human_block: B(SAP),
+  rc_beast_lick: B(SAP), rc_beast_claw: B(FANG), rc_beast_howl: B(JELLY), rc_beast_dodge: B(JELLY),
+  rc_dwarf_smash: B(WHET), rc_dwarf_shove: B(JELLY), rc_dwarf_guard: B(SAP), rc_dwarf_head: B(MACE),
+  rc_elf_heal: B(SAP), rc_elf_thrust: B(WHET), rc_elf_dodge: B(JELLY), rc_elf_spirit: B(WHET),
+  rc_barb_regen: B(SAP), rc_barb_roar: B(JELLY), rc_barb_sweep: B(WHET), rc_barb_swing: B(WHET),
 };
 
 /** 모집 때 받는 시작 스킬 수와, 스킬마다 부 조각이 하나 붙을 확률 */
@@ -154,14 +225,6 @@ type At = { area?: "one" | "all"; who?: "self" | "allies" };
 const st = (status: StatusKind, x: Omit<StatusRoll, "status"> & At = {}): SkillEffect => ({ kind: "applyStatus", status, ...x });
 const later = (text: string): SkillEffect => ({ kind: "later", text });
 
-function cost(kind: keyof typeof UNLOCK_COST, job?: JobId, race?: RaceId): Base["cost"] {
-  const c = UNLOCK_COST[kind];
-  const salvage: Record<string, number> = {};
-  if (job && c.job) salvage[JOB_MATERIAL[job]] = (salvage[JOB_MATERIAL[job]] ?? 0) + c.job;
-  if (race && c.race) salvage[RACE_MATERIAL[race]] = (salvage[RACE_MATERIAL[race]] ?? 0) + c.race;
-  return { gold: c.gold, salvage };
-}
-
 type MainIn = Omit<MainFragment, "kind" | "cost" | "maxLevel" | "job" | "race">;
 type SubIn = Omit<SubFragment, "kind" | "cost" | "maxLevel" | "job" | "race">;
 
@@ -171,11 +234,11 @@ function jobSet(
   set: { mains: MainIn[]; subs: SubIn[]; races: Partial<Record<RaceId, [MainIn, SubIn]>>; ultimate: MainIn },
 ): Fragment[] {
   return [
-    ...set.mains.map((m): Fragment => ({ ...m, kind: "main", job, cost: cost("main", job), maxLevel: 1 })),
-    ...set.subs.map((s): Fragment => ({ ...s, kind: "sub", job, cost: cost("sub", job), maxLevel: MAX_SUB_LEVEL })),
+    ...set.mains.map((m): Fragment => ({ ...m, kind: "main", job, cost: null, maxLevel: 1 })),
+    ...set.subs.map((s): Fragment => ({ ...s, kind: "sub", job, cost: null, maxLevel: MAX_SUB_LEVEL })),
     ...Object.entries(set.races).flatMap(([race, [m, s]]): Fragment[] => [
-      { ...m, kind: "main", job, race: race as RaceId, cost: cost("raceMain", job, race as RaceId), maxLevel: 1 },
-      { ...s, kind: "sub", job, race: race as RaceId, cost: cost("raceSub", job, race as RaceId), maxLevel: MAX_SUB_LEVEL },
+      { ...m, kind: "main", job, race: race as RaceId, cost: null, maxLevel: 1 },
+      { ...s, kind: "sub", job, race: race as RaceId, cost: null, maxLevel: MAX_SUB_LEVEL },
     ]),
     { ...set.ultimate, kind: "main", job, ultimate: true, wait: 0, cost: null, maxLevel: 1 },
   ];
@@ -183,7 +246,7 @@ function jobSet(
 
 /** 종족 공통 메인 조각 (직업 상관없이) */
 function raceSet(race: RaceId, mains: MainIn[]): Fragment[] {
-  return mains.map((m) => ({ ...m, kind: "main", race, cost: cost("raceCommon", undefined, race), maxLevel: 1 }));
+  return mains.map((m) => ({ ...m, kind: "main", race, cost: null, maxLevel: 1 }));
 }
 
 // ── 직업 조각 ──────────────────────────────────────────
@@ -807,7 +870,48 @@ export const NEUTRAL_MAIN: MainFragment = {
   maxLevel: 1,
 };
 
-export const FRAGMENTS: Fragment[] = [...KNIGHT, ...GUARDIAN, ...GREATSWORD, ...ASSASSIN, ...MONK, ...ARCHER, ...PRIEST, ...MAGE, ...MINSTREL, ...RACE_COMMON, NEUTRAL_MAIN];
+/**
+ * 직업 대표 메인 조각: 처음부터 해금되어 있고, 모집할 때 시작 스킬에 반드시 들어간다 (고정 칸은 아니라 빼거나 바꿀 수 있다).
+ * 스킬이 하나도 없는 용병의 기본 스킬이기도 하다
+ */
+export const JOB_SIGNATURE: Record<string, FragmentId> = {
+  knight: "knight_slash",
+  guardian: "guardian_bash",
+  greatsword: "gs_strike",
+  assassin: "as_throw",
+  monk: "monk_punch",
+  archer: "ar_rapid",
+  priest: "pr_heal",
+  mage: "mg_bolt",
+  minstrel: "mn_discord",
+};
+/** 해금 단계·재료·비용을 붙인다 (FRAGMENT_UNLOCK, RACE_RELIC, UNLOCK_COST) */
+function withCost(f: Fragment): Fragment {
+  if (f.kind === "main" && f.ultimate) return f;
+  if (f.job && JOB_SIGNATURE[f.job] === f.id) return f;
+  const salvage: Record<string, number> = {};
+  const put = (id: string, n: number) => {
+    if (n > 0) salvage[id] = (salvage[id] ?? 0) + n;
+  };
+  // 종족 전용 (직업 + 종족): 은, 종족 유물
+  if (f.job && f.race) {
+    const c = UNLOCK_COST[f.kind === "main" ? "raceMain" : "raceSub"];
+    const relic = RACE_RELIC[f.race];
+    put("tech_shard", c.shard);
+    put("tactic_book", c.book);
+    put(relic, c.relic);
+    return { ...f, tier: "silver", material: relic, cost: { gold: c.gold, salvage } };
+  }
+  const u = FRAGMENT_UNLOCK[f.id];
+  if (!u) return f;
+  const c = UNLOCK_COST[`${u.tier}${f.kind === "main" ? "Main" : "Sub"}`];
+  put("tech_shard", c.shard);
+  put("tactic_book", c.book);
+  put(u.material, c.material);
+  return { ...f, tier: u.tier, material: u.material, cost: { gold: c.gold, salvage } };
+}
+
+export const FRAGMENTS: Fragment[] = [...KNIGHT, ...GUARDIAN, ...GREATSWORD, ...ASSASSIN, ...MONK, ...ARCHER, ...PRIEST, ...MAGE, ...MINSTREL, ...RACE_COMMON, NEUTRAL_MAIN].map(withCost);
 
 const BY_ID = new Map(FRAGMENTS.map((f) => [f.id, f]));
 
@@ -849,21 +953,6 @@ export const JOB_ULTIMATE: Record<string, FragmentId> = Object.fromEntries(
   FRAGMENTS.filter((f) => f.kind === "main" && f.ultimate && f.job).map((f) => [f.job!, f.id]),
 );
 
-/**
- * 직업 대표 메인 조각: 처음부터 해금되어 있고, 모집할 때 시작 스킬에 반드시 들어간다 (고정 칸은 아니라 빼거나 바꿀 수 있다).
- * 스킬이 하나도 없는 용병의 기본 스킬이기도 하다
- */
-export const JOB_SIGNATURE: Record<string, FragmentId> = {
-  knight: "knight_slash",
-  guardian: "guardian_bash",
-  greatsword: "gs_strike",
-  assassin: "as_throw",
-  monk: "monk_punch",
-  archer: "ar_rapid",
-  priest: "pr_heal",
-  mage: "mg_bolt",
-  minstrel: "mn_discord",
-};
 /** 예전 이름 */
 export const JOB_BASIC = JOB_SIGNATURE;
 
@@ -880,9 +969,9 @@ export function scaled(v: Scaled, lv: number): number {
   return Math.round((a + (b - a) * t) * 1000) / 1000;
 }
 
-/** 조각의 재료 (강화 비용에 쓴다): 직업 조각은 직업 재료, 종족 공통 조각은 종족 재료 */
+/** 조각의 재료 (강화 비용에 쓴다): 계열 재료, 종족 전용 조각은 종족 유물 */
 export function materialOf(f: Fragment): string | undefined {
-  return f.job ? JOB_MATERIAL[f.job] : f.race ? RACE_MATERIAL[f.race] : undefined;
+  return f.material;
 }
 
 /** 부 조각을 lv로 올리는 비용. 올릴 수 없으면 null */
@@ -890,5 +979,8 @@ export function upgradeCost(f: Fragment, lv: number): { gold: number; salvage: R
   if (f.kind !== "sub" || lv < 2 || lv > MAX_SUB_LEVEL) return null;
   const c = UPGRADE_COST[lv as 2 | 3];
   const material = materialOf(f);
-  return { gold: c.gold, salvage: material ? { [material]: c.material } : {} };
+  const salvage: Record<string, number> = { tech_shard: c.shard };
+  if (material) salvage[material] = c.material;
+  if (c.bossToken) salvage.boss_token = c.bossToken;
+  return { gold: c.gold, salvage };
 }

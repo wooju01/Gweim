@@ -11,7 +11,7 @@ import { nodeById } from "@/game/dungeon/map";
 import { getStage } from "@/game/merc/affinity";
 import { DialogueScreen } from "@/components/dialogue/DialogueScreen";
 import { GuildScreen } from "@/components/guild/GuildScreen";
-import { entryId, gameReducer, hiredCount, initialState, mercOf, type TownPlace } from "@/game/state/state";
+import { entryId, gameReducer, guildRank, hiredCount, initialState, mercOf, type TownPlace } from "@/game/state/state";
 import { GateScreen } from "@/components/town/GateScreen";
 import { ReportScreen } from "@/components/town/ReportScreen";
 import { YardScreen, type PromotionOffer } from "@/components/town/YardScreen";
@@ -499,6 +499,7 @@ export function Game() {
           )}
           progress={state.progress}
           salvage={state.salvage}
+          guildRank={guildRank(state)}
           onUnlock={(mercId, piece) => dispatch({ type: "unlockPiece", mercId, piece })}
           onUpgrade={(mercId, piece) => dispatch({ type: "upgradePiece", mercId, piece })}
           onCraft={(mercId, build) => dispatch({ type: "craftSkill", mercId, build })}

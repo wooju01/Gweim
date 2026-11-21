@@ -17,7 +17,7 @@ import { promote, promoteCost } from "@/game/merc/promotion";
 import { craft, forgetSkill, knownFragments, paySalvage, swapSkills, unlockBlock, upgradeBlock } from "@/game/merc/skillhall";
 import { CRAFT_COST, getFragment, upgradeCost } from "@/data/fragments";
 import { FIRST_DUNGEON, getDungeon } from "@/data/regions";
-import { stageOf } from "@/data/ranks";
+import { RANK_ORDER, stageOf } from "@/data/ranks";
 import { TRINKET_MAX_LV, forgeCost, getTrinket, trinketStats, type OwnedTrinket } from "@/data/trinkets";
 import { advanceCost, wageOf } from "@/game/merc/wages";
 import { act, giftsReceived, type Battle, type BattleAction } from "@/game/combat/engine";
@@ -43,7 +43,7 @@ import { DISPATCH, MAX_ACTIVE_DIRECT, getQuest } from "@/data/quests";
 import { clanJoinChance, objectiveDone, resolveDispatch, rollBoard, settlementsDue, upkeepCost, type DispatchOutcome } from "@/game/quests";
 import { buildMerc } from "@/game/merc/generate";
 import type { Merc } from "@/game/types";
-import type { Element, EventResponse, HistoryLine, MercRef, MercSeed, SkillBuild, Stage, TalkResponse, TalkState } from "@/lib/schemas";
+import type { Element, EventResponse, HistoryLine, MercLevel, MercRef, MercSeed, SkillBuild, Stage, TalkResponse, TalkState } from "@/lib/schemas";
 
 const HISTORY_LIMIT = 20;
 
@@ -402,6 +402,16 @@ function restock(seed: number): Record<SupplyKind, number> {
 
 export function isTown(kind: string): kind is TownPlace {
   return kind === "town" || kind === "guild" || kind === "shop" || kind === "inn" || kind === "gate" || kind === "yard" || kind === "hall" || kind === "forge" || kind === "board";
+}
+
+/** 길드 등급: 고용한 용병 중 가장 높은 등급 (아무도 없으면 동). 전수관의 은 조각 해금 조건 */
+export function guildRank(state: GameState): MercLevel {
+  let best = 0;
+  for (const e of state.roster) {
+    if (!state.progress[entryId(e)]?.hired) continue;
+    best = Math.max(best, RANK_ORDER.indexOf(mercOf(e).level ?? "bronze"));
+  }
+  return RANK_ORDER[best];
 }
 
 /** 고용한 용병 수 (파티에 들지 않은 사람 포함). 지금은 이 수가 MERC_SLOTS를 넘지 못한다 */
@@ -885,7 +895,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const entry = state.roster.find((e) => entryId(e) === action.mercId);
       if (state.expedition || !p?.hired || entry?.kind !== "random") return state;
       const known = knownFragments(entry.seed, p.learned, p.pieces);
-      if (unlockBlock(action.piece, entry.seed, known, state.gold, state.salvage)) return state;
+      if (unlockBlock(action.piece, entry.seed, known, state.gold, state.salvage, guildRank(state))) return state;
       const { cost } = getFragment(action.piece)!;
       return {
         ...state,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MONSTER_MATERIAL, MONSTER_RELIC, RANK_DROPS, SPECIAL_DROPS } from "./drops";
 import { DROPS, getSalvage } from "./loot";
 import { FRAGMENTS, upgradeCost } from "./fragments";
 import { REGIONS } from "./regions";
@@ -33,7 +34,18 @@ describe("재료 구하기", () => {
         kinds.add(id);
         for (const e of getMonster(id)?.escort ?? []) kinds.add(e);
       }
+    // 유실물 (data/loot.ts) + 전수관 재료 (data/drops.ts: 등급 기본·계열 재료·종족 유물·특수)
     const obtainable = new Set([...kinds].flatMap((k) => (DROPS[k] ?? []).map((d) => d.id)));
+    for (const k of kinds) {
+      const rank = getMonster(k)?.rank ?? "normal";
+      const base = RANK_DROPS[rank];
+      if (base.shard.chance > 0) obtainable.add("tech_shard");
+      if (base.bossToken > 0) obtainable.add("boss_token");
+      if (base.book > 0 || RANK_DROPS.elite.book > 0) obtainable.add("tactic_book"); // 일반 몬스터도 정예로 나온다
+      if (MONSTER_MATERIAL[k]) obtainable.add(MONSTER_MATERIAL[k].id);
+      if (MONSTER_RELIC[k]) obtainable.add(MONSTER_RELIC[k].id);
+      for (const d of SPECIAL_DROPS[k] ?? []) obtainable.add(d.id);
+    }
     const needed = [
       ...FRAGMENTS.flatMap((f) => [...Object.keys(f.cost?.salvage ?? {}), ...Object.keys(upgradeCost(f, 2)?.salvage ?? {})]),
       ...TRINKETS.map((t) => t.material.id),

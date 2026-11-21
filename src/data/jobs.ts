@@ -103,26 +103,3 @@ export function jobTitle(m: { job: string; level: MercLevel; branch?: string; ra
   return pick(b.tier4?.[m.race as RaceId], m.gender) ?? t3;
 }
 
-// ── 조각 재료 (전수관 해금·강화 비용에 쓴다. 미지의 숲에서 나는 유실물) ──
-
-/** 직업 조각에 드는 유실물 */
-export const JOB_MATERIAL: Record<JobId, string> = {
-  knight: "crude_iron",
-  guardian: "orc_tusk",
-  greatsword: "wolf_fang",
-  assassin: "venom_gland",
-  monk: "soft_pelt",
-  archer: "spider_silk",
-  priest: "slime_core",
-  mage: "shaman_feather",
-  minstrel: "bat_wing",
-};
-
-/** 종족 조각에 드는 유실물 */
-export const RACE_MATERIAL: Record<RaceId, string> = {
-  human: "shiny_trinket",
-  elf: "slime_jelly",
-  dwarf: "crude_iron",
-  beastfolk: "wolf_fang",
-  barbarian: "orc_tusk",
-};
