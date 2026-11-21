@@ -38,6 +38,9 @@ import {
   type Expedition,
 } from "@/game/dungeon/expedition";
 import { KEY_ITEMS, type KeyItemId } from "@/data/keyItems";
+import { ARREARS, CLAN_FOUNDERS, DAILY_SCENE_CHANCE, HOME_TALKS, SETTLEMENT_DAYS } from "@/data/clan";
+import { DISPATCH, MAX_ACTIVE_DIRECT, getQuest } from "@/data/quests";
+import { clanJoinChance, objectiveDone, resolveDispatch, rollBoard, settlementsDue, upkeepCost, type DispatchOutcome } from "@/game/quests";
 import { buildMerc } from "@/game/merc/generate";
 import type { Merc } from "@/game/types";
 import type { Element, EventResponse, HistoryLine, MercRef, MercSeed, SkillBuild, Stage, TalkResponse, TalkState } from "@/lib/schemas";
@@ -56,7 +59,30 @@ export type MercProgress = TalkState & {
   pieces: string[];
   levels: Record<string, number>;
   trinket?: OwnedTrinket;
+  /** 용병(원정마다 보수) / 클랜원(보수 없음, 파견 가능). 없으면 용병 */
+  kind?: "merc" | "member";
+  /** 클랜 가입 의사를 밝혔다 (창설 전) */
+  pledged?: boolean;
+  /** 이 날까지 파견·부상으로 원정 파티에 넣을 수 없다 */
+  busyUntilDay?: number;
+  /** 마지막으로 클랜 가입을 제안한 날 (거절당하면 다음 귀환까지 다시 못 한다) */
+  clanAskedDay?: number;
 } & Growth;
+
+/** 진행 중인 파견 */
+export type Dispatch = { questId: string; members: string[]; endDay: number };
+/** 끝난 파견의 보고 (story는 AI가 쓴 이야기. 기다리는 중이면 null) */
+export type DispatchReport = {
+  questId: string;
+  title: string;
+  day: number;
+  success: boolean;
+  members: { id: string; name: string; outcome: DispatchOutcome }[];
+  lines: string[];
+  story: string | null;
+};
+/** 귀환 때 집에서 벌어진 용병 둘의 짧은 장면 (text는 AI. 기다리는 중이면 null) */
+export type HomeScene = { ids: [string, string]; text: string | null; day: number };
 
 /** 길드 명단의 한 칸. 고유 용병은 id만, 랜덤 용병은 다시 만들 수 있는 시드를 들고 있다. */
 export type RosterEntry = MercRef;
@@ -118,6 +144,22 @@ export type GameState = {
   conquered: string[];
   /** 클랜 창고의 히든 열쇠 (종류마다 최대 1개, 원정을 넘어 유지) */
   keyItems: KeyItemId[];
+  /** 집: 숙소 → 클랜 본부 (가입 의사 8명이 모이면 창설) */
+  home: "inn" | "clanHall";
+  /** 마지막 정산일과 연체 (주 수, 밀린 금화) */
+  lastSettlementDay: number;
+  arrearsWeeks: number;
+  clanDebt: number;
+  /** 이번 귀환에 집에서 1:1로 이야기할 수 있는 남은 사람 수 */
+  talksLeft: number;
+  /** 게시판에 붙은 의뢰 id, 받아 둔 직접 의뢰, 진행 중인 파견, 끝난 파견 보고 (최근 것부터) */
+  board: string[];
+  activeQuests: string[];
+  dispatches: Dispatch[];
+  dispatchLog: DispatchReport[];
+  homeScene: HomeScene | null;
+  /** 방금 한 클랜 가입 제안의 대답 (저장하지 않는다) */
+  clanAnswer: { mercId: string; accepted: boolean; words: string | null } | null;
 };
 
 /** day: 죽은 날 (결산에서 이번 원정의 사망자를 찾는다) */
@@ -153,10 +195,16 @@ export type Report = {
   growth: string[];
   /** 히든 열쇠: 얻음·소모·잃음 (한 줄씩) */
   keys?: string[];
+  /** 지난 날 수 */
+  days?: number;
+  /** 의뢰: 직접 의뢰 완료, 파견 결과 (한 줄씩) */
+  quests?: string[];
+  /** 정산 (한 줄씩) */
+  clan?: string[];
 };
 
 /** 마을 안의 화면: 마을(홈), 용병 길드, 상점, 숙소(파티 편성), 던전 입구 */
-export type TownPlace = "town" | "guild" | "shop" | "inn" | "gate" | "yard" | "hall" | "forge";
+export type TownPlace = "town" | "guild" | "shop" | "inn" | "gate" | "yard" | "hall" | "forge" | "board";
 
 export type RestTalk = {
   mercId: string;
@@ -232,6 +280,23 @@ export type GameAction =
   | { type: "load"; state: GameState }
   /** 저장을 지우고 처음부터 */
   | { type: "newGame" }
+  /** 게시판: 직접 의뢰 받기·포기 */
+  | { type: "acceptQuest"; questId: string }
+  | { type: "abandonQuest"; questId: string }
+  /** 게시판: 클랜원을 파견 의뢰에 보낸다 */
+  | { type: "dispatchQuest"; questId: string; members: string[] }
+  /** 파견 보고 이야기 (AI) */
+  | { type: "dispatchStory"; index: number; text: string }
+  /** 집: 신뢰 단계 용병에게 클랜 가입을 제안한다 (seed: 수락 판정) */
+  | { type: "proposeClan"; mercId: string; seed: number }
+  | { type: "clanWords"; mercId: string; words: string }
+  /** 집: 가입 의사가 8명 모이면 클랜을 세운다 */
+  | { type: "foundClan" }
+  /** 집: 1:1 대화를 시작한다 (귀환마다 2명) */
+  | { type: "homeTalkStart"; mercId: string }
+  | { type: "homeTalkEnd" }
+  /** 일상 장면 (AI) */
+  | { type: "sceneText"; text: string }
   /** 마을 안에서 이동 */
   | { type: "goto"; place: TownPlace }
   /** 숙소: 고용한 용병을 원정 파티에 넣거나 뺀다 */
@@ -303,7 +368,8 @@ function payWages(state: GameState, ids: string[]): { state: GameState; lines: s
   for (const id of ids) {
     const p = state.progress[id];
     const entry = state.roster.find((e) => entryId(e) === id);
-    if (!p?.hired || !entry) continue;
+    // 클랜원은 보수가 없다 (유지비로 대신한다)
+    if (!p?.hired || !entry || p.kind === "member") continue;
     const wage = p.wage ?? wageOf(mercOf(entry));
     if (gold >= wage) {
       gold -= wage;
@@ -335,7 +401,7 @@ function restock(seed: number): Record<SupplyKind, number> {
 }
 
 export function isTown(kind: string): kind is TownPlace {
-  return kind === "town" || kind === "guild" || kind === "shop" || kind === "inn" || kind === "gate" || kind === "yard" || kind === "hall" || kind === "forge";
+  return kind === "town" || kind === "guild" || kind === "shop" || kind === "inn" || kind === "gate" || kind === "yard" || kind === "hall" || kind === "forge" || kind === "board";
 }
 
 /** 고용한 용병 수 (파티에 들지 않은 사람 포함). 지금은 이 수가 MERC_SLOTS를 넘지 못한다 */
@@ -421,6 +487,7 @@ function freshProgress(merc: Merc): MercProgress {
     learned: [],
     pieces: [],
     levels: {},
+    kind: "merc",
     ...NO_GROWTH,
   };
 }
@@ -456,8 +523,163 @@ export function initialState(): GameState {
     explored: [],
     conquered: [],
     keyItems: [],
+    home: "inn",
+    lastSettlementDay: 1,
+    arrearsWeeks: 0,
+    clanDebt: 0,
+    talksLeft: HOME_TALKS,
+    board: rollBoard(1),
+    activeQuests: [],
+    dispatches: [],
+    dispatchLog: [],
+    homeScene: null,
+    clanAnswer: null,
     stock: { ...START_STOCK },
   };
+}
+
+/** 파견 중이거나 다쳐서 쉬는 중인가 */
+export function isBusy(state: GameState, mercId: string): boolean {
+  return (state.progress[mercId]?.busyUntilDay ?? 0) > state.day;
+}
+
+/** 용병 하나를 명단에서 지운다 (떠남). 장신구는 보관함으로 */
+function removeMerc(state: GameState, id: string): GameState {
+  const p = state.progress[id];
+  const progress = { ...state.progress };
+  delete progress[id];
+  return {
+    ...state,
+    trinkets: p?.trinket ? [...state.trinkets, p.trinket] : state.trinkets,
+    roster: state.roster.filter((e) => entryId(e) !== id),
+    party: state.party.filter((x) => x !== id),
+    progress,
+  };
+}
+
+const nameOf = (state: GameState, id: string) => {
+  const entry = state.roster.find((e) => entryId(e) === id);
+  return entry ? mercOf(entry).name : "누군가";
+};
+
+/**
+ * 던전에서 돌아왔을 때 (보상·날짜는 이미 처리됨): 직접 의뢰 완료 → 파견 진행 → 정산 → 대화 횟수 → 게시판 → 일상 장면.
+ * 파티 체력은 다음 원정을 언제나 가득 찬 채 시작하므로 따로 할 일이 없다
+ */
+function returnToVillage(state: GameState, exp: Expedition, report: Report, seed: number): GameState {
+  let next = state;
+  const rng = createRng(seed ^ 0x7e57);
+  const defeat = exp.room?.kind === "defeat";
+  report.days = next.day - report.day;
+
+  // 1. 직접 의뢰: 살아 돌아왔으면 목표를 이룬 의뢰의 보상 (수집 의뢰는 그 유실물을 낸다)
+  const questLines: string[] = [];
+  if (!defeat) {
+    const tally = { kills: exp.kills ?? {}, eliteKills: exp.eliteKills ?? {}, salvage: next.salvage };
+    for (const id of next.activeQuests) {
+      const q = getQuest(id);
+      if (q?.kind !== "direct" || !objectiveDone(q.objective, tally)) continue;
+      let salvage = next.salvage;
+      if (q.objective.type === "collect") salvage = paySalvage(salvage, { [q.objective.itemId]: q.objective.count });
+      next = {
+        ...next,
+        gold: next.gold + q.reward.gold,
+        salvage: addSalvage(salvage, q.reward.salvage ?? {}),
+        activeQuests: next.activeQuests.filter((x) => x !== id),
+      };
+      tally.salvage = next.salvage;
+      questLines.push(`의뢰 완료: ${q.title} · ${CURRENCY} +${q.reward.gold}`);
+    }
+  }
+
+  // 3. 파견: 끝난 것을 판정한다 (결과는 코드, 이야기는 AI)
+  const done = next.dispatches.filter((d) => d.endDay <= next.day);
+  next = { ...next, dispatches: next.dispatches.filter((d) => d.endDay > next.day) };
+  for (const d of done) {
+    const q = getQuest(d.questId);
+    if (q?.kind !== "dispatch") continue;
+    const members = d.members.flatMap((id) => {
+      const entry = next.roster.find((e) => entryId(e) === id);
+      const p = next.progress[id];
+      if (!entry || !p) return [];
+      const m = mercOf(entry);
+      return [{ id, level: m.level ?? "bronze", stats: p.stats, personalities: m.traitIds?.personalities ?? [], background: m.traitIds?.background, name: m.name }];
+    });
+    const result = resolveDispatch(d.questId, members, rng.next() * 2 ** 32);
+    if (!result) continue;
+    const lines: string[] = [];
+    if (result.success) {
+      next = { ...next, gold: next.gold + q.reward.gold, salvage: addSalvage(next.salvage, q.reward.salvage ?? {}) };
+      lines.push(`성공 · ${CURRENCY} +${q.reward.gold}`);
+    } else lines.push("실패");
+    // 부상: 더 쉬어야 한다
+    const progress = { ...next.progress };
+    for (const r of result.members) {
+      if (r.outcome === "injured" && progress[r.id]) {
+        progress[r.id] = { ...progress[r.id], busyUntilDay: next.day + DISPATCH.injuryDays };
+        lines.push(`${members.find((m) => m.id === r.id)!.name} 부상 (${DISPATCH.injuryDays}일 쉰다)`);
+      }
+    }
+    next = { ...next, progress };
+    const bumped = bumpAffinity(next, result.affinity, result.success ? "파견 성공" : "파견 실패");
+    next = { ...next, progress: bumped.progress };
+    lines.push(...bumped.lines);
+    // 사망은 영구 (장신구는 동료들이 거둬 온다)
+    const dead = result.members.filter((r) => r.outcome === "dead").map((r) => r.id);
+    if (dead.length) next = bury(next, dead, true);
+    const entryReport: DispatchReport = {
+      questId: d.questId,
+      title: q.title,
+      day: next.day,
+      success: result.success,
+      members: result.members.map((r) => ({ id: r.id, name: members.find((m) => m.id === r.id)?.name ?? "", outcome: r.outcome })),
+      lines,
+      story: null,
+    };
+    next = { ...next, dispatchLog: [entryReport, ...next.dispatchLog].slice(0, 10) };
+    questLines.push(`파견 「${q.title}」 ${result.success ? "성공" : "실패"}${dead.length ? ` · 잃은 동료 ${dead.length}명` : ""}`);
+  }
+  if (questLines.length) report.quests = questLines;
+
+  // 4. 정산: 7일 경계를 넘은 만큼 유지비. 모자라면 연체 (1주: 호감 하락, 2주부터: 호감이 가장 낮은 클랜원이 떠난다)
+  const due = settlementsDue(next.lastSettlementDay, next.day);
+  const clanLines: string[] = [];
+  for (let i = 0; i < due; i++) {
+    const memberIds = Object.entries(next.progress).filter(([, p]) => p.hired && p.kind === "member").map(([id]) => id);
+    const owed = upkeepCost(next.home, memberIds.length) + next.clanDebt;
+    if (owed === 0) continue;
+    const paid = Math.min(next.gold, owed);
+    const debt = owed - paid;
+    next = { ...next, gold: next.gold - paid, clanDebt: debt, arrearsWeeks: debt > 0 ? next.arrearsWeeks + 1 : 0 };
+    clanLines.push(debt > 0 ? `유지비 ${CURRENCY} ${owed} 중 ${paid}만 냈다. 밀린 돈 ${debt} (${next.arrearsWeeks}주 연체)` : `유지비 ${CURRENCY} ${paid}를 냈다.`);
+    if (next.arrearsWeeks >= 1 && memberIds.length) {
+      const down = bumpAffinity(next, Object.fromEntries(memberIds.map((id) => [id, ARREARS.affinity])), "유지비가 밀렸다");
+      next = { ...next, progress: down.progress };
+      clanLines.push(...down.lines);
+    }
+    if (next.arrearsWeeks >= ARREARS.leaveFrom && memberIds.length) {
+      const lowest = [...memberIds].sort((a, b) => next.progress[a].affinity - next.progress[b].affinity)[0];
+      clanLines.push(`${nameOf(next, lowest)}은(는) 밀린 유지비에 지쳐 클랜을 떠났다.`);
+      next = removeMerc(next, lowest);
+    }
+  }
+  next = { ...next, lastSettlementDay: next.lastSettlementDay + due * SETTLEMENT_DAYS };
+  if (clanLines.length) report.clan = clanLines;
+
+  // 6~7. 집에서 이야기할 수 있는 사람 수, 게시판 (상점은 이미 새로 들였다)
+  const taken = [...next.activeQuests, ...next.dispatches.map((d) => d.questId)];
+  next = { ...next, talksLeft: HOME_TALKS, board: rollBoard(seed, taken) };
+
+  // 일상 장면: 고용한 용병 둘 (확률)
+  const hired = Object.entries(next.progress).filter(([, p]) => p.hired).map(([id]) => id);
+  if (hired.length >= 2 && rng.next() < DAILY_SCENE_CHANCE) {
+    const a = hired.splice(Math.floor(rng.next() * hired.length), 1)[0];
+    const b = hired[Math.floor(rng.next() * hired.length)];
+    next = { ...next, homeScene: { ids: [a, b], text: null, day: next.day } };
+  } else {
+    next = { ...next, homeScene: null };
+  }
+  return next;
 }
 
 export function gameReducer(state: GameState, action: GameAction): GameState {
@@ -707,6 +929,80 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       };
     }
 
+    case "acceptQuest": {
+      const q = getQuest(action.questId);
+      if (state.expedition || q?.kind !== "direct" || !state.board.includes(q.id) || state.activeQuests.length >= MAX_ACTIVE_DIRECT) return state;
+      return { ...state, board: state.board.filter((id) => id !== q.id), activeQuests: [...state.activeQuests, q.id] };
+    }
+
+    case "abandonQuest":
+      if (state.expedition || !state.activeQuests.includes(action.questId)) return state;
+      return { ...state, activeQuests: state.activeQuests.filter((id) => id !== action.questId) };
+
+    case "dispatchQuest": {
+      const q = getQuest(action.questId);
+      if (state.expedition || q?.kind !== "dispatch" || !state.board.includes(q.id)) return state;
+      const ids = [...new Set(action.members)];
+      if (ids.length < q.size[0] || ids.length > q.size[1]) return state;
+      // 클랜원만, 쉬는 중이 아닌 사람만 (용병은 보낼 수 없다)
+      if (ids.some((id) => state.progress[id]?.kind !== "member" || !state.progress[id]?.hired || isBusy(state, id))) return state;
+      const endDay = state.day + q.days;
+      const progress = { ...state.progress };
+      for (const id of ids) progress[id] = { ...progress[id], busyUntilDay: endDay };
+      return {
+        ...state,
+        progress,
+        party: state.party.filter((id) => !ids.includes(id)),
+        board: state.board.filter((id) => id !== q.id),
+        dispatches: [...state.dispatches, { questId: q.id, members: ids, endDay }],
+      };
+    }
+
+    case "dispatchStory":
+      return { ...state, dispatchLog: state.dispatchLog.map((r, i) => (i === action.index ? { ...r, story: action.text } : r)) };
+
+    case "proposeClan": {
+      const p = state.progress[action.mercId];
+      const entry = state.roster.find((e) => entryId(e) === action.mercId);
+      if (state.expedition || !p?.hired || !entry || p.kind === "member" || p.pledged || p.clanAskedDay === state.day) return state;
+      const merc = mercOf(entry);
+      const chance = clanJoinChance(p.affinity, merc.traitIds?.personalities ?? [], merc.traitIds?.background);
+      if (chance <= 0) return state;
+      const accepted = createRng(action.seed).next() < chance;
+      // 클랜이 이미 있으면 바로 클랜원, 없으면 가입 의사만
+      const changed: MercProgress = accepted
+        ? state.home === "clanHall"
+          ? { ...p, kind: "member", clanAskedDay: state.day }
+          : { ...p, pledged: true, clanAskedDay: state.day }
+        : { ...p, clanAskedDay: state.day };
+      return { ...state, progress: { ...state.progress, [action.mercId]: changed }, clanAnswer: { mercId: action.mercId, accepted, words: null } };
+    }
+
+    case "clanWords":
+      return state.clanAnswer?.mercId === action.mercId ? { ...state, clanAnswer: { ...state.clanAnswer, words: action.words } } : state;
+
+    case "foundClan": {
+      const pledged = Object.entries(state.progress).filter(([, p]) => p.hired && p.pledged);
+      if (state.expedition || state.home !== "inn" || pledged.length < CLAN_FOUNDERS) return state;
+      const progress = { ...state.progress };
+      for (const [id, p] of pledged) progress[id] = { ...p, kind: "member", pledged: false };
+      return { ...state, home: "clanHall", progress, lastSettlementDay: state.day, notices: [...state.notices, "클랜 본부를 세웠다. 이제 7일마다 유지비가 나간다."] };
+    }
+
+    case "homeTalkStart":
+      if (state.expedition || state.talksLeft <= 0 || !state.progress[action.mercId]?.hired || state.restTalk) return state;
+      return {
+        ...state,
+        talksLeft: state.talksLeft - 1,
+        restTalk: { mercId: action.mercId, reply: null, pending: true, error: null, done: false },
+      };
+
+    case "homeTalkEnd":
+      return state.expedition ? state : { ...state, restTalk: null };
+
+    case "sceneText":
+      return state.homeScene ? { ...state, homeScene: { ...state.homeScene, text: action.text } } : state;
+
     case "forgetSkill": {
       const p = state.progress[action.mercId];
       if (state.expedition || !p?.hired) return state;
@@ -782,6 +1078,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case "toggleParty": {
       if (state.expedition || !state.progress[action.mercId]?.hired) return state;
+      // 파견 중이거나 다친 클랜원은 원정에 데려갈 수 없다
+      if (!state.party.includes(action.mercId) && isBusy(state, action.mercId)) return state;
       if (state.party.includes(action.mercId)) return { ...state, party: state.party.filter((id) => id !== action.mercId) };
       if (state.party.length >= MERC_SLOTS) return state;
       return { ...state, party: [...state.party, action.mercId] };
@@ -870,7 +1168,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         reactions: [],
         restTalk: null,
         screen: exp ? { kind: "report" } : { kind: "town" },
-        day: state.day + 1,
+        // 던전에서 보낸 날: 도달한 층수만큼 (1층 1일 … 4층 4일)
+        day: state.day + Math.max(1, exp?.depth ?? 1),
       };
       if (!exp) return next;
       const defeat = exp.room?.kind === "defeat";
@@ -991,6 +1290,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           progress,
         };
       }
+      next = returnToVillage(next, exp, report, action.seed);
       return { ...next, report };
     }
 

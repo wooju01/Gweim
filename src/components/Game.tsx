@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import type { TalkAction } from "@/lib/schemas";
-import { postEvent, postFarewell, postReact, postRecruit, postTalk } from "@/lib/api";
+import { postEvent, postFarewell, postReact, postRecruit, postStory, postTalk } from "@/lib/api";
 import { BattleScreen } from "@/components/battle/BattleScreen";
 import { DungeonScreen } from "@/components/dungeon/DungeonScreen";
 import { alive, battleSpoils, finishBattle, moveTo } from "@/game/dungeon/expedition";
@@ -11,7 +11,6 @@ import { nodeById } from "@/game/dungeon/map";
 import { getStage } from "@/game/merc/affinity";
 import { DialogueScreen } from "@/components/dialogue/DialogueScreen";
 import { GuildScreen } from "@/components/guild/GuildScreen";
-import { MERC_SLOTS } from "@/game/merc/party";
 import { entryId, gameReducer, hiredCount, initialState, mercOf, type TownPlace } from "@/game/state/state";
 import { GateScreen } from "@/components/town/GateScreen";
 import { ReportScreen } from "@/components/town/ReportScreen";
@@ -28,6 +27,10 @@ import { ForgeScreen } from "@/components/town/ForgeScreen";
 import { ShopScreen } from "@/components/town/ShopScreen";
 import { TownScreen } from "@/components/town/TownScreen";
 import { MercSheet } from "@/components/town/MercSheet";
+import { BoardScreen } from "@/components/town/BoardScreen";
+import { ROSTER_LIMIT } from "@/data/clan";
+import { clanJoinChance } from "@/game/quests";
+import { createRng } from "@/game/random";
 import { clearSave, loadGame, saveGame } from "@/game/state/save";
 import { salvageCount } from "@/data/loot";
 
@@ -46,6 +49,9 @@ function playerLineFor(action: TalkAction): string | null {
   }
 }
 
+/** 리듀서를 순수하게 두려고 난수 시드는 여기서 굴린다 (이벤트 처리기에서만 부른다) */
+const roll = () => Math.floor(Math.random() * 2 ** 32);
+
 export function Game() {
   const [state, dispatch] = useReducer(gameReducer, undefined, initialState);
   // 처음 한 번 저장을 읽는다. 없으면 처음 상태로, 읽지 못하면 새로 시작하고 알린다.
@@ -63,6 +69,60 @@ export function Game() {
   useEffect(() => {
     if (state.booted) saveGame(window.localStorage, state);
   }, [state]);
+
+  // 귀환 뒤 AI 이야기: 일상 장면, 파견 보고 (결과는 이미 정해졌다. 한 번만 부탁한다)
+  const asked = useRef(new Set<string>());
+  useEffect(() => {
+    if (!state.booted) return;
+    const find = (id: string) => state.roster.find((e) => entryId(e) === id);
+    const scene = state.homeScene;
+    if (scene && scene.text === null) {
+      const key = `scene:${scene.day}:${scene.ids.join("+")}`;
+      const [a, b] = scene.ids.map(find);
+      if (!asked.current.has(key) && a && b) {
+        asked.current.add(key);
+        postStory({ kind: "scene", mercs: [a, b] })
+          .then((r) => dispatch({ type: "sceneText", text: r.text }))
+          .catch(() => dispatch({ type: "sceneText", text: "둘은 난롯가에 앉아 지난 원정 이야기로 한참 웃었다." }));
+      }
+    }
+    state.dispatchLog.forEach((r, index) => {
+      if (r.story !== null) return;
+      const key = `dispatch:${r.questId}:${r.day}`;
+      if (asked.current.has(key)) return;
+      asked.current.add(key);
+      // 죽은 클랜원은 명단에서 지워졌으므로 추모 명단의 이름만 남는다 → 살아 있는 사람만 용병 정보로, 없으면 기본 문장
+      const members = r.members.flatMap((m) => {
+        const e = find(m.id);
+        return e ? [{ merc: e, outcome: m.outcome }] : [];
+      });
+      const fallback = `「${r.title}」에서 돌아왔다. ${r.success ? "의뢰는 무사히 마쳤다." : "의뢰는 실패했다."}`;
+      if (members.length === 0) {
+        dispatch({ type: "dispatchStory", index, text: fallback });
+        return;
+      }
+      postStory({ kind: "dispatch", title: r.title, success: r.success, members })
+        .then((res) => dispatch({ type: "dispatchStory", index, text: res.text }))
+        .catch(() => dispatch({ type: "dispatchStory", index, text: fallback }));
+    });
+  }, [state.booted, state.homeScene, state.dispatchLog, state.roster]);
+
+  /** 클랜 가입 제안: 판정은 리듀서와 같은 시드로 여기서도 알 수 있다. 대답은 AI */
+  async function proposeClan(mercId: string) {
+    const entry = findEntry(mercId);
+    const p = state.progress[mercId];
+    if (!entry || !p) return;
+    const seed = roll();
+    dispatch({ type: "proposeClan", mercId, seed });
+    const m = mercOf(entry);
+    const accepted = createRng(seed).next() < clanJoinChance(p.affinity, m.traitIds?.personalities ?? [], m.traitIds?.background);
+    try {
+      const res = await postReact({ merc: entry, situation: "clanJoin", feeling: accepted ? "up" : "down", stage: getStage(p.affinity) });
+      dispatch({ type: "clanWords", mercId, words: res.words });
+    } catch {
+      dispatch({ type: "clanWords", mercId, words: accepted ? "좋아, 함께하지." : "…아직은 아니야." });
+    }
+  }
 
   function newGame() {
     if (!window.confirm("저장을 지우고 처음부터 시작할까? 되돌릴 수 없다.")) return;
@@ -135,8 +195,6 @@ export function Game() {
     }
   }
 
-  /** 리듀서를 순수하게 두려고 난수 시드는 여기서 굴린다 */
-  const roll = () => Math.floor(Math.random() * 2 ** 32);
 
   async function move(nodeId: string) {
     const exp = state.expedition;
@@ -168,7 +226,7 @@ export function Game() {
   }
 
   /** 휴식 칸 대화. 용병이 먼저 한마디 하고, 플레이어가 한 번 답하면 끝난다 (호감만 움직인다) */
-  async function sendRest(mercId: string, action: TalkAction) {
+  async function sendRest(mercId: string, action: TalkAction, scene: "rest" | "home" = "rest") {
     const entry = findEntry(mercId);
     if (!entry) return;
     const { affinity, willingness, recentTones, history, memory, talks, offers } = state.progress[mercId];
@@ -177,7 +235,7 @@ export function Game() {
         merc: entry,
         state: { affinity, willingness, recentTones, history, memory, talks, offers },
         action,
-        scene: "rest",
+        scene,
       });
       dispatch({ type: "resolved", mercId, playerText: playerLineFor(action), res });
       dispatch({ type: "restTalkReply", res, done: action.type !== "open" });
@@ -253,6 +311,8 @@ export function Game() {
         explored={state.explored}
         conquered={state.conquered}
         omenLines={omen?.at === state.expedition.at ? omen.lines : []}
+        activeQuests={state.activeQuests}
+        homeSalvage={state.salvage}
         restTalk={state.restTalk}
         progress={state.progress}
         onRestTalk={(mercId) => {
@@ -276,7 +336,7 @@ export function Game() {
           merc={mercOf(entry)}
           screen={state.screen}
           progress={state.progress[state.screen.mercId]}
-          partyFull={hiredCount(state) >= MERC_SLOTS}
+          partyFull={hiredCount(state) >= ROSTER_LIMIT}
           onAct={act}
           onLeave={() => dispatch({ type: "leave" })}
           gold={state.gold}
@@ -361,7 +421,42 @@ export function Game() {
           hired={hired}
           progress={state.progress}
           party={state.party}
+          home={state.home}
+          talksLeft={state.talksLeft}
+          restTalk={state.restTalk}
+          clanAnswer={state.clanAnswer}
+          homeScene={state.homeScene}
+          settlement={{ lastDay: state.lastSettlementDay, arrearsWeeks: state.arrearsWeeks, debt: state.clanDebt }}
           onToggle={(mercId) => dispatch({ type: "toggleParty", mercId })}
+          onTalk={(mercId) => {
+            dispatch({ type: "homeTalkStart", mercId });
+            void sendRest(mercId, { type: "open" }, "home");
+          }}
+          onTalkReply={(action) => {
+            if (!state.restTalk || state.restTalk.pending || state.restTalk.done) return;
+            dispatch({ type: "restTalkPending" });
+            void sendRest(state.restTalk.mercId, action, "home");
+          }}
+          onTalkEnd={() => dispatch({ type: "homeTalkEnd" })}
+          onProposeClan={(mercId) => void proposeClan(mercId)}
+          onFoundClan={() => dispatch({ type: "foundClan" })}
+          onBack={toTown}
+        />
+      );
+    case "board":
+      return (
+        <BoardScreen
+          day={state.day}
+          gold={state.gold}
+          board={state.board}
+          activeQuests={state.activeQuests}
+          dispatches={state.dispatches}
+          dispatchLog={state.dispatchLog}
+          members={hired.filter((m) => state.progress[m.id]?.kind === "member")}
+          progress={state.progress}
+          onAccept={(questId) => dispatch({ type: "acceptQuest", questId })}
+          onAbandon={(questId) => dispatch({ type: "abandonQuest", questId })}
+          onDispatch={(questId, members) => dispatch({ type: "dispatchQuest", questId, members })}
           onBack={toTown}
         />
       );
@@ -452,6 +547,8 @@ export function Game() {
           party={partyMercs}
           crew={hired}
           onInspect={setSheetId}
+          quests={state.activeQuests.length}
+          homeName={state.home === "clanHall" ? "클랜 본부" : "숙소"}
           visitors={mercs.length - hired.length}
           pack={state.pack}
           relics={state.relics.length}

@@ -165,6 +165,12 @@ function floatsFor(e: BattleEvent): Omit<Float, "id">[] {
       return [{ unit: e.actor, text: getSkill(e.skill)?.name ?? "", tone: "gold" }];
     case "fizzle":
       return [{ unit: e.actor, text: "실패", tone: "info" }];
+    case "fled":
+      return [{ unit: e.unit, text: "도주", tone: "info" }];
+    case "explode":
+      return [{ unit: e.unit, text: "자폭!", tone: "crit" }];
+    case "cover":
+      return [{ unit: e.unit, text: "감싸기", tone: "gold" }];
     case "passive":
       return [{ unit: e.unit, text: getPassive(e.passive)?.name ?? "", tone: "gold" }];
     default:

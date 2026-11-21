@@ -1,4 +1,5 @@
 import { MERC_SLOTS } from "@/game/merc/party";
+import { ROSTER_LIMIT } from "@/data/clan";
 import { PACK_LIMIT } from "@/data/economy";
 import type { SupplyKind } from "@/data/combat";
 import { Button, Portrait } from "@/components/common/parts";
@@ -24,6 +25,10 @@ type Props = {
   salvage: number;
   /** 남은 단련 기회 합 */
   trainable: number;
+  /** 받은 직접 의뢰 수 */
+  quests: number;
+  /** 집 이름 (숙소 / 클랜 본부) */
+  homeName: string;
   notices: string[];
   memorial: Fallen[];
   onGo: (place: TownPlace) => void;
@@ -35,7 +40,7 @@ type Facility = SceneFacility & { description: string };
 
 /** 마을(홈). 시설 카드에서 길드·상점·숙소·던전 입구로 간다. 나중 시설은 자리만 보인다 */
 export function TownScreen(props: Props) {
-  const { day, gold, hired, party, crew, onInspect, visitors, pack, relics, salvage, trainable, notices, memorial, onGo, onDismissNotices, onNewGame } = props;
+  const { day, gold, hired, party, crew, onInspect, quests, homeName, visitors, pack, relics, salvage, trainable, notices, memorial, onGo, onDismissNotices, onNewGame } = props;
   const packed = Object.values(pack).reduce((a, b) => a + b, 0);
   const partySize = party.length;
 
@@ -45,7 +50,7 @@ export function TownScreen(props: Props) {
       place: "guild",
       name: "용병 길드",
       description: "떠돌이 용병을 모집하고, 말을 걸어 동행을 청한다.",
-      status: `고용 ${hired} / ${MERC_SLOTS}${visitors ? ` · 기다리는 용병 ${visitors}명` : ""}`,
+      status: `고용 ${hired} / ${ROSTER_LIMIT}${visitors ? ` · 기다리는 용병 ${visitors}명` : ""}`,
     },
     {
       key: "shop",
@@ -57,8 +62,8 @@ export function TownScreen(props: Props) {
     {
       key: "inn",
       place: "inn",
-      name: "숙소",
-      description: "고용한 용병 중 원정에 데려갈 사람을 정한다.",
+      name: homeName,
+      description: "원정 파티를 정하고, 귀환마다 두 명과 이야기하고, 클랜을 꾸린다.",
       status: `원정 파티 ${partySize} / ${MERC_SLOTS}`,
     },
     {
@@ -89,7 +94,13 @@ export function TownScreen(props: Props) {
       description: "용병마다 스킬 조각을 가르치고, 아는 조각으로 새 스킬을 조립한다.",
       status: hired ? "조각 가르치기 · 스킬 조립" : "고용한 용병이 없다",
     },
-    { key: "tavern", name: "게시판 · 주점", description: "의뢰와 소문, 용병들과의 이야기.", later: "준비 중" },
+    {
+      key: "tavern",
+      place: "board",
+      name: "게시판 · 주점",
+      description: "직접 의뢰를 받고, 클랜원을 파견 의뢰에 보낸다.",
+      status: quests ? `받은 의뢰 ${quests}개` : "의뢰를 고를 수 있다",
+    },
   ];
 
   return (

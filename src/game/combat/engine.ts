@@ -94,6 +94,8 @@ export type Unit = {
   abilities?: Ability[];
   /** 적만: 정예 특성 id */
   elite?: string;
+  /** 적만: 전투에서 달아났다 (쓰러진 것으로 치지만 처치 보상은 없다) */
+  fled?: boolean;
   /** 용병만: 화면에 그릴 때 쓰는 직업·종족 id (규칙에는 쓰지 않는다) */
   job?: string;
   race?: string;
@@ -157,6 +159,12 @@ export type BattleEvent =
   | { type: "death"; target: string; chance: number }
   /** 차례를 넘겼다 */
   | { type: "wait"; unit: string }
+  /** 달아났다 */
+  | { type: "fled"; unit: string }
+  /** 자폭했다 */
+  | { type: "explode"; unit: string }
+  /** unit이 target 대신 공격을 맞았다 (감싸기) */
+  | { type: "cover"; unit: string; target: string }
   /** 적대 단계 용병이 명령을 무시했다 */
   | { type: "disobey"; unit: string }
   /** 스킬이 실패했다 (정령이 답하지 않음 등) */
@@ -405,6 +413,8 @@ export function enemyUnit(k: EnemyKind | Monster, id: string, name = k.name): Un
     tags: m?.tags,
     rank: m?.rank,
     abilities: m?.abilities,
+    ...(m?.evade ? { evadeBonus: m.evade } : {}),
+    ...(m?.crit ? { critBonus: m.crit } : {}),
     statuses: [],
     skills: m?.skills ?? [],
     cooldowns: {},
@@ -449,18 +459,18 @@ export function rollEncounter(rng: Rng, region?: Region, elites = 0): Unit[] {
   }
   const count = rollInt(rng.next, region.size[0], region.size[1]);
   const total = region.monsters.reduce((s, m) => s + m.weight, 0);
-  const pick = () => {
+  const picks = Array.from({ length: count }, () => {
     let roll = rng.next() * total;
-    const hit = region.monsters.find((m) => (roll -= m.weight) < 0) ?? region.monsters[region.monsters.length - 1];
-    return getMonster(hit.id)!;
-  };
-  // 일반 몬스터는 지역의 정예 확률로 정예가 된다 (특성 하나 무작위). 앞에서 elites마리는 반드시 정예 (정예 목적지)
+    return region.monsters.find((m) => (roll -= m.weight) < 0) ?? region.monsters[region.monsters.length - 1];
+  });
+  // 일반 몬스터는 지역의 정예 확률로 정예가 된다 (특성 하나 무작위). 지역에서 elite로 정한 몬스터는 늘 정예.
+  // 앞에서 elites마리는 반드시 정예 (정예 목적지)
   let forced = 0;
-  return nameUnits(Array.from({ length: count }, pick)).map((u) => {
+  return nameUnits(picks.map((p) => getMonster(p.id)!)).map((u, i) => {
     if (u.rank !== "normal") return u;
-    const must = forced < elites;
+    const must = picks[i].elite || forced < elites;
     if (!must && !(region.eliteChance > 0 && rng.next() < region.eliteChance)) return u;
-    if (must) forced++;
+    if (must && !picks[i].elite) forced++;
     return makeElite(u, ELITE_TRAITS[Math.floor(rng.next() * ELITE_TRAITS.length)]);
   });
 }
@@ -698,7 +708,7 @@ function leaderBonus(b: Battle, u: Unit): number {
 /**
  * 차례가 온 몬스터의 능력 행동 (부화, 낳기). 행동을 써 버렸으면 true (공격하지 않는다)
  */
-function monsterTurn(b: Battle, unit: Unit): boolean {
+function monsterTurn(b: Battle, rng: Rng, unit: Unit): boolean {
   unit.fx ??= {};
   unit.fx.age = (unit.fx.age ?? 0) + 1;
   // 재생: 차례마다 체력 회복 (나무 거인 등)
@@ -714,6 +724,32 @@ function monsterTurn(b: Battle, unit: Unit): boolean {
       checkOutcome(b);
     }
     return true; // 알은 공격하지 않는다
+  }
+  // 도망: 정해진 차례에 전투에서 빠진다 (처치 보상 없음)
+  const flee = ability(unit, "flee");
+  if (flee && unit.fx.age >= flee.turns) {
+    unit.hp = 0;
+    unit.statuses = [];
+    unit.fled = true;
+    b.log.push({ type: "fled", unit: unit.id });
+    checkOutcome(b);
+    return true;
+  }
+  // 자폭: 정해진 차례에 터진다. 자신은 쓰러지고 모든 적이 피해를 입는다
+  const boom = ability(unit, "explode");
+  if (boom && unit.fx.age >= boom.turns) {
+    b.log.push({ type: "explode", unit: unit.id });
+    for (const foe of foes(b, unit)) {
+      if (b.outcome) break;
+      strike(b, rng, unit, foe, rollInt(rng.next, boom.damage[0], boom.damage[1]), { aoe: true, onHit: false });
+    }
+    if (unit.hp > 0) {
+      unit.hp = 0;
+      unit.statuses = [];
+      b.log.push({ type: "down", target: unit.id });
+      checkOutcome(b);
+    }
+    return true;
   }
   const brood = ability(unit, "brood");
   if (brood && unit.fx.age % brood.every === 0 && living(b, "enemy").length < MAX_ENEMIES) {
@@ -815,7 +851,7 @@ function tryStatus(b: Battle, rng: Rng, actor: Unit, target: Unit, roll: StatusR
     b.log.push({ type: "resist", target: target.id, kind: roll.status });
     return;
   }
-  applyStatus(b, target, roll.status, { value: roll.value, turns: roll.turns, self, ...(roll.status === "duel" ? { source: actor.id } : {}) });
+  applyStatus(b, target, roll.status, { value: roll.value, turns: roll.turns, self, ...(roll.status === "duel" || roll.status === "cover" ? { source: actor.id } : {}) });
   if (roll.status === "stun" && !roll.sure && !self) {
     target.fx ??= {};
     target.fx.stunCount = (target.fx.stunCount ?? 0) + 1;
@@ -1098,6 +1134,18 @@ function rollBase(rng: Rng, actor: Unit, e: DamageEffect): number {
   return Math.round(rollInt(rng.next, actor.attack[0], actor.attack[1]) * totalMult(e)) + (e.bonus ?? 0);
 }
 
+/**
+ * 감싸기: 대상에게 "보호받음"을 건 동료가 살아 있으면 그 동료가 대신 맞는다 (적 하나를 노리는 공격만).
+ * 가디언의 감싸기와 몬스터(세계수 근위병)가 같은 규칙을 쓴다
+ */
+function coverFor(b: Battle, target: Unit): Unit {
+  const c = target.statuses.find((x) => x.kind === "cover");
+  const guard = c && b.units.find((u) => u.id === c.source && u.hp > 0 && u !== target && u.side === target.side);
+  if (!guard) return target;
+  b.log.push({ type: "cover", unit: guard.id, target: target.id });
+  return guard;
+}
+
 /** 응축을 꺼낸다 (이번 행동의 공격에 쓰고 사라진다) */
 function takeCharge(actor: Unit): number {
   const charge = statusValue(actor, "charge");
@@ -1105,8 +1153,9 @@ function takeCharge(actor: Unit): number {
   return charge;
 }
 
-function attack(b: Battle, rng: Rng, actor: Unit, target: Unit) {
+function attack(b: Battle, rng: Rng, actor: Unit, aimed: Unit) {
   const charge = takeCharge(actor);
+  const target = coverFor(b, aimed);
   strike(b, rng, actor, target, rollBase(rng, actor, BASIC_ATTACK), {
     enemiesAtStart: foes(b, actor).length,
     scaling: [{ stat: "str", mult: 1 }],
@@ -1182,9 +1231,11 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
             strike(b, rng, actor, pool[Math.floor(rng.next() * pool.length)], rollBase(rng, actor, e), { ...opts, aoe: true });
           }
         } else {
+          // 감싸기: 적 하나를 노리는 공격이면 보호하는 동료가 대신 맞는다
+          const hitTarget = target && target.side !== actor.side ? coverFor(b, target) : target;
           for (let h = 0; h < hits; h++) {
-            if (!target || target.hp <= 0 || b.outcome) break;
-            strike(b, rng, actor, target, rollBase(rng, actor, e), opts);
+            if (!hitTarget || hitTarget.hp <= 0 || b.outcome) break;
+            strike(b, rng, actor, hitTarget, rollBase(rng, actor, e), opts);
           }
           // 적 둘: 대상 말고 무작위 적 하나도
           if (e.area === "two" && !b.outcome) {
@@ -1528,14 +1579,24 @@ function pickVictim(b: Battle, rng: Rng, unit: Unit): Unit | null {
  * 스킬이 없는 몬스터는 늘 공격한다 (난수를 더 쓰지 않는다).
  */
 function enemyTurn(b: Battle, rng: Rng, unit: Unit) {
-  const ready = unit.skills.filter((id) => !(unit.cooldowns[id] > 0) && skillDef(unit, id));
+  // 쓸모없는 지원은 고르지 않는다: 다친 아군이 없으면 회복 스킬, 지켜 줄 동료가 없으면 감싸기
+  const hurt = friends(b, unit).some((f) => f.hp < f.maxHp);
+  const others = friends(b, unit).filter((f) => f !== unit);
+  const useful = (id: string) => {
+    const sk = skillDef(unit, id)!;
+    if (sk.effects.every((e) => e.kind === "heal") && !hurt) return false;
+    if (sk.effects.some((e) => e.kind === "applyStatus" && e.status === "cover") && others.length === 0) return false;
+    return true;
+  };
+  const ready = unit.skills.filter((id) => !(unit.cooldowns[id] > 0) && skillDef(unit, id) && useful(id));
   if (ready.length > 0 && rng.next() < ENEMY_SKILL_CHANCE) {
     const skill = skillDef(unit, ready[Math.floor(rng.next() * ready.length)])!;
+    const covers = skill.effects.some((e) => e.kind === "applyStatus" && e.status === "cover");
     const target =
       skill.target === "enemy"
         ? pickVictim(b, rng, unit)
         : skill.target === "ally"
-          ? [...friends(b, unit)].sort((x, y) => x.hp / x.maxHp - y.hp / y.maxHp)[0]
+          ? [...(covers ? others : friends(b, unit))].sort((x, y) => x.hp / x.maxHp - y.hp / y.maxHp)[0]
           : undefined;
     if (skill.target !== "enemy" || target) {
       castSkill(b, rng, unit, skill.id, target ?? undefined);
@@ -1586,7 +1647,7 @@ function advance(b: Battle, rng: Rng) {
     }
     if (unit.side === "merc") return; // 플레이어 입력을 기다린다
 
-    if (!monsterTurn(b, unit)) enemyTurn(b, rng, unit);
+    if (!monsterTurn(b, rng, unit)) enemyTurn(b, rng, unit);
     endTurn(unit);
   }
   throw new Error("전투가 끝나지 않는다 (무한 루프 방지)");

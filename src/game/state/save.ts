@@ -1,6 +1,7 @@
 // 자동 저장. 브라우저(localStorage)에 한 칸만 두고, 상태가 바뀔 때마다 덮어쓴다 (되돌리기 없음).
 // 저장 데이터는 Zod 스키마로 검사하고 버전 번호를 붙인다. 버전이 다르면 읽지 않고 새 게임으로 시작한다
-// (형식이 크게 바뀔 때 변환하지 않고 초기화하기로 했다. 2026-11-20: 직업·등급·스킬 조각 개편 → 버전 3).
+// (형식이 크게 바뀔 때 변환하지 않고 초기화하기로 했다. 2026-11-20: 직업·등급·스킬 조각 개편 → 버전 3,
+// 2026-11-21: 시간·클랜·의뢰 → 버전 4).
 // 대화 화면·AI 응답 대기처럼 잠깐 거치는 상태는 저장하지 않는다.
 // 전투 중이면 전투 그대로 저장한다 (새로고침으로 도망칠 수 없게).
 import { z } from "zod";
@@ -11,7 +12,7 @@ import { entryId, initialState, mercOf, type GameState } from "./state";
 export const SAVE_KEY = "ashen-save";
 /** 읽지 못한 저장을 지우기 전에 옮겨 두는 곳 (직접 살펴볼 수 있게) */
 export const BROKEN_KEY = "ashen-save-broken";
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 const MercProgressSave = TalkState.extend({
   hired: z.boolean(),
@@ -25,6 +26,10 @@ const MercProgressSave = TalkState.extend({
   pieces: z.array(z.string().max(40)).default([]),
   levels: z.record(z.string().max(40), z.number().int().min(1).max(3)).default({}),
   trinket: z.object({ id: z.string().max(40), lv: z.number().int().min(1).max(3) }).optional(),
+  kind: z.enum(["merc", "member"]).default("merc"),
+  pledged: z.boolean().optional(),
+  busyUntilDay: z.number().int().optional(),
+  clanAskedDay: z.number().int().optional(),
 });
 const Supplies = z.object({ bandage: z.number().int().min(0), antidote: z.number().int().min(0), potion: z.number().int().min(0) });
 
@@ -86,6 +91,28 @@ export const SaveFile = z.object({
     explored: z.array(z.string().max(40)).default([]),
     conquered: z.array(z.string().max(40)).default([]),
     keyItems: z.array(z.enum(["world_tree_branch", "blood_invitation"])).max(2).default([]),
+    home: z.enum(["inn", "clanHall"]).default("inn"),
+    lastSettlementDay: z.number().int().min(1).default(1),
+    arrearsWeeks: z.number().int().min(0).default(0),
+    clanDebt: z.number().int().min(0).default(0),
+    talksLeft: z.number().int().min(0).default(2),
+    board: z.array(z.string().max(40)).default([]),
+    activeQuests: z.array(z.string().max(40)).default([]),
+    dispatches: z.array(z.object({ questId: z.string().max(40), members: z.array(z.string()), endDay: z.number().int() })).default([]),
+    dispatchLog: z
+      .array(
+        z.object({
+          questId: z.string(),
+          title: z.string(),
+          day: z.number().int(),
+          success: z.boolean(),
+          members: z.array(z.object({ id: z.string(), name: z.string(), outcome: z.enum(["ok", "injured", "dead"]) })),
+          lines: z.array(z.string()),
+          story: z.string().nullable(),
+        }),
+      )
+      .default([]),
+    homeScene: z.object({ ids: z.tuple([z.string(), z.string()]), text: z.string().nullable(), day: z.number().int() }).nullable().default(null),
   }),
 });
 export type SaveFile = z.infer<typeof SaveFile>;
@@ -123,6 +150,16 @@ export function toSave(state: GameState, now = new Date()): SaveFile {
       explored: state.explored,
       conquered: state.conquered,
       keyItems: state.keyItems,
+      home: state.home,
+      lastSettlementDay: state.lastSettlementDay,
+      arrearsWeeks: state.arrearsWeeks,
+      clanDebt: state.clanDebt,
+      talksLeft: state.talksLeft,
+      board: state.board,
+      activeQuests: state.activeQuests,
+      dispatches: state.dispatches,
+      dispatchLog: state.dispatchLog,
+      homeScene: state.homeScene,
     } as SaveFile["state"],
   };
 }
@@ -177,6 +214,16 @@ export function fromSave(raw: unknown): { state: GameState } | { error: string }
       explored: s.explored,
       conquered: s.conquered,
       keyItems: s.keyItems,
+      home: s.home,
+      lastSettlementDay: s.lastSettlementDay,
+      arrearsWeeks: s.arrearsWeeks,
+      clanDebt: s.clanDebt,
+      talksLeft: s.talksLeft,
+      board: s.board,
+      activeQuests: s.activeQuests,
+      dispatches: s.dispatches,
+      dispatchLog: s.dispatchLog,
+      homeScene: s.homeScene,
       // 사건 칸에서 멈췄으면 AI 묘사 없이 기본 문장으로 이어 간다
       narration: room?.kind === "event" && !room.result ? { eventId: room.eventId, pending: false, data: null } : null,
     },

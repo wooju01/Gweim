@@ -46,7 +46,7 @@ export type ReplyContext = {
   /** 남은 대화 횟수. 0이면 이번 말로 대화를 마무리한다 */
   talksLeft: number;
   /** 대화 장면. 없으면 길드 */
-  scene?: "guild" | "rest";
+  scene?: "guild" | "rest" | "home";
 };
 
 /** 기억 요약 입력. 기존 기억에 오래된 대화를 합쳐 새 기억을 만든다. */
@@ -80,6 +80,11 @@ export type FarewellInput = { merc: Merc; memory: string; stage: Stage };
 /** 상황 반응 한마디 입력 */
 export type ReactInput = { merc: Merc; situation: ReactSituation; feeling: "up" | "down" | "none"; stage: Stage };
 
+/** 짧은 이야기 입력 (일상 장면, 파견 보고) */
+export type StoryInput =
+  | { kind: "scene"; mercs: [Merc, Merc] }
+  | { kind: "dispatch"; title: string; success: boolean; members: { merc: Merc; outcome: "ok" | "injured" | "dead" }[] };
+
 /** 실제 AI와 mock이 똑같이 구현하는 인터페이스 */
 export interface MercAI {
   readonly mode: "mock" | "live";
@@ -95,4 +100,6 @@ export interface MercAI {
   farewell(input: FarewellInput): Promise<string>;
   /** 상황 반응 한마디 (전투 후퇴, 불길한 기운) */
   react(input: ReactInput): Promise<string>;
+  /** 짧은 이야기 (일상 장면, 파견 보고). 결과는 바꾸지 않는다 */
+  story(input: StoryInput): Promise<string>;
 }

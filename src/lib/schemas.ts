@@ -157,8 +157,9 @@ export type RecruitResponse = {
 /**
  * 대화 장면. guild: 길드에서 동행을 청하는 대화 (5번 제한, 고용 의향이 움직인다)
  * rest: 던전 휴식 중 짧은 대화 (횟수에 들지 않고, 호감만 움직이고, 동행 제안은 없다)
+ * home: 귀환 뒤 숙소·클랜 본부에서 1:1 대화 (rest와 같은 규칙, 귀환마다 2명)
  */
-export const TalkScene = z.enum(["guild", "rest"]);
+export const TalkScene = z.enum(["guild", "rest", "home"]);
 export type TalkScene = z.infer<typeof TalkScene>;
 
 export const TalkRequest = z.object({
@@ -239,7 +240,7 @@ export type FarewellResponse = { mode: AIMode; words: string };
  * 용병 한마디. flee: 전투 중 후퇴했다 / omen: 보스 직전, 불길한 기운을 느꼈다.
  * feeling: 그 일로 마음이 어떻게 움직였나 (코드가 성격으로 정한다)
  */
-export const ReactSituation = z.enum(["flee", "omen"]);
+export const ReactSituation = z.enum(["flee", "omen", "clanJoin"]);
 export type ReactSituation = z.infer<typeof ReactSituation>;
 
 export const ReactRequest = z.object({
@@ -252,3 +253,20 @@ export type ReactRequest = z.infer<typeof ReactRequest>;
 
 export const ReactLine = z.object({ words: z.string().min(1).max(100) });
 export type ReactResponse = { mode: AIMode; words: string };
+
+// ── 짧은 이야기 (일상 장면, 파견 보고) ──────────────────────
+
+/** 결과는 코드가 정했다. AI는 그 결과를 바꾸지 않고 이야기로만 쓴다 */
+export const StoryRequest = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("scene"), mercs: z.tuple([MercRef, MercRef]) }),
+  z.object({
+    kind: z.literal("dispatch"),
+    title: z.string().max(40),
+    success: z.boolean(),
+    members: z.array(z.object({ merc: MercRef, outcome: z.enum(["ok", "injured", "dead"]) })).min(1).max(4),
+  }),
+]);
+export type StoryRequest = z.infer<typeof StoryRequest>;
+
+export const Story = z.object({ text: z.string().min(1).max(400) });
+export type StoryResponse = { mode: AIMode; text: string };

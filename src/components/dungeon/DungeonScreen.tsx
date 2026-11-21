@@ -7,7 +7,10 @@ import { RANKS } from "@/data/ranks";
 import { getEvent, type Approach } from "@/data/events";
 import { CURRENCY } from "@/data/economy";
 import { getRelic } from "@/data/relics";
-import { salvageCount } from "@/data/loot";
+import { addSalvage, salvageCount } from "@/data/loot";
+import { getQuest } from "@/data/quests";
+import { objectiveProgress } from "@/game/quests";
+import { objectiveText } from "@/components/town/BoardScreen";
 import { alive, bossWarning, canDescend, canMove, nextRegions, regionOf, choiceProblem, helperFor, supplyProblem, type Expedition, type Member } from "@/game/dungeon/expedition";
 import { getStage } from "@/game/merc/affinity";
 import type { MercProgress, RestTalk } from "@/game/state/state";
@@ -38,6 +41,9 @@ type Props = {
   onRestReply: (action: TalkAction) => void;
   /** 보스 직전 경고에서 용병들이 한 말 (AI. 기다리는 중이면 빈 배열) */
   omenLines: string[];
+  /** 받은 직접 의뢰와 창고의 유실물 (수집 진행 표시) */
+  activeQuests: string[];
+  homeSalvage: Record<string, number>;
 };
 
 const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
@@ -79,6 +85,22 @@ export function DungeonScreen(props: Props) {
           )}
         </div>
       </header>
+
+      {props.activeQuests.length > 0 && (
+        <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ash">
+          {props.activeQuests.map((id) => {
+            const q = getQuest(id);
+            if (q?.kind !== "direct") return null;
+            const tally = { kills: exp.kills ?? {}, eliteKills: exp.eliteKills ?? {}, salvage: addSalvage(props.homeSalvage, exp.salvage ?? {}) };
+            const [now, goal] = objectiveProgress(q.objective, tally);
+            return (
+              <span key={id} className={now >= goal ? "text-moss" : ""}>
+                의뢰 {q.title}: {objectiveText(q.objective)} {now}/{goal}
+              </span>
+            );
+          })}
+        </p>
+      )}
 
       <DungeonMap exp={exp} onMove={onMove} />
 
@@ -236,7 +258,7 @@ function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, on
           <Lines lines={room.lines} />
           {reactions.length > 0 && <Lines lines={reactions} tone="ember" />}
           {restTalk ? (
-            <RestTalkPanel exp={exp} talk={restTalk} onReply={onRestReply} />
+            <RestTalkPanel name={exp.members.find((m) => m.id === restTalk.mercId)?.name ?? ""} talk={restTalk} onReply={onRestReply} />
           ) : (
             !room.talked && (
               <div className="flex flex-col gap-2">
@@ -424,9 +446,9 @@ const STAGE_LABEL: Record<Stage, { name: string; style: string }> = {
 };
 
 /** 휴식 칸 대화: 용병의 한마디 → 플레이어가 한 번 답한다 → 끝 */
-function RestTalkPanel({ exp, talk, onReply }: { exp: Expedition; talk: RestTalk; onReply: (a: TalkAction) => void }) {
+/** 짧은 대화 (던전 휴식, 집에서의 1:1). 한 번 답하면 끝난다 */
+export function RestTalkPanel({ name, talk, onReply }: { name: string; talk: RestTalk; onReply: (a: TalkAction) => void }) {
   const [draft, setDraft] = useState("");
-  const name = exp.members.find((m) => m.id === talk.mercId)?.name ?? "";
   const delta = talk.done ? talk.reply?.delta.affinity ?? 0 : 0;
   return (
     <div className="flex w-full flex-col gap-2 rounded-sm border border-edge bg-ink/60 p-3">

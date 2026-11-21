@@ -11,7 +11,7 @@ import {
 import { dislikedTones, likedTones } from "@/game/merc/affinity";
 import type { Merc } from "@/game/types";
 import { MEMORY_MAX_CHARS } from "@/game/merc/memory";
-import type { EventInput, FarewellInput, MercAI, ProfileInput, ReactInput, ReplyContext, SummaryInput } from "./types";
+import type { EventInput, FarewellInput, MercAI, ProfileInput, ReactInput, ReplyContext, StoryInput, SummaryInput } from "./types";
 
 type MercLines = {
   open: Record<Stage, string>;
@@ -199,8 +199,20 @@ export function mockReact({ situation, feeling }: ReactInput): string {
   const lines = {
     flee: { up: "휴, 살았다. 잘 물러났어.", down: "칫… 등을 보이다니, 다음엔 끝까지 간다.", none: "됐어, 다음에 다시 오면 되지." },
     omen: { up: "오, 저 안에 뭔가 대단한 게 있겠는데?", down: "저건 아니야. 지금은 물러나자.", none: "…어떻게 할지는 당신이 정해." },
+    clanJoin: { up: "좋아, 같이 가 보자고. 오래오래.", down: "고맙지만… 아직은 아니야. 조금만 더 지켜볼게.", none: "음, 생각해 볼게." },
   } as const;
   return lines[situation][feeling];
+}
+
+/** 짧은 이야기 기본 문장 */
+export function mockStory(input: StoryInput): string {
+  if (input.kind === "scene") {
+    const [a, b] = input.mercs;
+    return `${a.name}이(가) 난롯가에서 무기를 손질하는 동안, ${b.name}이(가) 옆에 앉아 지난 원정 이야기를 늘어놓았다. 둘은 누가 더 많이 쓰러뜨렸는지를 두고 한참 티격태격했다.`;
+  }
+  const names = input.members.map((m) => m.merc.name).join(", ");
+  const dead = input.members.filter((m) => m.outcome === "dead").map((m) => m.merc.name);
+  return `${names}이(가) 「${input.title}」에서 돌아왔다. ${input.success ? "의뢰는 무사히 마쳤다." : "의뢰는 끝내 실패했다."}${dead.length ? ` ${dead.join(", ")}은(는) 돌아오지 못했다.` : ""}`;
 }
 
 /** 사건 틀의 기본 문장을 그대로 쓴다 */
@@ -228,6 +240,9 @@ export function createMockAI(rand: () => number = Math.random): MercAI {
     },
     async react(input) {
       return mockReact(input);
+    },
+    async story(input) {
+      return mockStory(input);
     },
     async reply({ merc, stage, event }: ReplyContext) {
       const lines = GENERIC_LINES;

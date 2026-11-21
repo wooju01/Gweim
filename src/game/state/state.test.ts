@@ -551,3 +551,112 @@ describe("히든 열쇠 (클랜 창고)", () => {
     expect(gameReducer(s, { type: "enterDungeon", seed: 1 }).expedition!.keys).toEqual(["world_tree_branch"]);
   });
 });
+
+describe("시간 · 클랜 · 의뢰 (상태)", () => {
+  const ids = ["s-bran", "s-durgan"];
+  const back = (s: GameState, patch: Partial<NonNullable<GameState["expedition"]>> = {}, room: "goal" | "defeat" | null = null) =>
+    gameReducer({ ...s, expedition: { ...s.expedition!, ...patch, room: room ? { kind: room } : null } as NonNullable<GameState["expedition"]> }, { type: "endExpedition", seed: 1 });
+
+  it("던전에서는 도달한 층수만큼 날이 간다. 대화 횟수와 게시판이 새로 고쳐진다", () => {
+    const s = { ...inDungeon(ids), talksLeft: 0 };
+    const after = back(s, { depth: 3 });
+    expect(after.day).toBe(s.day + 3);
+    expect(after.report!.days).toBe(3);
+    expect(after.talksLeft).toBe(2);
+    expect(after.board.length).toBeGreaterThan(0);
+  });
+
+  it("클랜원은 원정 보수를 받지 않는다", () => {
+    const s = inDungeon(ids);
+    const asMember = { ...s, progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], kind: "member" as const } } };
+    const plain = back(s);
+    const member = back(asMember);
+    expect(member.gold).toBeGreaterThan(plain.gold);
+  });
+
+  it("정산: 7일 경계를 넘으면 유지비, 모자라면 연체 → 1주 호감 하락, 2주 한 명 떠남", () => {
+    const s = inDungeon(ids);
+    const clan: GameState = {
+      ...s,
+      home: "clanHall",
+      lastSettlementDay: 1,
+      day: 7,
+      gold: 0,
+      progress: Object.fromEntries(Object.entries(s.progress).map(([id, p]) => [id, ids.includes(id) ? { ...p, kind: "member" as const } : p])),
+    };
+    const week1 = back(clan);
+    expect(week1.arrearsWeeks).toBe(1);
+    expect(week1.clanDebt).toBeGreaterThan(0);
+    expect(week1.lastSettlementDay).toBe(8);
+    expect(week1.report!.clan!.some((l) => l.includes("연체"))).toBe(true);
+    // 다시 7일 → 2주 연체, 한 명이 떠난다
+    const again = gameReducer({ ...week1, expedition: { ...s.expedition!, depth: 1, room: null }, day: 14, gold: 0 }, { type: "endExpedition", seed: 2 });
+    expect(again.arrearsWeeks).toBe(2);
+    expect(again.roster.length).toBe(week1.roster.length - 1);
+    // 다 갚으면 0으로
+    const paid = gameReducer({ ...again, expedition: { ...s.expedition!, depth: 1, room: null }, day: 21, gold: 9999 }, { type: "endExpedition", seed: 3 });
+    expect(paid.arrearsWeeks).toBe(0);
+    expect(paid.clanDebt).toBe(0);
+  });
+
+  it("직접 의뢰: 받고, 목표를 이루고 살아 돌아오면 보상. 전멸이면 없다", () => {
+    let s = inDungeon(ids);
+    s = { ...s, board: ["q_goblin_king"], expedition: null, screen: { kind: "town" } };
+    s = gameReducer(s, { type: "acceptQuest", questId: "q_goblin_king" });
+    expect(s.activeQuests).toEqual(["q_goblin_king"]);
+    const d = inDungeon(ids);
+    const ready = { ...d, activeQuests: s.activeQuests };
+    const won = back(ready, { kills: { goblin_king: 1 } }, "goal");
+    expect(won.activeQuests).toEqual([]);
+    expect(won.report!.quests!.join()).toContain("고블린 킹 토벌");
+    const lost = back(ready, { kills: { goblin_king: 1 } }, "defeat");
+    expect(lost.activeQuests).toEqual(["q_goblin_king"]);
+  });
+
+  it("파견: 클랜원만, 보낸 사람은 파티에서 빠지고 돌아올 때까지 넣을 수 없다. 날이 차면 결과 보고", () => {
+    let s = initialState();
+    const id = "s-bran";
+    s = { ...s, board: ["d_herbs"], party: [id], progress: { ...s.progress, [id]: { ...s.progress[id], hired: true } } };
+    // 용병은 보낼 수 없다
+    expect(gameReducer(s, { type: "dispatchQuest", questId: "d_herbs", members: [id] })).toBe(s);
+    s = { ...s, progress: { ...s.progress, [id]: { ...s.progress[id], kind: "member" } } };
+    s = gameReducer(s, { type: "dispatchQuest", questId: "d_herbs", members: [id] });
+    expect(s.dispatches).toEqual([{ questId: "d_herbs", members: [id], endDay: s.day + 1 }]);
+    expect(s.party).toEqual([]);
+    expect(gameReducer(s, { type: "toggleParty", mercId: id })).toBe(s);
+    // 다른 사람으로 원정을 다녀오면 결과가 나온다
+    const other = "s-durgan";
+    s = { ...s, party: [other], progress: { ...s.progress, [other]: { ...s.progress[other], hired: true } } };
+    s = gameReducer(s, { type: "enterDungeon", seed: 1 });
+    s = gameReducer(s, { type: "endExpedition", seed: 1 });
+    expect(s.dispatches).toEqual([]);
+    expect(s.dispatchLog[0]).toMatchObject({ questId: "d_herbs", story: null });
+  });
+
+  it("클랜: 신뢰 단계에게만 가입을 청하고, 8명이 모이면 창설. 창설 뒤에는 바로 클랜원", () => {
+    let s = initialState();
+    const all = s.roster.map(entryId);
+    s = { ...s, progress: Object.fromEntries(Object.entries(s.progress).map(([id, p]) => [id, { ...p, hired: true, affinity: 100 }])) };
+    // 호감 100이면 늘 받아들인다 (성격 보정이 있어도 1로 잘린다고 보장되진 않으므로 시드를 여럿)
+    for (const id of all) for (let seed = 0; seed < 20 && !s.progress[id].pledged; seed++) s = gameReducer({ ...s, day: s.day + seed }, { type: "proposeClan", mercId: id, seed });
+    const pledged = all.filter((id) => s.progress[id].pledged);
+    expect(pledged.length).toBeGreaterThanOrEqual(8);
+    s = gameReducer(s, { type: "foundClan" });
+    expect(s.home).toBe("clanHall");
+    for (const id of pledged) expect(s.progress[id]).toMatchObject({ kind: "member", pledged: false });
+    // 신뢰 미만은 청할 수 없다
+    const low = { ...s, progress: { ...s.progress, [all[0]]: { ...s.progress[all[0]], kind: "merc" as const, affinity: 50 } } };
+    expect(gameReducer(low, { type: "proposeClan", mercId: all[0], seed: 1 })).toBe(low);
+  });
+
+  it("집에서 1:1 대화는 귀환마다 2명까지", () => {
+    let s = initialState();
+    s = { ...s, progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], hired: true }, "s-durgan": { ...s.progress["s-durgan"], hired: true }, "s-tob": { ...s.progress["s-tob"], hired: true } } };
+    s = gameReducer(s, { type: "homeTalkStart", mercId: "s-bran" });
+    s = gameReducer(s, { type: "homeTalkEnd" });
+    s = gameReducer(s, { type: "homeTalkStart", mercId: "s-durgan" });
+    s = gameReducer(s, { type: "homeTalkEnd" });
+    expect(s.talksLeft).toBe(0);
+    expect(gameReducer(s, { type: "homeTalkStart", mercId: "s-tob" })).toBe(s);
+  });
+});

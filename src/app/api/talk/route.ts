@@ -24,7 +24,8 @@ export async function POST(request: Request) {
     return Response.json({ error: "알 수 없는 용병이거나 잘못된 특성 조합" }, { status: 400 });
   }
 
-  const rest = parsed.data.scene === "rest";
+  // 휴식·집 대화: 호감만 움직이고 횟수에 들지 않는다
+  const rest = parsed.data.scene !== "guild";
   if (rest && action.type === "propose") {
     return Response.json({ error: "휴식 중에는 동행을 제안하지 않는다" }, { status: 400 });
   }

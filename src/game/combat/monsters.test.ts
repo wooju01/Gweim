@@ -40,12 +40,12 @@ describe("몬스터 능력", () => {
     expect(b.log.filter((e) => e.type === "spawn").map((e) => describeEvent(e, b))[0]).toContain("떨어져 나왔다");
   });
 
-  it("알 주머니는 공격하지 않고, 두 번째 차례에 새끼 거미 둘로 부화한다", () => {
+  it("알 주머니는 공격하지 않고, 두 번째 차례에 동굴 거미로 부화한다", () => {
     // 용병은 약하게 (알을 깨지 못하게)
     let b = startBattleWithUnits([hero("h", [1, 1]), mob("egg_sac", "e0", { hp: 999, maxHp: 999 })], 2);
     for (let i = 0; i < 6 && !b.log.some((e) => e.type === "spawn"); i++) b = hit(b, "e0");
     expect(b.log.some((e) => e.type === "attack" && e.actor === "e0")).toBe(false);
-    expect(living(b, "enemy").map((u) => u.kind)).toEqual(["spiderling", "spiderling"]);
+    expect(living(b, "enemy").map((u) => u.kind)).toEqual(["cave_spider"]);
     expect(b.units.find((u) => u.id === "e0")!.hp).toBe(0);
   });
 
@@ -131,8 +131,9 @@ describe("정예", () => {
     }
     expect(elites / total).toBeGreaterThan(region.eliteChance * 0.6);
     expect(elites / total).toBeLessThan(region.eliteChance * 1.4);
-    // 입문 지역은 정예가 없다
-    expect(rollEncounter(createRng(1), getRegion("uf_forest")!).some((u) => u.rank === "elite")).toBe(false);
+    // 입문 지역은 정예 확률이 0이다 (종 자체가 정예인 황금 숲 쥐만 가끔 나온다)
+    for (let seed = 0; seed < 100; seed++)
+      for (const u of rollEncounter(createRng(seed), getRegion("uf_forest")!)) if (u.rank === "elite") expect(u.kind).toBe("golden_rat");
   });
 });
 
@@ -168,5 +169,48 @@ describe("목적지 보스", () => {
     let b = startBattleWithUnits([hero("h", [1, 1]), mob("tree_giant", "e0", { hp: 50 })], 1);
     b = hit(b, "e0");
     expect(b.log.some((e) => e.type === "heal" && e.target === "e0" && e.amount === 4)).toBe(true);
+  });
+});
+
+describe("미지의 숲 추가 몬스터", () => {
+  it("황금 숲 쥐: 두 번째 차례에 달아나고, 달아나면 처치 보상이 없다. 잡으면 현상금", () => {
+    let b = startBattleWithUnits([hero("h", [1, 1]), mob("golden_rat", "e0", { hp: 999, maxHp: 999 }), mob("goblin_grunt", "e1", { hp: 999, maxHp: 999 })], 1);
+    for (let i = 0; i < 6 && !b.log.some((e) => e.type === "fled"); i++) b = hit(b, "e1");
+    expect(b.log).toContainEqual({ type: "fled", unit: "e0" });
+    expect(b.units.find((u) => u.id === "e0")).toMatchObject({ hp: 0, fled: true });
+    expect(describeEvent({ type: "fled", unit: "e0" }, b)).toContain("달아났다");
+    expect(getMonster("golden_rat")!.bounty).toBeDefined();
+  });
+
+  it("고블린 폭탄병: 두 번째 차례에 자폭해 모두에게 피해. 그전에 쓰러뜨리면 터지지 않는다", () => {
+    let b = startBattleWithUnits([hero("h", [1, 1]), mob("goblin_bomber", "e0", { hp: 999, maxHp: 999 })], 1);
+    for (let i = 0; i < 6 && !b.log.some((e) => e.type === "explode"); i++) b = hit(b, "e0");
+    expect(b.log.some((e) => e.type === "explode")).toBe(true);
+    expect(b.log.some((e) => e.type === "attack" && e.actor === "e0" && e.target === "h")).toBe(true);
+    expect(b.units.find((u) => u.id === "e0")!.hp).toBe(0);
+    // 한 방에 쓰러뜨리면 터지지 않는다
+    let c = startBattleWithUnits([hero(), mob("goblin_bomber", "e0")], 1);
+    c = hit(c, "e0");
+    expect(c.log.some((e) => e.type === "explode")).toBe(false);
+  });
+
+  it("세계수 근위병의 방패 막이: 보호받는 동료를 노린 공격을 근위병이 대신 맞는다", () => {
+    const shaman = mob("corrupted_shaman", "e1", { hp: 10, maxHp: 24, speed: -5 });
+    const guard = mob("worldtree_guard", "e0", { speed: 50 });
+    let b = startBattleWithUnits([hero("h", [3, 3]), guard, shaman], 2);
+    // 근위병이 방패 막이를 쓸 때까지 진행
+    for (let i = 0; i < 10 && !b.units.find((u) => u.id === "e1")!.statuses.some((x) => x.kind === "cover"); i++) b = hit(b, "e0");
+    const cover = b.units.find((u) => u.id === "e1")!.statuses.find((x) => x.kind === "cover");
+    expect(cover).toMatchObject({ source: "e0" });
+    const before = b.log.length;
+    b = act(b, { type: "attack", target: "e1" });
+    const events = b.log.slice(before);
+    expect(events).toContainEqual({ type: "cover", unit: "e0", target: "e1" });
+    expect(events.find((e) => e.type === "attack" && e.actor === "h")).toMatchObject({ target: "e0" });
+  });
+
+  it("지역에서 정예로 정한 몬스터는 늘 정예로 나온다 (고블린 마을 홉고블린)", () => {
+    for (let seed = 0; seed < 200; seed++)
+      for (const u of rollEncounter(createRng(seed), getRegion("uf_goblin_village")!)) if (u.kind === "hobgoblin") expect(u.rank).toBe("elite");
   });
 });

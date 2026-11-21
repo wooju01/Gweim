@@ -4,7 +4,7 @@ import { CURRENCY } from "@/data/economy";
 import { wageOf } from "@/game/merc/wages";
 import type { Merc } from "@/game/types";
 import { Button, MercStats, Portrait } from "@/components/common/parts";
-import { MERC_SLOTS } from "@/game/merc/party";
+import { ROSTER_LIMIT } from "@/data/clan";
 import type { MercProgress } from "@/game/state/state";
 import { TownBar } from "@/components/town/TownBar";
 
@@ -39,9 +39,9 @@ export function GuildScreen({ mercs, progress, recruit, onRecruit, onTalk, onDis
           </Button>
           <span className="text-[11px] text-ash">고용하지 않은 떠돌이 용병은 떠나고 새 얼굴이 온다</span>
           {recruit.error && <span className="text-xs text-blood">{recruit.error}</span>}
-          <span className={`text-xs ${hired >= MERC_SLOTS ? "text-ember" : "text-ash"}`}>
-            고용 {hired} / {MERC_SLOTS}
-            {hired >= MERC_SLOTS ? " · 더 고용할 수 없다" : ""}
+          <span className={`text-xs ${hired >= ROSTER_LIMIT ? "text-ember" : "text-ash"}`}>
+            고용 {hired} / {ROSTER_LIMIT}
+            {hired >= ROSTER_LIMIT ? " · 더 고용할 수 없다" : ""}
           </span>
         </div>
       </header>

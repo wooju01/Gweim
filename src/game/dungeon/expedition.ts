@@ -138,6 +138,9 @@ export type Expedition = {
   hiddenNext?: string;
   /** 히든 층에 들어갔다: 쓴 열쇠 (보스를 잡고 나오면 소모, 후퇴하면 유지, 전멸하면 잃는다) */
   keyUsed?: KeyItemId;
+  /** 이번 원정에서 쓰러뜨린 몬스터 (종류별)와 그중 정예 (직접 의뢰 목표) */
+  kills?: Record<string, number>;
+  eliteKills?: Record<string, number>;
 };
 
 // ── 시작 ────────────────────────────────────────────────
@@ -546,10 +549,23 @@ export function battleSpoils(
   if (battle.outcome !== "victory") return { exp, lines: [] };
   const rng = createRng(seed);
   const next = structuredClone(exp);
-  const enemies = battle.units.filter((u) => u.side === "enemy");
+  // 달아난 적은 보상이 없다
+  const enemies = battle.units.filter((u) => u.side === "enemy" && !u.fled);
+  // 쓰러뜨린 몬스터 기록 (직접 의뢰)
+  for (const e of enemies) {
+    if (!e.kind) continue;
+    next.kills = { ...next.kills, [e.kind]: (next.kills?.[e.kind] ?? 0) + 1 };
+    if (e.rank === "elite") next.eliteKills = { ...next.eliteKills, [e.kind]: (next.eliteKills?.[e.kind] ?? 0) + 1 };
+  }
   let gold = 0;
   for (let i = 0; i < enemies.length; i++) gold += rollInt(rng.next, BATTLE_GOLD[0], BATTLE_GOLD[1]);
-  const lines = gain(next, depthGold(exp.depth, gold), 0, rng);
+  // 현상금: 황금 숲 쥐 등 (층 배율 없이)
+  let bounty = 0;
+  for (const enemy of enemies) {
+    const b = getMonster(enemy.kind ?? "")?.bounty;
+    if (b) bounty += rollInt(rng.next, b[0], b[1]);
+  }
+  const lines = gain(next, depthGold(exp.depth, gold) + bounty, 0, rng);
   const dropped: Record<string, number> = {};
   for (const enemy of enemies) {
     // 정예는 드롭을 두 번 굴린다

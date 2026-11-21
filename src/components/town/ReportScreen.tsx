@@ -36,7 +36,7 @@ export function ReportScreen({ report, deaths, day, gold, onDone }: Props) {
       <TownBar place="결산" day={day} gold={gold} />
       <header className="animate-rise flex flex-col gap-1">
         <p className="text-xs tracking-[0.3em] text-ash">
-          {report.day}일째 원정 · {report.depth ?? 1}층까지
+          {report.day}일째 원정 · {report.depth ?? 1}층까지{report.days ? ` · ${report.days}일이 지났다` : ""}
         </p>
         <h1 className={`text-3xl font-bold ${outcome.style}`}>{outcome.title}</h1>
         <p className="text-sm text-bone/80">{outcome.line}</p>
@@ -105,6 +105,26 @@ export function ReportScreen({ report, deaths, day, gold, onDone }: Props) {
           ))}
           {report.left.map((line, i) => (
             <p key={`left-${i}`} className="text-sm text-blood">
+              {line}
+            </p>
+          ))}
+        </Section>
+      )}
+
+      {(report.quests?.length ?? 0) > 0 && (
+        <Section title="의뢰">
+          {report.quests!.map((line, i) => (
+            <p key={i} className="text-sm text-ember">
+              {line}
+            </p>
+          ))}
+        </Section>
+      )}
+
+      {(report.clan?.length ?? 0) > 0 && (
+        <Section title="정산">
+          {report.clan!.map((line, i) => (
+            <p key={i} className={`text-sm ${line.includes("밀린") || line.includes("떠났다") || line.includes("↓") ? "text-blood" : "text-bone/80"}`}>
               {line}
             </p>
           ))}

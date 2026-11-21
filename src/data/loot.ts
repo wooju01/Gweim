@@ -99,9 +99,7 @@ export const DROPS: Record<string, { id: string; chance: number }[]> = {
   alpha_wolf: [c("chief_token", 1), c("wolf_fang", 1), c("soft_pelt", 1)],
   tree_giant: [c("glowing_sap", 1), c("chief_token", 1)],
   // ── 타락한 엘프의 숲 ──
-  corrupted_sprite: [c("withered_petal", 0.5)],
-  thorn_vine: [c("withered_petal", 0.4), c("spider_silk", 0.3)],
-  spore_treant: [c("withered_petal", 0.5), c("glowing_sap", 0.1)],
+  // 새 몬스터 (2026-11-21)는 드롭 미정: 재료 시스템이 정해지면 채운다 (여기 없으면 드롭 없음)
   corrupted_spirit_king: [c("chief_token", 1), c("glowing_sap", 1), c("withered_petal", 1)],
   corrupted_elf_queen: [c("chief_token", 1), c("withered_petal", 1)],
 };

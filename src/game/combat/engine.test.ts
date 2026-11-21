@@ -1609,6 +1609,16 @@ describe("조각 스킬 (엔진 1단계)", () => {
     expect(b.log.some((e) => e.type === "attack" && e.actor === first)).toBe(false);
   });
 
+  it("감싸기(가디언): 2턴 동안 그 아군을 노린 공격을 가디언이 대신 맞는다", () => {
+    let b = start([{ ...varn, job: "guardian", skills: [build("guardian_cover")] }, kass], 1, [dummy("e0", 999, { attack: [5, 5], speed: 50 })]);
+    b = edit(b, (x) => (x.turn = x.order.indexOf(varn.id)));
+    b = act(b, { type: "skill", skill: "guardian_cover", target: kass.id });
+    expect(unitById(b, kass.id)!.statuses.find((x) => x.kind === "cover")).toMatchObject({ source: varn.id });
+    // 적이 카스를 노려도 바른이 맞는다 (적은 아무나 고르지만, 카스를 고르면 바른에게 간다)
+    for (let i = 0; i < 4 && !b.outcome; i++) b = act(b, { type: "attack", target: "e0" });
+    for (const e of b.log) if (e.type === "attack" && e.actor === "e0") expect(e.target).toBe(varn.id);
+  });
+
   it("2단계 효과(later)는 전투에서 아무 일도 하지 않는다", () => {
     let b = one({ job: "guardian", skills: [build("guardian_vow")] }, [dummy("e0", 999)]);
     const before = structuredClone(unitById(b, "e0")!);

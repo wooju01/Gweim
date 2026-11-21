@@ -242,7 +242,7 @@ const KNIGHT = jobSet("knight", {
 const GUARDIAN = jobSet("guardian", {
   mains: [
     { id: "guardian_vow", name: "수호 선언", target: "none", wait: 2, effects: [later("2턴 동안 적마다 확률로 가디언을 공격한다")] },
-    { id: "guardian_cover", name: "감싸기", target: "ally", wait: 2, effects: [later("아군 하나 대신 2턴 동안 맞는다")] },
+    { id: "guardian_cover", name: "감싸기", target: "ally", wait: 2, effects: [st("cover", { turns: 2 })] },
     {
       id: "guardian_bash",
       name: "방패 강타",

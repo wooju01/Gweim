@@ -14,6 +14,7 @@ import type {
   EventInput,
   FarewellInput,
   ReactInput,
+  StoryInput,
   ProfileInput,
   ReplyContext,
   SummaryInput,
@@ -189,6 +190,10 @@ const WILLINGNESS_FEELING: Record<Direction, string> = {
   none: "같이 갈지에 대한 생각은 그대로다",
 };
 
+/** 집(숙소·클랜 본부)에서 나누는 대화 */
+const HOME_SCENE = (merc: Merc) =>
+  `[장면 바뀜] 지금은 길드가 아니다. ${merc.name}은(는) 이미 길안내자와 함께하는 동료이고, 원정에서 돌아와 숙소(클랜 본부)에서 쉬는 중이다. 고용이나 동행 이야기는 하지 않는다. 지난 원정, 요즘 지내는 이야기, 동료들, 자기 이야기를 편하게 나눈다. 한두 마디로 끝맺는다.\n`;
+
 /** 던전 휴식 중 대화. 시스템 프롬프트(길드 장면, 캐시됨)는 그대로 두고 이번 턴에만 장면을 알려 준다 */
 const REST_SCENE = (merc: Merc) =>
   `[장면 바뀜] 지금은 길드가 아니다. ${merc.name}은(는) 이미 길안내자의 파티로 던전에 들어와 있고, 통로 구석에서 잠시 쉬는 중이다. 고용이나 동행 이야기는 하지 않는다. 지나온 길, 피로, 동료, 자기 이야기를 짧게 나눈다. 짧은 휴식이라 한두 마디로 끝맺는다.\n`;
@@ -253,7 +258,7 @@ ${remembered}# 최근 대화
 ${transcript(merc, history)}
 
 # 이번 턴
-${scene === "rest" ? REST_SCENE(merc) : ""}${eventLine(merc, event)}${scene === "rest" ? "" : firstMeeting(merc, history, event)}${scene !== "rest" && talksLeft <= 0 && event.kind !== "propose" ? `\n- ${merc.name}은(는) 이제 더 길게 이야기할 생각이 없다. 이번 말로 대화를 끝맺는다. 같이 갈지에 대한 말은 "같이 갈 마음" 단계보다 세게 하지 않는다 (반신반의라면 확답 없이 끝낸다).` : ""}`;
+${scene === "rest" ? REST_SCENE(merc) : scene === "home" ? HOME_SCENE(merc) : ""}${eventLine(merc, event)}${scene !== "guild" ? "" : firstMeeting(merc, history, event)}${scene === "guild" && talksLeft <= 0 && event.kind !== "propose" ? `\n- ${merc.name}은(는) 이제 더 길게 이야기할 생각이 없다. 이번 말로 대화를 끝맺는다. 같이 갈지에 대한 말은 "같이 갈 마음" 단계보다 세게 하지 않는다 (반신반의라면 확답 없이 끝낸다).` : ""}`;
 }
 
 /**
@@ -385,6 +390,7 @@ ${merc.name}이(가) 마지막으로 남기는 한마디. 한국어 1~2문장, 6
 }
 
 const REACT_SCENE: Record<ReactInput["situation"], string> = {
+  clanJoin: "원정에서 돌아와 숙소에서 쉬는 중이다. 길안내자(플레이어)가 함께 클랜을 꾸리자고, 정식 클랜원이 되어 달라고 청했다.",
   flee: "던전 전투가 불리해지자 길안내자(플레이어)가 후퇴를 명령했고, 파티는 싸움을 버리고 던전을 빠져나왔다.",
   omen: "던전 층의 끝, 보스가 기다리는 방 바로 앞이다. 문 너머에서 지금 파티로는 감당하기 어려울 것 같은 불길한 기운이 흘러나온다.",
 };
@@ -393,6 +399,11 @@ const REACT_FEELING: Record<ReactInput["situation"], Record<ReactInput["feeling"
     up: "살아서 물러난 게 다행이라고 여긴다. 길안내자의 판단이 옳았다고 본다.",
     down: "싸움에서 등을 보인 게 마음에 들지 않는다. 자존심이 상했다.",
     none: "물러난 것에 별다른 감정은 없다. 다음을 생각한다.",
+  },
+  clanJoin: {
+    up: "기꺼이 받아들이기로 했다. 이 사람과라면 오래 함께해도 좋겠다.",
+    down: "아직은 거절하기로 했다. 고맙지만 지금은 매이고 싶지 않다. 상대를 싫어하는 것은 아니다.",
+    none: "생각해 보겠다고 한다.",
   },
   omen: {
     up: "들어가 보고 싶어 몸이 근질거린다.",
@@ -415,4 +426,42 @@ ${REACT_FEELING[situation][feeling]}
 # 쓸 것
 - words: ${merc.name}이(가) 지금 길안내자에게 하는 한마디. 캐릭터의 말투를 지켜 한국어 1~2문장, 80자 이내. 행동 묘사는 넣지 않는다.
 - 분위기는 밝은 모험 판타지다. 무겁게 끌지 않는다. 숫자나 게임 시스템을 말하지 않는다.`;
+}
+
+const OUTCOME_TEXT = { ok: "무사히 돌아왔다", injured: "다쳐서 돌아왔다", dead: "돌아오지 못했다 (죽었다)" } as const;
+
+function mercBrief(m: Merc): string {
+  return `- ${m.name} (${m.tags?.slice(0, 2).join(" ") ?? m.title}): ${m.persona} 말투: ${m.speechStyle}`;
+}
+
+/** 짧은 이야기. 결과는 코드가 정했고, 여기서는 바꾸지 않는다 */
+export function storyPrompt(input: StoryInput): string {
+  if (input.kind === "scene") {
+    return `모험 판타지 RPG에서, 원정을 마치고 숙소(클랜 본부)에 돌아온 용병 둘의 짧은 일상 장면을 쓴다.
+
+# 세계
+${WORLD}
+${MOOD}
+
+# 등장인물
+${input.mercs.map(mercBrief).join("\n")}
+
+# 쓸 것
+- text: 두 사람이 나누는 짧은 장면. 한국어 3~5문장, 300자 이내. 대사 한두 마디를 섞어 성격과 말투가 드러나게. 밝고 가볍게.
+- 두 사람의 관계를 새로 정하지 않는다 (사귄다, 원수가 된다 등). 숫자나 게임 시스템을 말하지 않는다.`;
+  }
+  return `모험 판타지 RPG에서, 클랜원들이 다녀온 파견 의뢰의 결과 보고를 짧은 이야기로 쓴다. 결과는 이미 정해졌다. 절대 바꾸지 않는다.
+
+# 세계
+${WORLD}
+
+# 의뢰
+${input.title} — ${input.success ? "성공" : "실패"}
+
+# 다녀온 사람과 결과 (그대로 지킨다)
+${input.members.map((m) => `${mercBrief(m.merc)}\n  → ${OUTCOME_TEXT[m.outcome]}`).join("\n")}
+
+# 쓸 것
+- text: 의뢰에서 있었던 일을 보고하듯 한국어 3~5문장, 300자 이내. 결과와 각자의 결과(무사·부상·사망)를 그대로 따른다. 죽은 사람이 있으면 가볍게 다루지 않는다.
+- 숫자, 보상 금액, 게임 시스템을 말하지 않는다.`;
 }

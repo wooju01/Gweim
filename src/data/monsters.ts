@@ -28,7 +28,11 @@ export type Ability =
   /** 같은 종류의 다른 아군 공격 +bonus (정예 우두머리) */
   | { kind: "lead"; bonus: number }
   /** 자기 차례가 올 때마다 체력 amount 회복 */
-  | { kind: "regen"; amount: number };
+  | { kind: "regen"; amount: number }
+  /** 자기 차례 turns번째에 전투에서 달아난다 (처치 보상 없음) */
+  | { kind: "flee"; turns: number }
+  /** 자기 차례 turns번째에 자폭한다: 자신은 쓰러지고 모든 적에게 damage 피해 (그전에 쓰러뜨리면 터지지 않는다) */
+  | { kind: "explode"; turns: number; damage: readonly [number, number] };
 
 /** 정예 특성: 일반 몬스터에 하나를 무작위로 붙인다. 이름 앞에 prefix */
 export type EliteTrait = {
@@ -74,6 +78,11 @@ export type Monster = UnitStats & {
   abilities?: Ability[];
   /** 쓰러뜨리면 이 확률로 히든 열쇠 (data/keyItems.ts) */
   keyDrop?: { item: string; chance: number };
+  /** 회피·치명타 확률 추가 */
+  evade?: number;
+  crit?: number;
+  /** 쓰러뜨리면 더 받는 금화 [최소, 최대] (황금 숲 쥐 등) */
+  bounty?: readonly [number, number];
 };
 
 const bleed = (chance: number): OnHit => ({ status: "bleed", chance });
@@ -96,7 +105,17 @@ const MONSTER_SKILL_DEFS: SkillDef[] = [
   { id: "m_thorn_bind", name: "가시 덩굴 속박", cooldown: 2, target: "none", effects: [{ kind: "applyStatus", status: "slow", value: 2, turns: 2, area: "all" }] },
   { id: "m_spore_burst", name: "포자 폭발", cooldown: 2, target: "none", effects: [{ kind: "applyStatus", status: "poison", area: "all" }] },
   // ── 타락한 엘프의 숲 ──
-  { id: "m_wither", name: "시드는 손길", cooldown: 2, target: "enemy", effects: [{ kind: "damage", onHit: false }, { kind: "applyStatus", status: "healReduction" }] },
+  // ── 미지의 숲 추가 몬스터 ──
+  { id: "m_charge", name: "돌진", cooldown: 1, target: "enemy", effects: [{ kind: "damage", multiplier: 1.7 }] },
+  { id: "m_vine_grab", name: "덩굴 휘감기", cooldown: 2, target: "enemy", effects: [{ kind: "applyStatus", status: "bind" }] },
+  { id: "m_screech", name: "초음파", cooldown: 2, target: "none", effects: [{ kind: "applyStatus", status: "weaken", area: "all" }] },
+  { id: "m_orc_cry", name: "대장의 호령", cooldown: 2, target: "none", effects: [{ kind: "applyStatus", status: "attackUp", value: 2, turns: 2, who: "allies" }] },
+  { id: "m_drumbeat", name: "전투 북소리", cooldown: 2, target: "none", effects: [{ kind: "applyStatus", status: "attackUp", value: 2, turns: 2, who: "allies" }] },
+  { id: "m_maul", name: "짓이기기", cooldown: 1, target: "enemy", effects: [{ kind: "damage", multiplier: 1.5 }, { kind: "applyStatus", status: "bleed", chance: 0.5 }] },
+  // ── 타락한 엘프의 숲 ──
+  { id: "m_corrupt_mend", name: "타락한 치유", cooldown: 1, target: "ally", effects: [{ kind: "heal", amount: 8 }] },
+  { id: "m_spore_rain", name: "포자 비", cooldown: 2, target: "none", effects: [{ kind: "applyStatus", status: "poison", area: "all" }] },
+  { id: "m_shield_cover", name: "방패 막이", cooldown: 1, target: "ally", effects: [{ kind: "applyStatus", status: "cover", turns: 2 }] },
 ];
 
 export const MONSTER_SKILLS: Record<string, Skill> = Object.fromEntries(
@@ -123,11 +142,11 @@ export const MONSTERS: Monster[] = [
   { id: "hungry_wolf", name: "굶주린 늑대", hp: 20, attack: [6, 9], defense: 0, speed: 7, onHit: bleed(0.35), tags: ["beast"], rank: "normal", note: "굶주려서 물불을 가리지 않는다." },
   // ── 거미 둥지 ──
   { id: "venom_spider", name: "독거미", hp: 20, attack: [4, 7], defense: 0, speed: 5, onHit: poison(0.6), tags: ["insect"], rank: "normal", note: "독이 진하다. 물리면 거의 중독된다." },
-  { id: "egg_sac", name: "알 주머니", hp: 16, attack: [0, 0], defense: 1, speed: 0, abilities: [{ kind: "hatch", into: "spiderling", count: 2, turns: 2 }], tags: ["insect"], rank: "normal", note: "공격하지 않는다. 가만히 두면 두 번째 차례에 새끼 거미 둘이 깨어난다." },
+  { id: "egg_sac", name: "알 주머니", hp: 16, attack: [0, 0], defense: 1, speed: 0, abilities: [{ kind: "hatch", into: "cave_spider", count: 1, turns: 2 }], tags: ["insect"], rank: "normal", note: "공격하지 않는다. 가만히 두면 두 번째 차례에 동굴 거미가 깨어난다. 그전에 부수면 깨어나지 않는다." },
   { id: "spiderling", name: "새끼 거미", hp: 9, attack: [2, 4], defense: 0, speed: 6, onHit: poison(0.2), tags: ["insect"], rank: "normal", note: "작지만 수가 많다." },
   // ── 늪지대 ──
   { id: "poison_slime", name: "독 슬라임", hp: 22, attack: [3, 6], defense: 1, speed: 1, onHit: poison(0.5), tags: ["slime"], rank: "normal", note: "닿기만 해도 독이 옮는다." },
-  { id: "acid_slime", name: "산성 슬라임", hp: 22, attack: [3, 6], defense: 1, speed: 1, skills: ["m_acid"], tags: ["slime"], rank: "normal", note: "산을 뿜어 갑옷을 녹인다 (균열)." },
+  { id: "acid_slime", name: "산성 슬라임", hp: 22, attack: [3, 6], defense: 1, speed: 1, onHit: { status: "armorDown", chance: 0.4 }, tags: ["slime"], rank: "normal", note: "산이 묻은 몸으로 부딪친다. 맞으면 갑옷이 녹는다 (방어 감소)." },
   { id: "split_slime", name: "분열 슬라임", hp: 24, attack: [3, 6], defense: 1, speed: 1, onHit: poison(0.15), abilities: [{ kind: "split", into: "slimelet", count: 2 }], tags: ["slime"], rank: "normal", note: "쓰러지면 작은 슬라임 둘로 갈라진다." },
   { id: "slimelet", name: "작은 슬라임", hp: 9, attack: [2, 4], defense: 0, speed: 2, tags: ["slime"], rank: "normal", note: "갈라져 나온 작은 슬라임." },
   // ── 더 깊은 숲 / 오크 마을 ──
@@ -142,14 +161,32 @@ export const MONSTERS: Monster[] = [
   { id: "wolf_tamer", name: "늑대 조련사", hp: 44, attack: [6, 9], defense: 1, speed: 5, escort: ["cave_wolf", "cave_wolf"], abilities: [{ kind: "resummon", into: "cave_wolf", times: 1 }], tags: ["goblin"], rank: "floorBoss", note: "늑대를 부린다. 늑대가 쓰러지면 한 번 다시 부른다." },
   { id: "hobgoblin_chief", name: "홉고블린 대장", hp: 56, attack: [7, 11], defense: 3, speed: 3, escort: ["goblin_warrior"], skills: ["m_slam"], abilities: [{ kind: "enrage", below: 0.5, bonus: 3 }], tags: ["goblin"], rank: "floorBoss", note: "체력이 절반 아래로 떨어지면 공격 +3." },
 
+  // ── 미지의 숲 추가 (2026-11-21). ★ = 종 자체가 정예 ──
+  { id: "golden_rat", name: "황금 숲 쥐", hp: 14, attack: [2, 4], defense: 0, speed: 10, evade: 0.2, abilities: [{ kind: "flee", turns: 2 }], bounty: [25, 40], tags: ["beast"], rank: "elite", note: "털이 금빛으로 반짝인다. 두 번째 차례에 달아난다. 그전에 잡으면 금화를 잔뜩 떨어뜨린다." },
+  { id: "giant_boar", name: "거대 숲 멧돼지", hp: 55, attack: [7, 10], defense: 2, speed: 3, escort: ["forest_boar"], skills: ["m_charge"], tags: ["beast"], rank: "floorBoss", note: "숲의 주인 노릇을 하는 멧돼지. 무섭게 돌진한다." },
+  { id: "forest_boar", name: "숲 멧돼지", hp: 24, attack: [5, 8], defense: 1, speed: 4, skills: ["m_charge"], tags: ["beast"], rank: "normal", note: "고개를 숙이고 돌진해 온다." },
+  { id: "vine_spirit", name: "숲의 덩굴 정령", hp: 20, attack: [3, 6], defense: 1, speed: 3, skills: ["m_vine_grab"], tags: ["plant", "spirit"], rank: "normal", note: "덩굴로 한 사람을 휘감아 한 차례 묶는다." },
+  { id: "kobold_miner", name: "코볼트 광부", hp: 18, attack: [4, 7], defense: 1, speed: 5, onHit: { status: "armorDown", chance: 0.3 }, tags: ["goblin"], rank: "normal", note: "곡괭이로 갑옷 틈을 쪼아 낸다 (방어 감소)." },
+  { id: "crystal_spider", name: "수정 등딱지 거미", hp: 30, attack: [5, 8], defense: 4, speed: 4, onHit: poison(0.3), tags: ["insect"], rank: "elite", note: "등에 수정이 돋아 몹시 단단하다." },
+  { id: "giant_cave_bat", name: "거대 동굴 박쥐", hp: 50, attack: [6, 9], defense: 1, speed: 9, evade: 0.1, onHit: bleed(0.35), escort: ["vampire_bat", "vampire_bat"], skills: ["m_screech"], tags: ["bat", "beast"], rank: "floorBoss", note: "날개를 펴면 동굴이 어두워진다. 초음파로 모두의 기를 꺾는다." },
+  { id: "goblin_bomber", name: "고블린 폭탄병", hp: 14, attack: [2, 4], defense: 0, speed: 3, abilities: [{ kind: "explode", turns: 2, damage: [5, 8] }], tags: ["goblin"], rank: "normal", note: "불붙은 폭탄을 안고 있다. 두 번째 차례에 자폭해 모두에게 피해를 준다. 그전에 쓰러뜨려야 한다." },
+  { id: "silver_wolf", name: "은빛 그림자 늑대", hp: 30, attack: [7, 10], defense: 1, speed: 8, evade: 0.15, onHit: bleed(0.4), tags: ["beast"], rank: "elite", note: "은빛 털이 그림자처럼 스친다. 잘 피하고, 물리면 피가 멎지 않는다." },
+  { id: "deadly_spider", name: "맹독 거미", hp: 26, attack: [6, 9], defense: 1, speed: 6, onHit: poison(0.8), tags: ["insect"], rank: "elite", note: "독이 너무 진해서 물리면 거의 반드시 중독된다." },
+  { id: "giant_ooze", name: "거대 점액 슬라임", hp: 45, attack: [5, 8], defense: 2, speed: 0, onHit: poison(0.3), abilities: [{ kind: "split", into: "green_slime", count: 2 }], tags: ["slime"], rank: "elite", note: "커다란 점액 덩어리. 쓰러지면 초록 슬라임 둘로 갈라진다." },
+  { id: "owlbear", name: "오울베어", hp: 48, attack: [8, 12], defense: 2, speed: 4, skills: ["m_maul"], tags: ["beast"], rank: "elite", note: "부엉이 머리에 곰의 몸. 짓이기는 한 방이 무겁다." },
+  { id: "orc_captain", name: "오크 대장", hp: 70, attack: [8, 12], defense: 3, speed: 4, escort: ["orc_warrior", "orc_archer"], skills: ["m_slam", "m_orc_cry"], tags: ["orc"], rank: "floorBoss", note: "더 깊은 숲의 오크들을 이끈다. 호령 한 번에 부하들이 사나워진다." },
+  { id: "orc_drummer", name: "오크 전투 군악병", hp: 26, attack: [4, 7], defense: 1, speed: 3, ranged: true, skills: ["m_drumbeat"], tags: ["orc"], rank: "normal", note: "북을 두드려 동료 모두의 공격을 끌어올린다." },
+
   // ── 미지의 숲 2층 깊은 숲 보스 ──
   { id: "tree_giant", name: "나무 거인", hp: 70, attack: [6, 9], defense: 3, speed: 0, skills: ["m_root_bind", "m_branch_sweep", "m_bark"], abilities: [{ kind: "regen", amount: 4 }], keyDrop: { item: "world_tree_branch", chance: 0.5 }, tags: ["plant"], rank: "floorBoss", note: "느리고 단단하다. 자기 차례마다 체력을 되찾고, 뿌리로 묶거나 가지로 휩쓴다." },
 
-  // ── [히든] 타락한 엘프의 숲 (초안: 일반 몬스터는 스펙에 없어서 임시로 만들었다) ──
-  { id: "corrupted_sprite", name: "타락한 정령", hp: 24, attack: [6, 9], defense: 0, speed: 7, skills: ["m_wither"], tags: ["spirit"], rank: "normal", note: "검게 물든 작은 정령. 닿으면 상처가 잘 낫지 않는다 (치유 감소)." },
-  { id: "thorn_vine", name: "가시 덩굴", hp: 30, attack: [5, 8], defense: 2, speed: 2, onHit: bleed(0.35), tags: ["plant"], rank: "normal", note: "바닥을 기어 다니며 가시로 할퀸다." },
-  { id: "spore_treant", name: "포자 나무정령", hp: 36, attack: [6, 10], defense: 2, speed: 1, onHit: poison(0.4), abilities: [{ kind: "regen", amount: 2 }], tags: ["plant", "spirit"], rank: "normal", note: "몸에서 포자가 피어오른다. 조금씩 상처가 아문다." },
-  { id: "corrupted_spirit_king", name: "타락한 정령왕", hp: 120, attack: [8, 12], defense: 2, speed: 4, escort: ["corrupted_sprite", "corrupted_sprite"], skills: ["m_thorn_bind", "m_spore_burst"], abilities: [{ kind: "regen", amount: 5 }], tags: ["spirit"], rank: "dungeonBoss", note: "숲을 삼킨 정령들의 왕. 가시 덩굴로 모두를 늦추고, 포자를 터뜨려 중독시킨다. 차례마다 체력을 되찾는다." },
+  // ── [히든] 타락한 엘프의 숲 ──
+  { id: "corrupted_ranger", name: "타락한 엘프 순찰자", hp: 24, attack: [7, 10], defense: 0, speed: 7, crit: 0.15, ranged: true, onHit: { status: "evadeDown", chance: 0.4 }, tags: ["spirit"], rank: "normal", note: "검게 물든 활을 쏜다. 급소를 잘 노리고, 맞으면 몸이 무거워진다 (회피 감소)." },
+  { id: "twisted_treant", name: "뒤틀린 나무 정령", hp: 40, attack: [6, 9], defense: 4, speed: 1, onHit: { status: "slow", chance: 0.4 }, tags: ["plant", "spirit"], rank: "normal", note: "단단하고 느리다. 휘감긴 가지에 맞으면 발이 묶인 듯 느려진다 (둔화)." },
+  { id: "shadow_wolf", name: "그림자 늑대", hp: 26, attack: [7, 10], defense: 0, speed: 9, onHit: bleed(0.4), tags: ["beast", "spirit"], rank: "normal", note: "그림자에서 튀어나와 물어뜯는다." },
+  { id: "corrupted_shaman", name: "타락한 정령술사", hp: 24, attack: [4, 7], defense: 0, speed: 5, ranged: true, skills: ["m_corrupt_mend", "m_spore_rain"], tags: ["spirit"], rank: "normal", note: "다친 동료를 치료하고, 포자를 흩뿌려 모두를 중독시킨다." },
+  { id: "worldtree_guard", name: "타락한 세계수 근위병", hp: 50, attack: [5, 8], defense: 5, speed: 3, skills: ["m_shield_cover"], tags: ["plant"], rank: "elite", note: "큰 방패를 든 근위병. 다친 동료를 감싸 대신 맞아 준다." },
+  { id: "corrupted_spirit_king", name: "타락한 정령왕", hp: 120, attack: [8, 12], defense: 2, speed: 4, escort: ["worldtree_guard", "corrupted_shaman"], skills: ["m_thorn_bind", "m_spore_burst"], abilities: [{ kind: "regen", amount: 5 }], tags: ["spirit"], rank: "dungeonBoss", note: "숲을 삼킨 정령들의 왕. 가시 덩굴로 모두를 늦추고, 포자를 터뜨려 중독시킨다. 차례마다 체력을 되찾는다." },
   // 타락한 엘프 여왕: 패턴 미정. 데이터 자리만 (보스 후보 가중치 0이라 아직 나오지 않는다)
   { id: "corrupted_elf_queen", name: "타락한 엘프 여왕", hp: 110, attack: [9, 13], defense: 2, speed: 6, tags: ["spirit"], rank: "dungeonBoss", note: "패턴 준비 중." },
 

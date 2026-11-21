@@ -22,8 +22,8 @@ export type Region = {
   recommended: readonly [MercLevel, MercLevel];
   /** 짧은 소개 (갈래 고르는 화면에) */
   description: string;
-  /** 나오는 적 (data/monsters.ts의 id)과 등장 가중치. 비어 있으면 아직 준비 중인 지역 */
-  monsters: { id: string; weight: number }[];
+  /** 나오는 적 (data/monsters.ts의 id)과 등장 가중치. elite면 이 지역에서는 늘 정예로 나온다. 비어 있으면 준비 중 */
+  monsters: { id: string; weight: number; elite?: boolean }[];
   /** 한 전투에 나오는 적 수 [최소, 최대] */
   size: readonly [number, number];
   /** 일반 적이 정예로 나올 확률 */
@@ -94,9 +94,11 @@ const FOREST_REGIONS: Region[] = [
       { id: "goblin_grunt", weight: 5 },
       { id: "green_slime", weight: 4 },
       { id: "forest_rat", weight: 4 },
+      { id: "golden_rat", weight: 0.4 },
     ],
     size: [3, 4],
     eliteChance: 0,
+    boss: only("giant_boar", 0.2),
     next: ["uf_deep_forest", "uf_cave"],
   },
   {
@@ -112,6 +114,8 @@ const FOREST_REGIONS: Region[] = [
       { id: "green_slime", weight: 3 },
       { id: "blue_slime", weight: 2 },
       { id: "goblin_shaman", weight: 1 },
+      { id: "forest_boar", weight: 2 },
+      { id: "vine_spirit", weight: 2 },
     ],
     size: [3, 4],
     eliteChance: 0.1,
@@ -129,9 +133,12 @@ const FOREST_REGIONS: Region[] = [
       { id: "cave_spider", weight: 4 },
       { id: "vampire_bat", weight: 4 },
       { id: "cave_wolf", weight: 3 },
+      { id: "kobold_miner", weight: 3 },
+      { id: "crystal_spider", weight: 0.8 },
     ],
     size: [3, 4],
     eliteChance: 0.1,
+    boss: only("giant_cave_bat", MID_BOSS_CHANCE),
     next: ["uf_spider_nest", "uf_wolf_den"],
   },
   {
@@ -139,13 +146,14 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "고블린 마을",
     depth: 3,
-    recommended: ["bronze", "silver"],
+    recommended: ["bronze", "bronze"],
     description: "고블린들이 엉성한 울타리를 두르고 사는 마을. 왕을 자칭하는 놈이 있다.",
     monsters: [
       { id: "goblin_warrior", weight: 5 },
       { id: "goblin_slinger", weight: 3 },
       { id: "goblin_shaman", weight: 2 },
-      { id: "hobgoblin", weight: 2 },
+      { id: "hobgoblin", weight: 1, elite: true },
+      { id: "goblin_bomber", weight: 2 },
     ],
     size: [3, 4],
     eliteChance: 0.15,
@@ -157,12 +165,13 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "늪지대",
     depth: 3,
-    recommended: ["bronze", "bronze"],
+    recommended: ["bronze", "silver"],
     description: "발이 푹푹 빠지는 늪. 온갖 슬라임이 부글거리며 모여 산다.",
     monsters: [
       { id: "poison_slime", weight: 4 },
       { id: "acid_slime", weight: 3 },
       { id: "split_slime", weight: 3 },
+      { id: "giant_ooze", weight: 0.8 },
     ],
     size: [3, 4],
     eliteChance: 0.15,
@@ -174,15 +183,18 @@ const FOREST_REGIONS: Region[] = [
     dungeon: "unknown_forest",
     name: "더 깊은 숲",
     depth: 3,
-    recommended: ["bronze", "silver"],
+    recommended: ["silver", "silver"],
     description: "고블린이 사라지고 오크의 발자국이 보이기 시작한다. 어디선가 숲이 수군거린다.",
     monsters: [
       { id: "orc_warrior", weight: 4 },
       { id: "orc_archer", weight: 3 },
       { id: "goblin_shaman", weight: 2 },
+      { id: "owlbear", weight: 0.8 },
+      { id: "orc_berserker", weight: 0.8, elite: true },
     ],
     size: [3, 4],
     eliteChance: 0.15,
+    boss: only("orc_captain", MID_BOSS_CHANCE),
     next: ["uf_orc_village"],
   },
   {
@@ -196,6 +208,7 @@ const FOREST_REGIONS: Region[] = [
       { id: "orc_warrior", weight: 4 },
       { id: "orc_berserker", weight: 3 },
       { id: "orc_shaman", weight: 2 },
+      { id: "orc_drummer", weight: 2 },
     ],
     size: [3, 4],
     eliteChance: 0.2,
@@ -210,9 +223,11 @@ const FOREST_REGIONS: Region[] = [
     recommended: ["silver", "silver"],
     description: "나무와 정령이 검게 물든 숲. 세계수의 가지가 이곳을 가리켰다.",
     monsters: [
-      { id: "corrupted_sprite", weight: 4 },
-      { id: "thorn_vine", weight: 3 },
-      { id: "spore_treant", weight: 2 },
+      { id: "corrupted_ranger", weight: 4 },
+      { id: "twisted_treant", weight: 3 },
+      { id: "shadow_wolf", weight: 3 },
+      { id: "corrupted_shaman", weight: 2 },
+      { id: "worldtree_guard", weight: 1 },
     ],
     size: [3, 4],
     eliteChance: 0.25,
@@ -239,6 +254,7 @@ const FOREST_REGIONS: Region[] = [
       { id: "cave_spider", weight: 4 },
       { id: "venom_spider", weight: 3 },
       { id: "egg_sac", weight: 2 },
+      { id: "deadly_spider", weight: 0.8 },
     ],
     size: [3, 4],
     eliteChance: 0.15,
@@ -256,6 +272,7 @@ const FOREST_REGIONS: Region[] = [
       { id: "cave_wolf", weight: 4 },
       { id: "hungry_wolf", weight: 3 },
       { id: "vampire_bat", weight: 2 },
+      { id: "silver_wolf", weight: 0.8 },
     ],
     size: [3, 4],
     eliteChance: 0.15,
