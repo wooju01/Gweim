@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { STATUS, SUPPLY, isDot, type StatusKind, type SupplyKind } from "@/data/combat";
-import { SKILL_SLOTS } from "@/data/skills";
+import { SKILL_SLOTS, statusTip } from "@/data/skills";
 import { getSkill } from "@/game/skills";
 import { getPassive } from "@/data/passives";
 import {
@@ -736,7 +736,7 @@ function Figure({
         {unit.statuses.length > 0 && (
           <div className="flex gap-0.5">
             {unit.statuses.map((s) => (
-              <span key={s.kind} className={`rounded-sm px-1 text-[9px] ${STATUS_STYLE[s.kind]}`}>
+              <span key={s.kind} title={statusTip(s)} className={`rounded-sm px-1 text-[9px] ${STATUS_STYLE[s.kind]}`}>
                 {STATUS[s.kind].name}
                 {isDot(s.kind) ? s.value : s.turns}
               </span>
@@ -818,7 +818,7 @@ function FoeStats({ unit, hp, preview, battle }: { unit: Unit; hp: number; previ
         {unit.statuses.length > 0 && (
           <p className="flex flex-wrap gap-1">
             {unit.statuses.map((s) => (
-              <span key={s.kind} className={`rounded-sm px-1 ${STATUS_STYLE[s.kind]}`}>
+              <span key={s.kind} title={statusTip(s)} className={`rounded-sm px-1 ${STATUS_STYLE[s.kind]}`}>
                 {STATUS[s.kind].name} {isDot(s.kind) ? s.value : `${s.turns}턴`}
               </span>
             ))}
@@ -877,7 +877,7 @@ function ActorStats({ battle, unit }: { battle: Battle; unit: Unit }) {
       {unit.statuses.length > 0 && (
         <p className="flex flex-wrap gap-1">
           {unit.statuses.map((s) => (
-            <span key={s.kind} className={`rounded-sm px-1 ${STATUS_STYLE[s.kind]}`}>
+            <span key={s.kind} title={statusTip(s)} className={`rounded-sm px-1 ${STATUS_STYLE[s.kind]}`}>
               {STATUS[s.kind].name} {isDot(s.kind) ? s.value : `${s.turns}턴`}
             </span>
           ))}

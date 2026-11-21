@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { STATUS, SUPPLY, type SupplyKind } from "@/data/combat";
+import { statusTip } from "@/data/skills";
 import { ROOM_NAME, type RoomKind } from "@/data/dungeon";
 import { KEY_ITEMS } from "@/data/keyItems";
 import { getMonster } from "@/data/monsters";
@@ -542,6 +543,7 @@ function MemberCard({ member, stage, children }: { member: Member; stage?: Stage
           {member.statuses.map((s) => (
             <li
               key={s.kind}
+              title={statusTip(s)}
               className={`rounded-sm px-1.5 py-0.5 text-[11px] ${s.kind === "bleed" ? "bg-blood/20 text-blood" : "bg-moss/20 text-moss"}`}
             >
               {STATUS[s.kind].name} {s.value ?? s.turns}

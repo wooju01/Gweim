@@ -154,6 +154,19 @@ export function statusText(roll: StatusRoll): string {
   return `${chance}${sure}${info.name}(${extra})`;
 }
 
+/**
+ * 걸려 있는 상태 하나의 툴팁: 효과 + 남은 차례 (걸린 쪽 기준). 출혈·중독은 남은 수치
+ * 예: "공격 강화: 공격 +2 · 남은 차례: 대상 기준 2"
+ */
+export function statusTip(s: { kind: StatusKind; turns: number; value?: number }): string {
+  const info = STATUS[s.kind];
+  const v = s.value ?? info.value;
+  const effect = v === undefined ? info.text : info.text.replace("{v}", info.pct ? pct(v) : String(v));
+  if (s.kind === "bleed" || s.kind === "poison") return `${info.name}: ${effect} · 차례가 끝날 때마다 피해를 주고 줄어든다`;
+  if (s.kind === "regen") return `${info.name}: ${effect} · 남은 차례: 대상 기준 ${s.turns} (차례 시작에 회복)`;
+  return `${info.name}: ${effect} · 남은 차례: 대상 기준 ${s.turns}`;
+}
+
 /** 효과 조각에서 설명 문장을 만든다. 스킬 수가 많아져도 설명을 따로 쓰지 않는다 */
 export function describeSkill(def: SkillDef): string {
   const one = def.target === "ally" ? "아군 하나" : "적 하나";

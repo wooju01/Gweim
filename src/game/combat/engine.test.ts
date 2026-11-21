@@ -29,7 +29,7 @@ import {
   type BattleEvent,
   type Unit,
 } from "./engine";
-import { describeSkill, type Skill, type SkillDef } from "@/data/skills";
+import { describeSkill, statusTip, type Skill, type SkillDef } from "@/data/skills";
 import { JOB_IDS, RACE_IDS, canBe } from "@/data/jobs";
 import { RESIST } from "@/data/combat";
 import { rollStartSkills, skillKey } from "@/game/skills";
@@ -1809,6 +1809,39 @@ describe("용병형 적", () => {
       expect(n).toBeGreaterThanOrEqual(3);
       expect(n).toBeLessThanOrEqual(4);
     }
+  });
+});
+
+describe("지속 시간 규칙 (걸린 쪽 기준)", () => {
+  it("남에게 건 효과는 걸린 쪽의 차례가 끝날 때 줄고, 쓴 쪽의 차례로는 줄지 않는다", () => {
+    // 바른(빠름)이 적에게 위축 2턴을 건다 → 바른이 다시 행동해도 그대로, 적이 행동하고 나면 1
+    let b = start([varn], 1, [dummy("e0", 999, { statuses: [] })]);
+    b = edit(b, (x) => void unitById(x, "e0")!.statuses.push({ kind: "weaken", turns: 2 }));
+    const turns = () => unitById(b, "e0")!.statuses.find((s) => s.kind === "weaken")?.turns;
+    expect(turns()).toBe(2);
+    b = act(b, { type: "attack", target: "e0" }); // 바른 → 적 차례 → 다음 라운드 바른
+    expect(turns()).toBe(1);
+  });
+
+  it("자기 차례에 자기에게 건 효과는 그 차례 끝에는 줄지 않는다", () => {
+    let b = start([{ ...varn, kit: ["resolve"] }], 1, [dummy("e0", 999)]);
+    b = act(b, { type: "skill", skill: "resolve" }); // 각성 2턴 (자신)
+    expect(unitById(b, varn.id)!.statuses.find((s) => s.kind === "awaken")?.turns).toBe(STATUS.awaken.turns);
+  });
+
+  it("기절로 쉰 차례도 센다", () => {
+    let b = start([varn, elke], 1, [dummy("e0", 999)]);
+    b = edit(b, (x) => {
+      const e = unitById(x, elke.id)!;
+      e.statuses.push({ kind: "stun", turns: 1 }, { kind: "attackUp", turns: 2, value: 2 });
+    });
+    b = act(b, { type: "attack", target: "e0" }); // 바른 → 엘케는 기절로 쉰다
+    expect(unitById(b, elke.id)!.statuses.find((s) => s.kind === "attackUp")?.turns).toBe(1);
+  });
+
+  it("툴팁에 남은 차례를 걸린 쪽 기준으로 보여 준다", () => {
+    expect(statusTip({ kind: "attackUp", turns: 2, value: 3 })).toBe("공격 강화: 공격 +3 · 남은 차례: 대상 기준 2");
+    expect(statusTip({ kind: "poison", turns: 1, value: 4 })).toContain("줄어든다");
   });
 });
 
