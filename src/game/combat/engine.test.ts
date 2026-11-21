@@ -1758,10 +1758,12 @@ describe("쓰러짐과 죽음", () => {
     expect(hitsOnVarn).toHaveLength(0);
   });
 
-  it("자기 차례가 돌아오면 1 줄고, 0이면 죽는다. 신뢰 +1 (2차례), 적대 -1 (즉시 사망)", () => {
-    const died = untilDeath(untilDown(setup(1)));
+  it("자기 차례가 돌아오면 1 줄고, 0이면 죽는다 (쓰러진 직후 첫 차례는 세지 않는다). 신뢰 +1, 적대 -1 (즉시 사망)", () => {
+    const down = untilDown(setup(1));
+    const died = untilDeath(down);
     expect(varnOf(died).dead).toBe(true);
     expect(died.log).toContainEqual({ type: "death", target: varn.id });
+    expect(died.round - down.round).toBe(2);
 
     // 신뢰: 2차례 버틴다
     const t = untilDown(setup(1, "trusted"));
@@ -1769,12 +1771,28 @@ describe("쓰러짐과 죽음", () => {
     const roundDown = t.round;
     const td = untilDeath(t);
     expect(varnOf(td).dead).toBe(true);
-    expect(td.round - roundDown).toBe(2);
+    expect(td.round - roundDown).toBe(3);
 
     // 적대: 쓰러지는 즉시 사망
     const h = untilDown(setup(1, "hostile"));
     expect(varnOf(h).dead).toBe(true);
     expect(h.log.some((e) => e.type === "downed" && e.target === varn.id)).toBe(false);
+  });
+
+  it("라운드 마지막에 쓰러진 가장 빠른 용병도 다음 라운드에 아군이 살릴 기회가 있다", () => {
+    // 바른이 맨 먼저 행동하는 순서
+    let b = start([varn, elke], 1, [dummy("e0", 999, { attack: [5, 5] })]);
+    b = edit(b, (c) => {
+      unitById(c, varn.id)!.hp = 1;
+      unitById(c, elke.id)!.hp = 999;
+      unitById(c, elke.id)!.maxHp = 999;
+    });
+    b = untilDown(b);
+    // 다음 라운드: 바른의 첫 차례는 세지 않아 살아 있고, 엘케 차례에 물약을 건넬 수 있다
+    expect(varnOf(b).dead ?? false).toBe(false);
+    expect(currentActor(b)?.id).toBe(elke.id);
+    const saved = act(b, { type: "guide", item: "potion", target: varn.id });
+    expect(varnOf(saved).hp).toBeGreaterThan(0);
   });
 
   it("물약으로 일으킨다 (회복량만큼). 붕대·해독제로는 못 일으킨다", () => {

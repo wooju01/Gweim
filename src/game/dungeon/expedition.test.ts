@@ -6,7 +6,7 @@ import { act, currentActor, living, rollEncounter } from "@/game/combat/engine";
 import { createRng } from "@/game/random";
 import { PLANNED_BOSSES, REGIONS, getDungeon, getRegion } from "@/data/regions";
 import { getMonster } from "@/data/monsters";
-import { sellable } from "@/data/loot";
+import { getSalvage } from "@/data/loot";
 import type { Merc } from "@/game/types";
 import {
   battleFor,
@@ -304,8 +304,8 @@ describe("전투 유실물", () => {
       expect(b.units.filter((u) => u.side === "enemy").every((u) => !!u.kind)).toBe(true);
       const won = battleSpoils(exp, { ...b, outcome: "victory" }, seed);
       expect(won.exp.loot).toEqual([]);
-      // 팔 수 있는 유실물만 센다 (전수관 재료는 data/drops.test.ts)
-      salvage += Object.entries(won.exp.salvage).reduce((a, [id, n]) => a + (sellable(id) ? n : 0), 0);
+      // 유실물만 센다 (전수관 재료는 data/drops.test.ts)
+      salvage += Object.entries(won.exp.salvage).reduce((a, [id, n]) => a + ((getSalvage(id)?.kind ?? "loot") === "loot" ? n : 0), 0);
     }
     // 적 3~4마리 × (0.5 + 0.15) ≈ 한 번에 2개 남짓
     expect(salvage / 100).toBeGreaterThan(1.5);

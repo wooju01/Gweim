@@ -85,8 +85,8 @@ export type Unit = {
   level?: MercLevel;
   /** 용병만: 쓰러짐 (downed). 쓰러진 채 버틸 남은 차례 (0이 되면 사망) */
   downedTurnsLeft?: number;
-  /** 용병만: 쓰러진 라운드 (그 라운드의 자기 차례는 세지 않는다) */
-  downedRound?: number;
+  /** 용병만: 막 쓰러졌다 (쓰러진 직후 돌아오는 첫 차례는 세지 않는다) */
+  downedFresh?: boolean;
   /** 용병만: 죽었다 (되돌릴 수 없다) */
   dead?: boolean;
   /** 적만: 정보에 보이는 특징 한 줄 */
@@ -678,7 +678,7 @@ function damage(b: Battle, target: Unit, amount: number) {
       if (turns <= 0) kill(b, target);
       else {
         target.downedTurnsLeft = turns;
-        target.downedRound = b.round;
+        target.downedFresh = true;
         b.log.push({ type: "downed", target: target.id, turns });
       }
     }
@@ -828,7 +828,7 @@ export function revivesOne(def: SkillDef): boolean {
 function kill(b: Battle, u: Unit) {
   u.dead = true;
   u.downedTurnsLeft = undefined;
-  u.downedRound = undefined;
+  u.downedFresh = undefined;
   b.log.push({ type: "death", target: u.id });
 }
 
@@ -836,14 +836,20 @@ function kill(b: Battle, u: Unit) {
 function revive(b: Battle, u: Unit, amount: number, by: Actor, via: "potion" | "skill" | "miracle") {
   u.hp = Math.max(1, Math.min(u.maxHp, amount));
   u.downedTurnsLeft = undefined;
-  u.downedRound = undefined;
+  u.downedFresh = undefined;
   b.log.push({ type: "heal", target: u.id, amount: u.hp, by });
   b.log.push({ type: "rescue", target: u.id, via, by });
 }
 
-/** 쓰러진 용병의 차례: 버티는 차례가 1 줄고, 0이면 죽는다 (쓰러진 그 라운드의 차례는 세지 않는다) */
+/**
+ * 쓰러진 용병의 차례: 버티는 차례가 1 줄고, 0이면 죽는다.
+ * 쓰러진 직후 돌아오는 첫 차례는 세지 않는다 (라운드 마지막에 쓰러져도 최소 한 바퀴는 아군이 살릴 기회가 있다)
+ */
 function downedTurn(b: Battle, u: Unit) {
-  if (u.downedRound !== undefined && b.round <= u.downedRound) return;
+  if (u.downedFresh) {
+    u.downedFresh = undefined;
+    return;
+  }
   u.downedTurnsLeft = (u.downedTurnsLeft ?? 1) - 1;
   if (u.downedTurnsLeft <= 0) kill(b, u);
 }

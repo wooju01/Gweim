@@ -28,7 +28,7 @@ const near = (x: number, target: number, tol = 0.03) => {
 };
 
 describe("전수관 재료 드롭", () => {
-  it("드롭표의 아이템과 몬스터는 모두 있고, 재료는 팔 수 없다", () => {
+  it("드롭표의 아이템과 몬스터는 모두 있고, 재료·파편만 싸게 팔 수 있다", () => {
     const ids = [
       ...Object.values(MONSTER_MATERIAL).map((m) => m.id),
       ...Object.values(MONSTER_RELIC).map((m) => m.id),
@@ -39,7 +39,8 @@ describe("전수관 재료 드롭", () => {
     ];
     for (const id of ids) {
       expect(getSalvage(id), id).toBeDefined();
-      expect(sellable(id), id).toBe(false);
+      const kind = getSalvage(id)!.kind;
+      expect(sellable(id), id).toBe(kind === "material" || kind === "shard");
     }
     for (const kind of [...Object.keys(MONSTER_MATERIAL), ...Object.keys(MONSTER_RELIC), ...Object.keys(SPECIAL_DROPS), ...HIDDEN_BOSSES])
       expect(getMonster(kind), kind).toBeDefined();

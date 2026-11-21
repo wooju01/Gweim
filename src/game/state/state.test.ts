@@ -274,7 +274,7 @@ describe("전투 중 후퇴 (상태)", () => {
     const battle = s.screen.battle;
     const downed = {
       ...battle,
-      units: battle.units.map((u) => (u.id === "s-bran" ? { ...u, hp: 0, downedTurnsLeft: 1, downedRound: battle.round } : u)),
+      units: battle.units.map((u) => (u.id === "s-bran" ? { ...u, hp: 0, downedTurnsLeft: 1, downedFresh: true } : u)),
     };
     const fled = gameReducer({ ...s, screen: { ...s.screen, battle: downed } }, { type: "fleeBattle", seed: 1 });
     expect(fled.roster.some((e) => e.kind === "random" && e.seed.id === "s-bran")).toBe(false);

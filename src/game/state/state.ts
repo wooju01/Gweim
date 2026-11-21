@@ -1140,7 +1140,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case "fleeBattle": {
       if (state.screen.kind !== "battle" || state.screen.battle.outcome || !state.expedition) return state;
       // 쓰러진 용병은 남겨진다 (사망)
-      const battle = { ...state.screen.battle, units: state.screen.battle.units.map((u) => (isDowned(u) ? { ...u, dead: true, downedTurnsLeft: undefined } : u)) };
+      const battle = { ...state.screen.battle, units: state.screen.battle.units.map((u) => (isDowned(u) ? { ...u, dead: true, downedTurnsLeft: undefined, downedFresh: undefined } : u)) };
       // 체력·쓰러짐·죽음을 반영하고, 죽은 용병을 묻는다
       let next: GameState = bury(
         { ...state, expedition: { ...finishBattle(state.expedition, battle), room: null }, screen: { kind: "dungeon" } },

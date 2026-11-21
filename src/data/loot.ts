@@ -3,7 +3,7 @@
 import type { Rng } from "@/game/random";
 
 /**
- * 전리품 종류. loot(유실물)만 상점에 판다. 나머지는 전수관 재료 (data/drops.ts가 떨어뜨린다)
+ * 전리품 종류. loot(유실물)·material(계열 재료)·shard(기술 파편)는 상점에 판다. 나머지는 팔 수 없는 전수관 재료 (data/drops.ts가 떨어뜨린다)
  * shard 기술 파편 / book 전술 교본 / material 계열 재료 / raceRelic 종족 유물 / bossToken 보스 증표
  */
 export type ItemKind = "loot" | "shard" | "book" | "material" | "raceRelic" | "bossToken";
@@ -12,21 +12,26 @@ export type Salvage = {
   id: string;
   name: string;
   description: string;
-  /** 상점에 팔 때 받는 금화 (유실물만 판다) */
+  /** 상점에 팔 때 받는 금화 (재료·파편은 MATERIAL_PRICE로 채운다) */
   value: number;
   /** 없으면 유실물 */
   kind?: ItemKind;
 };
 
 export const kindOf = (s: Salvage): ItemKind => s.kind ?? "loot";
-/** 상점에 팔 수 있나 (유실물만) */
+/** 상점에 팔 수 있는 종류 */
+export const SELLABLE_KINDS: ItemKind[] = ["loot", "material", "shard"];
+/** 상점에 팔 수 있나 (유실물, 계열 재료, 기술 파편) */
 export const sellable = (id: string): boolean => {
   const s = getSalvage(id);
-  return !!s && kindOf(s) === "loot";
+  return !!s && SELLABLE_KINDS.includes(kindOf(s));
 };
 
-export const SALVAGE: Salvage[] = [
-  // ── 전수관 재료 (팔지 않는다) ──
+/** 계열 재료·기술 파편 판매가 = 유실물 평균 판매가 × 이 비율 (2026-11-22) */
+export const MATERIAL_PRICE_RATIO = 1 / 3;
+
+const RAW_SALVAGE: Salvage[] = [
+  // ── 전수관 재료 (재료·파편은 싸게 팔 수 있다. 교본·종족 유물·보스 증표는 못 판다) ──
   { id: "tech_shard", kind: "shard", name: "기술 파편", description: "싸움의 요령이 깃든 작은 조각. 부 조각을 익히고 다듬는 데 쓴다.", value: 0 },
   { id: "tactic_book", kind: "book", name: "전술 교본", description: "손때 묻은 전술서. 은 등급 메인 조각과 종족 메인 조각을 익히는 데 쓴다.", value: 0 },
   { id: "boss_token", kind: "bossToken", name: "보스 증표", description: "던전의 주인을 쓰러뜨린 증거. 부 조각을 끝까지 다듬는 데 쓴다.", value: 0 },
@@ -81,6 +86,14 @@ export const SALVAGE: Salvage[] = [
   { id: "spore_sac", name: "포자 주머니", description: "건드리면 터진다. 조심해서 들고 다녀야 한다.", value: 3 },
   { id: "husk_shell", name: "굳은 껍질", description: "나무껍질처럼 단단한 껍질 조각.", value: 5 },
 ];
+
+/** 유실물 평균 판매가의 약 1/3 (최소 1) */
+export const MATERIAL_PRICE = Math.max(
+  1,
+  Math.round((RAW_SALVAGE.filter((x) => kindOf(x) === "loot").reduce((a, x) => a + x.value, 0) / RAW_SALVAGE.filter((x) => kindOf(x) === "loot").length) * MATERIAL_PRICE_RATIO),
+);
+
+export const SALVAGE: Salvage[] = RAW_SALVAGE.map((x) => (kindOf(x) === "material" || kindOf(x) === "shard" ? { ...x, value: MATERIAL_PRICE } : x));
 
 /** 적 종류(data/combat.ts의 ENEMIES id)별 드롭표: 쓰러뜨린 적마다 항목별로 굴린다 */
 const c = (id: string, chance: number) => ({ id, chance });
@@ -174,7 +187,7 @@ export function addSalvage(a: Record<string, number>, b: Record<string, number>)
 export const salvageCount = (s: Record<string, number>) => Object.values(s).reduce((a, b) => a + b, 0);
 
 /** 팔 수 없는 물건의 종류 (판매가 대신 아이콘으로 따로 보인다) */
-export const UNSELLABLE_KINDS: Exclude<ItemKind, "loot">[] = ["material", "shard", "book", "raceRelic", "bossToken"];
+export const UNSELLABLE_KINDS: Exclude<ItemKind, "loot">[] = ["book", "raceRelic", "bossToken"];
 export const KIND_LABEL: Record<Exclude<ItemKind, "loot">, { icon: string; name: string }> = {
   material: { icon: "⚒", name: "재료" },
   shard: { icon: "◆", name: "기술 파편" },
@@ -184,8 +197,8 @@ export const KIND_LABEL: Record<Exclude<ItemKind, "loot">, { icon: string; name:
 };
 
 /**
- * 들고 있는 것의 값: 금화 + 팔 수 있는 유실물·유물의 상점 판매가 합.
- * 팔 수 없는 것(재료·파편·교본·종족 유물·보스 증표)은 종류별 개수로 따로.
+ * 들고 있는 것의 값: 금화 + 팔 수 있는 것(유물, 유실물, 재료, 파편)의 상점 판매가 합.
+ * 팔 수 없는 것(교본·종족 유물·보스 증표)은 종류별 개수로 따로.
  */
 export function carriedValue(gold: number, relicValues: number[], salvage: Record<string, number>): { value: number; unsellable: Partial<Record<Exclude<ItemKind, "loot">, number>> } {
   let value = gold + relicValues.reduce((a, b) => a + b, 0);
@@ -194,8 +207,8 @@ export function carriedValue(gold: number, relicValues: number[], salvage: Recor
     const item = getSalvage(id);
     if (!item || n <= 0) continue;
     const kind = kindOf(item);
-    if (kind === "loot") value += item.value * n;
-    else unsellable[kind] = (unsellable[kind] ?? 0) + n;
+    if (SELLABLE_KINDS.includes(kind)) value += item.value * n;
+    else if (kind !== "loot") unsellable[kind] = (unsellable[kind] ?? 0) + n;
   }
   return { value, unsellable };
 }
