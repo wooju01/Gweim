@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { START_SUPPLIES } from "@/data/combat";
 import { EVENTS, getEvent } from "@/data/events";
 import { TEST_MERCS } from "@/test/fixtures";
-import { act, currentActor, living, rollEncounter } from "@/game/combat/engine";
+import { act, currentActor, enemyUnit, living, rollEncounter } from "@/game/combat/engine";
+import { MONSTER_MATERIAL } from "@/data/drops";
 import { createRng } from "@/game/random";
 import { PLANNED_BOSSES, REGIONS, getDungeon, getRegion } from "@/data/regions";
 import { getMonster } from "@/data/monsters";
@@ -488,6 +489,19 @@ describe("히든 층", () => {
       expect(got.salvage.boss_token, e.type).toBeUndefined();
       expect(got.gold).toBeGreaterThan(0);
     }
+  });
+
+  it("고블린 폭탄병: 터지기 전에 잡으면 숫돌이 떨어질 수 있고, 자폭하면 아무것도 없다", () => {
+    expect(MONSTER_MATERIAL.goblin_bomber?.id).toBe("mat_whetstone");
+    const { exp } = expeditionWithFirst("battle");
+    const b = battleFor(exp, mercs, 1);
+    const bomber = { ...enemyUnit(getMonster("goblin_bomber")!, "eb"), hp: 0 };
+    const won = { ...b, outcome: "victory" as const, units: [...b.units.filter((u) => u.side === "merc"), bomber] };
+    let got = 0;
+    for (let seed = 0; seed < 200; seed++) got += battleSpoils(exp, won, seed).exp.salvage.mat_whetstone ?? 0;
+    expect(got).toBeGreaterThan(0);
+    const exploded = { ...won, log: [...won.log, { type: "explode" as const, unit: "eb" }] };
+    for (let seed = 0; seed < 200; seed++) expect(battleSpoils(exp, exploded, seed).exp.salvage.mat_whetstone).toBeUndefined();
   });
 
   it("던전 보스는 일반 몬스터보다 금화를 훨씬 많이 준다", () => {

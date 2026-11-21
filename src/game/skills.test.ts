@@ -255,9 +255,11 @@ describe("조각 규칙", () => {
     expect(silverSeen).toBe(true);
   });
 
-  it("2단계 효과(later)는 데이터에만 있고 설명에 '준비 중'으로 나온다", () => {
-    const vow = getFragment("guardian_vow") as MainFragment;
-    expect(vow.effects.every((e) => e.kind === "later")).toBe(true);
-    expect(resolveSkill({ main: "guardian_vow", subs: [] })!.description).toContain("준비 중");
+  it("준비 중(later) 효과가 남은 조각이 없다 (모두 엔진이 처리한다)", () => {
+    for (const f of FRAGMENTS) {
+      const later = f.kind === "main" ? f.effects.some((e) => e.kind === "later") : f.mods.some((m) => m.kind === "later");
+      expect(later, f.id).toBe(false);
+    }
+    expect(resolveSkill({ main: "guardian_vow", subs: [] })!.description).toContain("도발");
   });
 });

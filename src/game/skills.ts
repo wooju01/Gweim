@@ -24,7 +24,7 @@ import {
 import { getBranch } from "@/data/jobs";
 import { MONSTER_SKILLS } from "@/data/monsters";
 import { RANKS, RANK_ORDER } from "@/data/ranks";
-import { SKILL_SLOTS, describeSkill, statusText, type DamageEffect, type Skill, type SkillDef, type SkillEffect, type StatusRoll } from "@/data/skills";
+import { DMG_COND_TEXT, SKILL_SLOTS, describeSkill, statusText, type DamageEffect, type DmgCond, type Skill, type SkillDef, type SkillEffect, type StatusRoll } from "@/data/skills";
 import type { Element, MercLevel, SkillBuild } from "@/lib/schemas";
 
 /** 용병이 아는 부 조각 레벨 (없으면 1) */
@@ -226,6 +226,10 @@ function combine(main: MainFragment, subs: SubFragment[], levels: SubLevels, id:
   const sum = { powerUp: resonance, powerDown: 0, crit: 0, flat: 0, pierce: 0, lifesteal: 0, cooldown: 0, duration: 0, effect: 0, heal: 0 };
   const added: SkillEffect[] = [];
   let shieldFromHeal = 0;
+  // 조건부 위력·마지막 타격·튀는 피해 (피해 효과마다 붙인다)
+  const bonusIf: { cond: DmgCond; pct: number }[] = [];
+  let lastHit: { minHits: number; pct: number } | undefined;
+  let splash = 0;
   for (const { m, sub } of mods) {
     switch (m.kind) {
       case "power": {
@@ -299,6 +303,15 @@ function combine(main: MainFragment, subs: SubFragment[], levels: SubLevels, id:
         added.push({ kind: "later", text: m.text.replace("{v}", shown) });
         break;
       }
+      case "powerIf":
+        bonusIf.push({ cond: m.cond, pct: val(m.pct, sub) });
+        break;
+      case "lastHit":
+        lastHit = { minHits: m.minHits, pct: val(m.pct, sub) };
+        break;
+      case "splash":
+        splash = Math.max(splash, m.pct);
+        break;
       case "resonance":
       case "narrow":
       case "area":
@@ -319,6 +332,10 @@ function combine(main: MainFragment, subs: SubFragment[], levels: SubLevels, id:
         if (crit) d = { ...d, critBonus: round3((d.critBonus ?? 0) + crit) };
         if (pierce) d = { ...d, pierce: Math.min(1, round3((d.pierce ?? 0) + pierce)) };
         if (sum.lifesteal) d = { ...d, lifesteal: round3((d.lifesteal ?? 0) + sum.lifesteal) };
+        if (bonusIf.length) d = { ...d, bonusIf: [...(d.bonusIf ?? []), ...bonusIf] };
+        if (lastHit) d = { ...d, lastHit };
+        // 튀는 피해는 적 하나를 치는 피해에만
+        if (splash && (!d.area || d.area === "one")) d = { ...d, splash };
         return d;
       }
       case "applyStatus": {
@@ -491,6 +508,12 @@ export function describeFragment(f: Fragment, lv = 1): string {
           return `옆 아군에게 보호막 ${m.shield}`;
         case "resonance":
           return `원소 조각이 없으면 위력 +${pctText(v(m.power))}, 있으면 원소 효과 +${pctText(v(m.boost))}`;
+        case "powerIf":
+          return `${DMG_COND_TEXT[m.cond]} 위력 +${pctText(v(m.pct))}`;
+        case "lastHit":
+          return `${m.minHits}타 이상이면 마지막 타격 +${pctText(v(m.pct))}`;
+        case "splash":
+          return `무작위 다른 적 하나에게도 ${pctText(m.pct)} 피해`;
         case "later": {
           const x = m.lv ? v(m.lv) : undefined;
           return `${m.text.replace("{v}", x === undefined ? "" : m.pct ? pctText(x) : String(x))} (준비 중)`;

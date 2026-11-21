@@ -1644,12 +1644,101 @@ describe("조각 스킬 (엔진 1단계)", () => {
     for (const e of b.log) if (e.type === "attack" && e.actor === "e0") expect(e.target).toBe(varn.id);
   });
 
-  it("2단계 효과(later)는 전투에서 아무 일도 하지 않는다", () => {
-    let b = one({ job: "guardian", skills: [build("guardian_vow")] }, [dummy("e0", 999)]);
-    const before = structuredClone(unitById(b, "e0")!);
-    b = act(b, { type: "skill", skill: "guardian_vow" });
-    expect(b.log.some((e) => e.type === "skill" && e.skill === "guardian_vow")).toBe(true);
-    expect(unitById(b, "e0")!.statuses).toEqual(before.statuses);
+  /** 스킬 id로 행동 */
+  const cast = (b: Battle, main: string, target?: string, ...subs: string[]) => {
+    const id = skillKey({ main, subs });
+    return act(b, { type: "skill", skill: id, ...(target ? { target } : {}) });
+  };
+
+  it("수호 선언: 적마다 확률로 도발, 도발당한 적은 가디언만 노린다", () => {
+    let hit = false;
+    for (let seed = 0; seed < 20 && !hit; seed++) {
+      let b = start([{ ...varn, job: "guardian", skills: [build("guardian_vow")] }, kass, elke], seed, [dummy("e0", 999, { attack: [3, 3] })]);
+      b = cast(b, "guardian_vow");
+      const provoked = unitById(b, "e0")!.statuses.find((x) => x.kind === "provoked");
+      if (!provoked) continue;
+      hit = true;
+      expect(provoked.source).toBe(varn.id);
+      for (let i = 0; i < 4 && !b.outcome; i++) b = act(b, { type: "attack", target: "e0" });
+      const targets = b.log.filter((e) => e.type === "attack" && e.actor === "e0").map((e) => (e as { target: string }).target);
+      expect(targets.length).toBeGreaterThan(0);
+      expect(targets.every((t) => t === varn.id)).toBe(true);
+    }
+    expect(hit).toBe(true);
+  });
+
+  it("카운터: 공격받으면 반드시 1.2배로 반격 / 가시 방패: 받은 피해를 되돌린다", () => {
+    let b = one({ job: "monk", skills: [build("monk_counter")] }, [dummy("e0", 999, { attack: [5, 5] })]);
+    b = cast(b, "monk_counter");
+    expect(unitById(b, varn.id)!.statuses.some((x) => x.kind === "counter")).toBe(true);
+    const backs = b.log.filter((e) => e.type === "attack" && e.actor === varn.id);
+    expect(backs.length).toBeGreaterThan(0); // 적의 공격에 반격했다
+    let t = one({ job: "guardian", skills: [build("guardian_bash", "guardian_thorns")] }, [dummy("e0", 999, { attack: [10, 10] })]);
+    t = cast(t, "guardian_bash", "e0", "guardian_thorns");
+    expect(unitById(t, varn.id)!.statuses.some((x) => x.kind === "thorns")).toBe(true);
+    const hitBy = t.log.find((e) => e.type === "attack" && e.actor === "e0" && e.target === varn.id) as { damage: number } | undefined;
+    const reflected = t.log.find((e) => e.type === "attack" && e.actor === varn.id && e.target === "e0" && t.log.indexOf(e) > t.log.indexOf(hitBy as never));
+    expect(hitBy && reflected).toBeTruthy();
+  });
+
+  it("호흡 가다듬기: 2턴 동안 공격 횟수 +1 / 연계: 다음 공격 한 번만 +1", () => {
+    let b = start([{ ...varn, job: "monk", skills: [build("monk_breath")] }], 1, [dummy("e0", 999)]);
+    b = cast(b, "monk_breath");
+    const before = b.log.length;
+    b = act(b, { type: "attack", target: "e0" });
+    expect(b.log.slice(before).filter((e) => e.type === "attack" && e.actor === varn.id)).toHaveLength(2);
+  });
+
+  it("덮치기: 대상 체력이 50% 이하면 4번", () => {
+    const hits = (hp: number) => {
+      let b = one({ job: "assassin", race: "beastfolk", skills: [build("as_beastfolk_main")] }, [dummy("e0", 999, { hp, maxHp: 999 })]);
+      const before = b.log.length;
+      b = cast(b, "as_beastfolk_main", "e0");
+      return b.log.slice(before).filter((e) => e.type === "attack" && e.actor === varn.id && e.target === "e0").length;
+    };
+    expect(hits(999)).toBe(3);
+    expect(hits(400)).toBe(4);
+  });
+
+  it("영웅의 서사시: 아군 모두 이번 라운드에 한 번 더 행동하고, 바드는 다음 차례를 쉰다", () => {
+    let b = start([{ ...varn, job: "minstrel", ultimate: "ult_minstrel" }, kass, elke], 1, [dummy("e0", 999, { attack: [0, 0] })]);
+    const order = b.order.length;
+    b = act(b, { type: "skill", skill: "ult_minstrel" });
+    expect(b.order.length).toBe(order + 2);
+    expect(unitById(b, varn.id)!.statuses.some((x) => x.kind === "bind")).toBe(true);
+  });
+
+  it("최후의 보루: 아군을 감싸고, 공격받으면 최대 체력 비례로 반드시 반격, 다음 라운드 먼저", () => {
+    let b = start([{ ...varn, job: "guardian", ultimate: "ult_guardian" }, kass], 1, [dummy("e0", 999, { attack: [3, 3] })]);
+    b = act(b, { type: "skill", skill: "ult_guardian" });
+    b = act(b, { type: "attack", target: "e0" }); // 카스 → 적 차례
+    const g = unitById(b, varn.id)!;
+    expect(g.statuses.some((x) => x.kind === "haste")).toBe(true);
+    // 적이 누구를 노려도 가디언이 맞고, 최대 체력의 15%로 반격
+    const back = b.log.find((e) => e.type === "attack" && e.actor === varn.id && e.target === "e0") as { damage: number } | undefined;
+    const hits = b.log.filter((e) => e.type === "attack" && e.actor === "e0").map((e) => (e as { target: string }).target);
+    expect(hits.every((t) => t === varn.id)).toBe(true);
+    expect(back?.damage).toBe(Math.round(g.maxHp * 0.15));
+  });
+
+  it("방패 강타: 기절 확률이 힘에 비례 (힘 1당 +2%)", () => {
+    const b = one({ job: "guardian", skills: [build("guardian_bash")], stats: { str: 10 } }, [dummy("e0", 999)]);
+    const id = unitById(b, varn.id)!.skills[0];
+    const stun = previewAction(b, { type: "skill", skill: id, target: "e0" })!.applies.find((a) => a.kind === "stun");
+    expect(stun).toBeDefined();
+    // 미리보기는 기본 확률. 실제로는 0.3 + 10 × 0.02 = 0.5 (일반 적 저항 0.1을 빼면 0.4)
+    let stunned = 0;
+    for (let seed = 0; seed < 300; seed++) {
+      const x = cast(one({ job: "guardian", skills: [build("guardian_bash")], stats: { str: 10 } }, [dummy("e0", 999, { rank: "normal" })], seed), "guardian_bash", "e0");
+      if (x.log.some((e) => e.type === "status" && e.kind === "stun")) stunned++;
+    }
+    expect(stunned / 300).toBeGreaterThan(0.33);
+  });
+
+  it("꿰뚫기: 대상 말고 무작위 다른 적 하나에게도 50% 피해", () => {
+    let b = one({ job: "archer", skills: [build("ar_rapid", "ar_pierce")] }, [dummy("e0", 999), dummy("e1", 999)]);
+    b = cast(b, "ar_rapid", "e0", "ar_pierce");
+    expect(b.log.some((e) => e.type === "attack" && e.actor === varn.id && e.target === "e1")).toBe(true);
   });
 
   it("결투 신청: 2턴 동안 그 적은 결투를 건 기사만 노리고, 기사가 그 적에게 받는 피해 -2", () => {

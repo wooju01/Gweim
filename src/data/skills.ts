@@ -16,6 +16,8 @@ export type StatusRoll = {
   status: StatusKind;
   /** 거는 확률 (기본 1). 기절·출혈·중독은 대상의 저항을 뺀다 */
   chance?: number;
+  /** 쓰는 용병의 스킬 스탯 1점마다 확률 + (방패 강타: 힘에 비례) */
+  chancePerPower?: number;
   /** 수치 (없으면 STATUS의 기본값) */
   value?: number;
   /** 지속 (없으면 STATUS의 기본값) */
@@ -49,6 +51,26 @@ export type DamageEffect = {
   lifesteal?: number;
   /** 타격마다 거는 상태이상 */
   perHit?: StatusRoll;
+  /** 조건이 맞으면 위력 + (기절 중인 대상, 출혈 중인 대상, 체력 낮은 대상·자신) */
+  bonusIf?: { cond: DmgCond; pct: number }[];
+  /** 조건이 맞으면 치명 + */
+  critIf?: { cond: DmgCond; pct: number }[];
+  /** 조건이 맞으면 타격 수를 이만큼으로 */
+  hitsIf?: { cond: DmgCond; hits: number };
+  /** 타격이 minHits번 이상이면 마지막 타격 위력 + */
+  lastHit?: { minHits: number; pct: number };
+  /** 대상을 친 뒤 무작위 다른 적 하나에게도 이 비율의 피해 */
+  splash?: number;
+};
+
+/** 피해 조건: 대상이 기절·출혈 중 / 대상 체력 50% 이하 / 자기 체력 50%·30% 이하 */
+export type DmgCond = "targetStunned" | "targetBleeding" | "targetLowHp" | "selfLowHp50" | "selfLowHp30";
+export const DMG_COND_TEXT: Record<DmgCond, string> = {
+  targetStunned: "기절 중인 대상에게",
+  targetBleeding: "출혈 중인 대상에게",
+  targetLowHp: "체력 50% 이하인 대상에게",
+  selfLowHp50: "자기 체력 50% 이하일 때",
+  selfLowHp30: "자기 체력 30% 이하일 때",
 };
 
 export type SkillEffect =
@@ -68,6 +90,14 @@ export type SkillEffect =
   | { kind: "shield"; amount: number; who?: "self" | "allies"; stat?: PowerStat }
   /** 다음 자기 차례까지 적의 공격을 끌어오고 받는 피해 절반 */
   | { kind: "taunt" }
+  /** 적마다 chance로 도발 (turns 동안 쓰는 용병만 노린다) */
+  | { kind: "provoke"; chance: number; turns: number }
+  /** 자신: turns 동안 차례마다 최대 체력의 pct 회복 */
+  | { kind: "regenPct"; pct: number; turns: number }
+  /** 최후의 보루: 아군 전체를 감싸고(1턴), 공격받으면 최대 체력의 pct로 반격, 다음 라운드 먼저 움직인다 */
+  | { kind: "bulwark"; pct: number }
+  /** 영웅의 서사시: 아군 전체가 이번 라운드에 한 번 더 행동하고, 쓴 용병은 다음 차례를 쉰다 */
+  | { kind: "extraTurn" }
   /** 자기 체력 소모 (hp 또는 최대 체력 비율). 체력 1 아래로는 깎지 않는다 */
   | { kind: "selfCost"; hp?: number; pctMaxHp?: number }
   /** 이 확률로 스킬 전체가 실패한다 (대기 시간은 그대로 든다) */
@@ -144,11 +174,16 @@ export function describeSkill(def: SkillDef): string {
           e.pierce ? `방어 ${pct(e.pierce)} 무시` : "",
           e.lifesteal ? `준 피해 ${pct(e.lifesteal)} 회복` : "",
           e.perHit ? `타격마다 ${statusText(e.perHit)}` : "",
+          ...(e.bonusIf ?? []).map((c) => `${DMG_COND_TEXT[c.cond]} 위력 +${pct(c.pct)}`),
+          ...(e.critIf ?? []).map((c) => `${DMG_COND_TEXT[c.cond]} 치명 +${pct(c.pct)}`),
+          e.hitsIf ? `${DMG_COND_TEXT[e.hitsIf.cond]} ${e.hitsIf.hits}번` : "",
+          e.lastHit ? `${e.lastHit.minHits}타 이상이면 마지막 타격 +${pct(e.lastHit.pct)}` : "",
+          e.splash ? `무작위 다른 적 하나에게도 ${pct(e.splash)} 피해` : "",
         ].filter(Boolean);
         return [`${who} ${power}${e.bonus ? ` +${e.bonus}` : ""} 피해${times}${extras.length ? ` (${extras.join(", ")})` : ""}`];
       }
       case "applyStatus":
-        return [`${e.area === "all" ? "모든 적" : to(e)}에게 ${statusText(e)}`];
+        return [`${e.area === "all" ? "모든 적" : to(e)}에게 ${statusText(e)}${e.chancePerPower ? ` (스탯 1당 확률 +${pct(e.chancePerPower)})` : ""}`];
       case "heal":
         return [`${to(e)}의 체력 ${e.amount} 회복${!e.who && def.target === "ally" ? " (쓰러진 아군이면 그만큼으로 일으킨다)" : ""}`];
       case "revive":
@@ -160,6 +195,14 @@ export function describeSkill(def: SkillDef): string {
       }
       case "shield":
         return [`${to(e)}에게 피해를 먼저 막는 보호막 ${e.amount}`];
+      case "provoke":
+        return [`적마다 ${pct(e.chance)} 확률로 ${e.turns}턴 동안 자신만 노리게 한다 (도발)`];
+      case "regenPct":
+        return [`${e.turns}턴 동안 차례마다 최대 체력의 ${pct(e.pct)} 회복`];
+      case "bulwark":
+        return [`1턴 동안 아군이 받을 공격을 모두 대신 받고, 공격받으면 최대 체력의 ${pct(e.pct)}로 반드시 반격한다. 다음 라운드에 먼저 움직인다`];
+      case "extraTurn":
+        return ["아군 전체가 이번 라운드에 한 번 더 행동하고, 자신은 다음 차례를 쉰다"];
       case "taunt":
         return ["다음 차례까지 적의 공격을 끌어오고, 받는 피해가 절반"];
       case "selfCost":

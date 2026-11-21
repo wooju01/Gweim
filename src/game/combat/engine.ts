@@ -32,7 +32,7 @@ import {
   type StatusKind,
   type SupplyKind,
 } from "@/data/combat";
-import { SKILL_SLOTS, type DamageEffect, type Scaling, type Skill, type SkillDef, type SkillId, type StatusRoll } from "@/data/skills";
+import { SKILL_SLOTS, type DamageEffect, type DmgCond, type Scaling, type Skill, type SkillDef, type SkillId, type StatusRoll } from "@/data/skills";
 import { BOND } from "@/data/bond";
 import { JOB_STAT, PER_POINT, type PowerStat, type StatKey } from "@/data/growth";
 import { DEATH, downedTurns } from "@/data/death";
@@ -969,7 +969,48 @@ type StrikeOptions = {
   lifesteal?: number;
   /** 타격마다 거는 상태이상 */
   perHit?: StatusRoll;
+  /** 조건이 맞으면 위력·치명 + (스킬의 bonusIf·critIf) */
+  bonusIf?: { cond: DmgCond; pct: number }[];
+  critIf?: { cond: DmgCond; pct: number }[];
+  /** 이 타격의 위력 + (마지막 타격 보너스 등) */
+  power?: number;
+  /** 이 타격의 고정 피해 + (박자) */
+  flat?: number;
+  /** 피할 수 없다 (반드시 반격) */
+  sure?: boolean;
+  /** 미리보기 최대치: 행동 중에 바뀔 수 있는 대상 조건(출혈·체력 50% 이하)이 맞는다고 본다 */
+  assumeConds?: boolean;
 };
+
+/** 피해 조건이 맞나 */
+export function condMet(cond: DmgCond, actor: Unit, target: Unit): boolean {
+  switch (cond) {
+    case "targetStunned":
+      return hasStatus(target, "stun");
+    case "targetBleeding":
+      return hasStatus(target, "bleed");
+    case "targetLowHp":
+      return target.hp <= target.maxHp * 0.5;
+    case "selfLowHp50":
+      return actor.hp <= actor.maxHp * 0.5;
+    case "selfLowHp30":
+      return actor.hp <= actor.maxHp * 0.3;
+  }
+}
+
+/** 공격 횟수 보정: 연타(호흡 가다듬기) + 연계(한 번 쓰면 사라진다) */
+function extraHits(actor: Unit): number {
+  const chain = statusValue(actor, "chain");
+  if (chain) actor.statuses = actor.statuses.filter((x) => x.kind !== "chain");
+  return statusValue(actor, "flurry") + chain;
+}
+
+/** 박자: 다음 공격 한 번의 피해 + (꺼내면 사라진다) */
+function takeTempo(actor: Unit): number {
+  const v = statusValue(actor, "tempo");
+  if (v) actor.statuses = actor.statuses.filter((x) => x.kind !== "tempo");
+  return v;
+}
 
 /** 잃은 체력 비율 (0~1) */
 function lostRatio(u: Unit): number {
@@ -1036,7 +1077,12 @@ export function strikeFactors(b: Battle, actor: Unit, target: Unit, opts: Strike
   const dance = has(actor, "wind_dance") && !!fx.dance;
   if (dance) bonus += PASSIVE.windDanceBonus;
 
-  let multiplier = 1 + (opts.charge ?? 0);
+  bonus += opts.flat ?? 0;
+  // 조건부 위력 (광폭·피 냄새·투혼·룬 각인 대검), 마무리 (체력 50% 이하 적에게), 마지막 타격
+  const met = (c: DmgCond) => condMet(c, actor, target) || (!!opts.assumeConds && (c === "targetBleeding" || c === "targetLowHp"));
+  const condPower = (opts.bonusIf ?? []).reduce((a, c) => a + (met(c.cond) ? c.pct : 0), 0);
+  const execute = target.hp <= target.maxHp * 0.5 || opts.assumeConds ? statusValue(actor, "execute") : 0;
+  let multiplier = (1 + (opts.charge ?? 0)) * (1 + condPower + execute + (opts.power ?? 0));
   const firstStrike = has(actor, "first_strike") && !fx.firstDone;
   if (firstStrike) multiplier *= PASSIVE.firstStrikeMultiplier;
   const cheer = has(actor, "rising_cheer") && (fx.cheer ?? 0) >= PASSIVE.cheerMax;
@@ -1053,13 +1099,16 @@ export function strikeFactors(b: Battle, actor: Unit, target: Unit, opts: Strike
   return {
     bonus,
     multiplier,
-    critChance: critChanceOf(actor) + (opts.critBonus ?? 0),
+    critChance: critChanceOf(actor) + (opts.critBonus ?? 0) + execute + (opts.critIf ?? []).reduce((a, c) => a + (met(c.cond) ? c.pct : 0), 0),
     evadeChance: evadeChance(target),
     crack: statusValue(target, "crack"),
     guard: target.guarding,
     reduce,
     pierce: Math.min(1, (opts.pierce ?? 0) + statusValue(actor, "pierceUp")),
-    taken: (1 + statusValue(target, "mark")) * (1 - statusValue(target, "toughen")),
+    // 비전 각인: 마법을 따르는 공격이면 더 받는다
+    taken:
+      (1 + statusValue(target, "mark") + ((opts.scaling ?? []).some((x) => x.stat === "mag") ? statusValue(target, "arcaneMark") : 0)) *
+      (1 - statusValue(target, "toughen")),
     uses: { firstStrike, cheer, dance, focus, adapt: has(target, "adapt") },
   };
 }
@@ -1136,9 +1185,15 @@ function strike(b: Battle, rng: Rng, actor: Unit, target: Unit, base: number, op
   const { onHit = true, counter = false } = opts;
   const f = strikeFactors(b, actor, target, opts);
 
-  // 회피 (깃털의 발걸음, 야수의 반사신경, 바람의 춤, 회피 강화)
-  if (f.evadeChance > 0 && rng.next() < f.evadeChance) {
+  // 회피 (깃털의 발걸음, 야수의 반사신경, 바람의 춤, 회피 강화). 반드시 맞는 반격은 피할 수 없다
+  if (!opts.sure && f.evadeChance > 0 && rng.next() < f.evadeChance) {
     b.log.push({ type: "evade", actor: actor.id, target: target.id });
+    // 회피(엘프): 피하면 다음 공격 강화 / 회피(수인): 피하면 반격
+    if (hasStatus(target, "evadeCharge")) applyStatus(b, target, "charge");
+    if (hasStatus(target, "evadeCounter") && !counter && actor.hp > 0 && target.hp > 0) {
+      const basic = basicAttack(target);
+      strike(b, rng, target, actor, rollBase(rng, target, basic), { counter: true, scaling: [{ stat: "str", mult: basic.multiplier ?? 1 }] });
+    }
     if (has(target, "wind_dance")) {
       target.fx ??= {};
       target.fx.dance = true;
@@ -1174,6 +1229,7 @@ function strike(b: Battle, rng: Rng, actor: Unit, target: Unit, base: number, op
     const gain = Math.round((amount + absorbed) * opts.lifesteal);
     if (gain > 0 && actor.hp < actor.maxHp) heal(b, actor, gain, actor.id);
   }
+  if (!counter && actor.side !== target.side) reactToHit(b, rng, actor, target, amount + absorbed);
   if (target.hp <= 0) return amount;
 
   afterHit(b, target, amount);
@@ -1183,6 +1239,29 @@ function strike(b: Battle, rng: Rng, actor: Unit, target: Unit, base: number, op
     applyStatus(b, target, actor.onHit.status, isDot(actor.onHit.status) ? { value: dotStack(actor, actor.onHit.status) } : {});
   if (opts.perHit) tryStatus(b, rng, actor, target, opts.perHit);
   return amount;
+}
+
+/**
+ * 맞은 쪽의 되받아치기 (반격으로 나간 공격에는 다시 반응하지 않는다):
+ * 가시(받은 피해의 비율을 되돌린다), 반격 태세(카운터: 반드시 배율 반격), 보루(최대 체력 비례로 반드시 반격)
+ */
+function reactToHit(b: Battle, rng: Rng, actor: Unit, target: Unit, taken: number) {
+  if (b.outcome || actor.hp <= 0) return;
+  const thorns = statusValue(target, "thorns");
+  if (thorns && taken > 0) {
+    const back = Math.max(1, Math.round(taken * thorns));
+    b.log.push({ type: "attack", actor: target.id, target: actor.id, damage: back, crit: false });
+    damage(b, actor, back);
+  }
+  if (b.outcome || actor.hp <= 0 || target.hp <= 0) return;
+  const counterMult = statusValue(target, "counter");
+  if (counterMult) {
+    const basic = basicAttack(target);
+    strike(b, rng, target, actor, Math.round(rollBase(rng, target, basic) * counterMult), { counter: true, sure: true, scaling: [{ stat: "str", mult: basic.multiplier ?? 1 }] });
+  }
+  if (b.outcome || actor.hp <= 0 || target.hp <= 0) return;
+  const riposte = statusValue(target, "riposte");
+  if (riposte) strike(b, rng, target, actor, Math.max(1, Math.round(target.maxHp * riposte)), { counter: true, sure: true });
 }
 
 /** 맞고 살아남은 뒤: 흥이 오른다, 사선 돌파 */
@@ -1228,6 +1307,12 @@ function rollBase(rng: Rng, actor: Unit, e: DamageEffect): number {
  * 가디언의 감싸기와 몬스터(세계수 근위병)가 같은 규칙을 쓴다
  */
 function coverFor(b: Battle, target: Unit): Unit {
+  // 최후의 보루: 보루 상태인 동료가 있으면 그쪽이 대신 맞는다
+  const bulwark = b.units.find((u) => u !== target && u.side === target.side && u.hp > 0 && hasStatus(u, "riposte"));
+  if (bulwark) {
+    b.log.push({ type: "cover", unit: bulwark.id, target: target.id });
+    return bulwark;
+  }
   const c = target.statuses.find((x) => x.kind === "cover");
   const guard = c && b.units.find((u) => u.id === c.source && u.hp > 0 && u !== target && u.side === target.side);
   if (!guard) return target;
@@ -1246,11 +1331,16 @@ function attack(b: Battle, rng: Rng, actor: Unit, aimed: Unit) {
   const charge = takeCharge(actor);
   const target = coverFor(b, aimed);
   const basic = basicAttack(actor);
-  strike(b, rng, actor, target, rollBase(rng, actor, basic), {
-    enemiesAtStart: foes(b, actor).length,
-    scaling: [{ stat: "str", mult: basic.multiplier ?? 1 }],
-    charge,
-  });
+  const hits = 1 + extraHits(actor);
+  const flat = takeTempo(actor);
+  const enemiesAtStart = foes(b, actor).length;
+  for (let h = 0; h < hits && target.hp > 0 && !b.outcome; h++)
+    strike(b, rng, actor, target, rollBase(rng, actor, basic), {
+      enemiesAtStart,
+      scaling: [{ stat: "str", mult: basic.multiplier ?? 1 }],
+      charge: h === 0 ? charge : 0,
+      flat: h === 0 ? flat : 0,
+    });
 }
 
 /** 회복. 치유 감소가 걸려 있으면 받는 양이 준다 */
@@ -1310,24 +1400,43 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
           charge,
           lifesteal: e.lifesteal,
           perHit: e.perHit,
+          bonusIf: e.bonusIf,
+          critIf: e.critIf,
         };
-        const hits = e.hits ?? 1;
+        // 덮치기: 조건이 맞으면 타격 수가 바뀐다. 연타·연계로 +
+        const aimed = target && target.side !== actor.side ? target : undefined;
+        const base = e.hitsIf && aimed && condMet(e.hitsIf.cond, actor, aimed) ? e.hitsIf.hits : (e.hits ?? 1);
+        const hits = base + extraHits(actor);
+        // 박자: 이 스킬의 첫 타격 피해 +
+        const tempo = takeTempo(actor);
+        /** h번째 타격의 보정: 첫 타격 박자, 마지막 타격 보너스 (야성의 리듬) */
+        const at = (h: number): StrikeOptions => ({
+          ...opts,
+          ...(h === 0 && tempo ? { flat: tempo } : {}),
+          ...(e.lastHit && hits >= e.lastHit.minHits && h === hits - 1 ? { power: e.lastHit.pct } : {}),
+        });
         if (e.area === "all") {
           for (const enemy of foes(b, actor)) {
-            for (let h = 0; h < hits && enemy.hp > 0 && !b.outcome; h++) strike(b, rng, actor, enemy, rollBase(rng, actor, e), { ...opts, aoe: true });
+            for (let h = 0; h < hits && enemy.hp > 0 && !b.outcome; h++) strike(b, rng, actor, enemy, rollBase(rng, actor, e), { ...at(h), aoe: true });
           }
         } else if (e.area === "random") {
           for (let h = 0; h < hits && !b.outcome; h++) {
             const pool = foes(b, actor);
             if (pool.length === 0) break;
-            strike(b, rng, actor, pool[Math.floor(rng.next() * pool.length)], rollBase(rng, actor, e), { ...opts, aoe: true });
+            strike(b, rng, actor, pool[Math.floor(rng.next() * pool.length)], rollBase(rng, actor, e), { ...at(h), aoe: true });
           }
         } else {
           // 감싸기: 적 하나를 노리는 공격이면 보호하는 동료가 대신 맞는다
           const hitTarget = target && target.side !== actor.side ? coverFor(b, target) : target;
           for (let h = 0; h < hits; h++) {
             if (!hitTarget || hitTarget.hp <= 0 || b.outcome) break;
-            strike(b, rng, actor, hitTarget, rollBase(rng, actor, e), opts);
+            strike(b, rng, actor, hitTarget, rollBase(rng, actor, e), at(h));
+          }
+          // 꿰뚫기: 무작위 다른 적 하나에게도 비율 피해
+          if (e.splash && hitTarget && !b.outcome) {
+            const others = foes(b, actor).filter((u) => u !== hitTarget);
+            if (others.length > 0)
+              strike(b, rng, actor, others[Math.floor(rng.next() * others.length)], Math.max(1, Math.round(rollBase(rng, actor, e) * e.splash)), { ...opts, aoe: true });
           }
           // 적 둘: 대상 말고 무작위 적 하나도
           if (e.area === "two" && !b.outcome) {
@@ -1346,7 +1455,28 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
       }
       case "applyStatus": {
         const list = e.area === "all" ? foes(b, actor) : recipients(b, actor, target, e.who);
-        for (const t of list) tryStatus(b, rng, actor, t, e);
+        // 방패 강타: 스킬 스탯에 비례해 확률 +
+        const roll = e.chancePerPower ? { ...e, chance: Math.min(1, (e.chance ?? 1) + (actor.power?.[statOf(skill, undefined, actor)] ?? 0) * e.chancePerPower) } : e;
+        for (const t of list) tryStatus(b, rng, actor, t, roll);
+        break;
+      }
+      case "provoke":
+        // 수호 선언·버티는 함성: 적마다 확률로 도발
+        for (const foe of foes(b, actor)) if (rng.next() < e.chance) applyStatus(b, foe, "provoked", { turns: e.turns, source: actor.id });
+        break;
+      case "regenPct":
+        applyStatus(b, actor, "regen", { value: Math.max(1, Math.round(actor.maxHp * e.pct)), turns: e.turns, self: true });
+        break;
+      case "bulwark":
+        // 최후의 보루: 다음 자기 차례까지 아군을 노린 공격을 대신 받고(coverFor), 공격받으면 반드시 반격, 다음 라운드 먼저
+        applyStatus(b, actor, "riposte", { value: e.pct, turns: 1, self: true });
+        applyStatus(b, actor, "haste", { self: true });
+        break;
+      case "extraTurn": {
+        // 영웅의 서사시: 살아 있는 아군 모두 이번 라운드에 한 번 더, 쓴 용병은 다음 차례를 쉰다
+        const extra = friends(b, actor).filter((u) => u !== actor && u.hp > 0).map((u) => u.id);
+        b.order.splice(b.turn + 1, 0, ...extra);
+        applyStatus(b, actor, "bind", { self: true });
         break;
       }
       case "heal":
@@ -1467,7 +1597,11 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
         out.failChance = e.chance;
         break;
       case "damage": {
-        const hits = e.hits ?? 1;
+        // 실제와 같은 타격 수: 덮치기(조건) + 연타·연계 (미리보기는 꺼내지 않는다)
+        const aimed = target && target.side !== actor.side ? target : undefined;
+        const hits = (e.hitsIf && aimed && condMet(e.hitsIf.cond, actor, aimed) ? e.hitsIf.hits : (e.hits ?? 1)) + statusValue(actor, "flurry") + statusValue(actor, "chain");
+        const tempo = statusValue(actor, "tempo");
+        const seen: Record<string, number> = {};
         const targets =
           e.area === "all"
             ? foes(b, actor).flatMap((t) => Array.from({ length: hits }, () => t))
@@ -1480,18 +1614,25 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
         // 그래서 처음 체력과 "앞 타격이 모두 최대로 들어간" 체력 두 경우를 계산해 범위를 넓힌다
         const dealt: Record<string, number> = {};
         for (const t of targets) {
+          const h = seen[t.id] ?? 0;
+          seen[t.id] = h + 1;
           const opts: StrikeOptions = {
             aoe: e.area === "all",
             enemiesAtStart,
             critBonus: e.critBonus,
             scaling: skill ? scalingOf(skill, e, actor) : [{ stat: "str", mult: e.multiplier ?? 1 }],
             pierce: e.pierce,
-            charge,
+            // 응축은 스킬의 모든 타격에 (평타는 첫 타격에만)
+            charge: skill || h === 0 ? charge : 0,
+            bonusIf: e.bonusIf,
+            critIf: e.critIf,
+            ...(h === 0 && tempo ? { flat: tempo } : {}),
+            ...(e.lastHit && hits >= e.lastHit.minHits && h === hits - 1 ? { power: e.lastHit.pct } : {}),
           };
           const f = strikeFactors(b, actor, t, opts);
           const hp0 = t.hp;
           t.hp = Math.max(1, hp0 - (dealt[t.id] ?? 0));
-          const fLow = strikeFactors(b, actor, t, opts);
+          const fLow = strikeFactors(b, actor, t, { ...opts, assumeConds: h > 0 });
           t.hp = hp0;
           const [lo, hi] = baseRange(actor, e);
           const amt = (base: number, crit: boolean, pick: (a: number, b: number) => number) => pick(strikeAmount(base, f, crit), strikeAmount(base, fLow, crit));
@@ -1710,6 +1851,10 @@ function protector(b: Battle, target: Unit): Unit {
 
 /** 적이 노릴 용병: 막아선 용병이 있으면 그쪽, 없으면 무작위 (전사의 긍지가 가로챌 수 있다) */
 function pickVictim(b: Battle, rng: Rng, unit: Unit): Unit | null {
+  // 도발: 도발한 용병이 서 있으면 그쪽만 노린다
+  const provoked = unit.statuses.find((x) => x.kind === "provoked");
+  const provoker = provoked && foes(b, unit).find((u) => u.id === provoked.source);
+  if (provoker) return provoker;
   // 결투: 결투를 건 상대가 살아 있으면 그 상대만 노린다
   const duel = unit.statuses.find((x) => x.kind === "duel");
   const rival = duel && foes(b, unit).find((u) => u.id === duel.source);

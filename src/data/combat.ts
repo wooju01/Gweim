@@ -35,7 +35,19 @@ export type StatusKind =
   | "regen"
   | "healReduction"
   | "duel"
-  | "cover";
+  | "cover"
+  // ── 2026-11-22: 준비 중이던 스킬 구현 ──
+  | "provoked"
+  | "counter"
+  | "flurry"
+  | "chain"
+  | "thorns"
+  | "execute"
+  | "arcaneMark"
+  | "tempo"
+  | "riposte"
+  | "evadeCounter"
+  | "evadeCharge";
 export type SupplyKind = "bandage" | "antidote" | "potion";
 
 /** 공격이 상태이상을 걸 확률 */
@@ -115,6 +127,28 @@ export const STATUS: Record<StatusKind, StatusInfo> = {
   /** 감싸기: 건 유닛(source)이 이 유닛 대신 공격을 맞는다 (적 하나를 노리는 공격만) */
   cover: { name: "보호받음", damage: 0, turns: 2, debuff: false, text: "다른 동료가 대신 맞아 준다" },
   healReduction: { name: "치유 감소", damage: 0, turns: 2, debuff: true, value: 0.5, pct: true, text: "받는 회복 -{v}" },
+  /** 수호 선언·버티는 함성: 건 용병(source)만 노린다 */
+  provoked: { name: "도발당함", damage: 0, turns: 2, debuff: true, text: "도발한 상대만 노린다" },
+  /** 카운터: 공격받으면 반드시 value배로 반격 */
+  counter: { name: "반격 태세", damage: 0, turns: 2, debuff: false, value: 1.2, text: "공격받으면 {v}배로 반격" },
+  /** 호흡 가다듬기: 공격 횟수 + */
+  flurry: { name: "연타", damage: 0, turns: 2, debuff: false, value: 1, text: "공격 횟수 +{v}" },
+  /** 연계: 다음 공격 한 번의 횟수 + (쓰면 사라진다) */
+  chain: { name: "연계", damage: 0, turns: 2, debuff: false, value: 1, text: "다음 공격 횟수 +{v}" },
+  /** 가시 방패: 받은 피해의 비율만큼 공격자에게 되돌린다 */
+  thorns: { name: "가시", damage: 0, turns: 2, debuff: false, value: 0.3, pct: true, text: "받은 피해의 {v} 반사" },
+  /** 마무리 일격: 체력 50% 이하 적에게 위력·치명 + */
+  execute: { name: "마무리", damage: 0, turns: 2, debuff: false, value: 0.1, pct: true, text: "체력 50% 이하인 적에게 위력·치명 +{v}" },
+  /** 비전 각인: 받는 마법 피해 + */
+  arcaneMark: { name: "비전 각인", damage: 0, turns: 2, debuff: true, value: 0.1, pct: true, text: "받는 마법 피해 +{v}" },
+  /** 박자 맞추기: 다음 공격 한 번의 피해 + (쓰면 사라진다) */
+  tempo: { name: "박자", damage: 0, turns: 2, debuff: false, value: 2, text: "다음 공격 피해 +{v}" },
+  /** 최후의 보루: 공격자에게 최대 체력의 비율만큼 반드시 반격 */
+  riposte: { name: "보루", damage: 0, turns: 1, debuff: false, value: 0.15, pct: true, text: "공격받으면 최대 체력의 {v}로 반격" },
+  /** 회피(수인): 피하면 반격 */
+  evadeCounter: { name: "되받아치기", damage: 0, turns: 1, debuff: false, text: "피하면 반격" },
+  /** 회피(엘프): 피하면 다음 공격 강화 (응축) */
+  evadeCharge: { name: "바람 타기", damage: 0, turns: 1, debuff: false, text: "피하면 다음 공격 위력 +50%" },
 };
 
 /** 붕대·해독제로 치료하는 상태이상 (기본 정화 대상) */

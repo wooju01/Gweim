@@ -13,7 +13,7 @@ import type { Element } from "@/lib/schemas";
 import type { StatusKind } from "./combat";
 import type { PowerStat } from "./growth";
 import type { JobId, RaceId } from "./jobs";
-import type { DamageEffect, SkillEffect, SkillTarget, StatusRoll } from "./skills";
+import type { DamageEffect, DmgCond, SkillEffect, SkillTarget, StatusRoll } from "./skills";
 
 /** 부 조각 수치: 숫자 하나면 레벨과 상관없고, [Lv1, Lv3]면 Lv2는 그 가운데 */
 export type Scaled = number | readonly [number, number];
@@ -68,6 +68,12 @@ export type SubMod =
   | { kind: "support"; shield: number }
   /** 정령 공명: 원소 조각이 없으면 위력 +power, 있으면 원소 조각 수치 +boost */
   | { kind: "resonance"; power: Scaled; boost: Scaled }
+  /** 조건이 맞으면 위력 + (피해 효과마다) */
+  | { kind: "powerIf"; cond: DmgCond; pct: Scaled }
+  /** 타격이 minHits번 이상이면 마지막 타격 위력 + */
+  | { kind: "lastHit"; minHits: number; pct: Scaled }
+  /** 대상을 친 뒤 무작위 다른 적 하나에게도 이 비율의 피해 */
+  | { kind: "splash"; pct: number }
   /** 아직 엔진이 처리하지 않는 효과. {v}에 레벨 수치 */
   | { kind: "later"; text: string; lv?: readonly [number, number]; pct?: boolean };
 
@@ -226,6 +232,7 @@ const mixed = (a: [PowerStat, number], b: [PowerStat, number], x: Omit<DamageEff
 });
 type At = { area?: "one" | "all"; who?: "self" | "allies" };
 const st = (status: StatusKind, x: Omit<StatusRoll, "status"> & At = {}): SkillEffect => ({ kind: "applyStatus", status, ...x });
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- 새 "준비 중" 효과를 넣을 때 쓴다
 const later = (text: string): SkillEffect => ({ kind: "later", text });
 
 type MainIn = Omit<MainFragment, "kind" | "cost" | "maxLevel" | "job" | "race">;
@@ -307,7 +314,7 @@ const KNIGHT = jobSet("knight", {
 // 가디언: 전부 방어형. 반사·반격 위력은 체력 기준 (2단계)
 const GUARDIAN = jobSet("guardian", {
   mains: [
-    { id: "guardian_vow", name: "수호 선언", target: "none", wait: 2, effects: [later("2턴 동안 적마다 확률로 가디언을 공격한다")] },
+    { id: "guardian_vow", name: "수호 선언", target: "none", wait: 2, effects: [{ kind: "provoke", chance: 0.6, turns: 2 }] },
     { id: "guardian_cover", name: "감싸기", target: "ally", wait: 2, effects: [st("cover", { turns: 2 })] },
     {
       id: "guardian_bash",
@@ -315,13 +322,13 @@ const GUARDIAN = jobSet("guardian", {
       target: "enemy",
       wait: 0,
       stat: "str",
-      effects: [hit(0.8), st("stun", { chance: 0.3 }), later("기절 확률이 힘에 비례")],
+      effects: [hit(0.8), st("stun", { chance: 0.3, chancePerPower: 0.02 })],
     },
     { id: "guardian_wall", name: "철벽", target: "none", wait: 1, effects: [st("armorUp", { value: 3, turns: 2, who: "self" })] },
   ],
   subs: [
     { id: "guardian_sturdy", name: "견고", word: "굳건한", mods: [{ kind: "duration", turns: 1 }, { kind: "cooldown", turns: 1 }] },
-    { id: "guardian_thorns", name: "가시 방패", word: "가시 돋친", mods: [{ kind: "later", text: "받은 공격을 반사" }, { kind: "power", pct: -0.1 }] },
+    { id: "guardian_thorns", name: "가시 방패", word: "가시 돋친", mods: [{ kind: "status", roll: { status: "thorns", turns: 2 }, lv: [0.3, 0.5], to: "self" }, { kind: "power", pct: -0.1 }] },
     { id: "guardian_ward", name: "수호막", word: "수호의", mods: [{ kind: "addShield", amount: 4, to: "auto" }, { kind: "cooldown", turns: 1 }] },
     {
       id: "guardian_resolve",
@@ -358,7 +365,7 @@ const GUARDIAN = jobSet("guardian", {
         name: "버티는 함성",
         target: "none",
         wait: 2,
-        effects: [later("2턴 동안 매 턴 최대 체력 5% 회복, 적의 공격을 더 끌어온다")],
+        effects: [{ kind: "regenPct", pct: 0.05, turns: 2 }, { kind: "provoke", chance: 0.4, turns: 2 }],
       },
       {
         id: "guardian_barbarian_sub",
@@ -372,7 +379,7 @@ const GUARDIAN = jobSet("guardian", {
     name: "최후의 보루",
     target: "none",
     wait: 0,
-    effects: [later("무조건 먼저 움직여, 1턴 동안 아군이 받을 피해를 전부 대신 받고 체력에 비례해 반드시 반격한다")],
+    effects: [{ kind: "bulwark", pct: 0.15 }],
   },
 });
 
@@ -395,7 +402,7 @@ const GREATSWORD = jobSet("greatsword", {
       { id: "gs_human_sub", name: "정확한 자세", word: "정확한", mods: [{ kind: "crit", pct: [0.1, 0.2] }] },
     ],
     dwarf: [
-      { id: "gs_dwarf_main", name: "룬 각인 대검", target: "enemy", wait: 1, effects: [hit(1.3), later("기절 중인 대상에게 위력 +50%")] },
+      { id: "gs_dwarf_main", name: "룬 각인 대검", target: "enemy", wait: 1, effects: [hit(1.3, { bonusIf: [{ cond: "targetStunned", pct: 0.5 }] })] },
       { id: "gs_dwarf_sub", name: "무게의 룬", word: "무거운", mods: [{ kind: "stunChance", pct: [0.1, 0.2], when: "attack" }, { kind: "cooldown", turns: 1 }] },
     ],
     beastfolk: [
@@ -406,7 +413,7 @@ const GREATSWORD = jobSet("greatsword", {
         wait: 1,
         effects: [hit(0.6, { hits: 3, perHit: { status: "bleed", chance: 0.3 } })],
       },
-      { id: "gs_beastfolk_sub", name: "광폭", word: "광폭한", mods: [{ kind: "later", text: "체력 50% 이하일 때 위력 +{v}", lv: [0.15, 0.25], pct: true }] },
+      { id: "gs_beastfolk_sub", name: "광폭", word: "광폭한", mods: [{ kind: "powerIf", cond: "selfLowHp50", pct: [0.15, 0.25] }] },
     ],
     barbarian: [
       { id: "gs_barbarian_main", name: "분쇄 일격", target: "enemy", wait: 2, effects: [hit(1.6), { kind: "selfCost", pctMaxHp: 0.08 }] },
@@ -454,7 +461,7 @@ const ASSASSIN = jobSet("assassin", {
     {
       id: "as_finisher",
       name: "마무리 일격", word: "끝내는",
-      mods: [{ kind: "later", text: "2턴 동안 체력 50% 이하인 적에게 위력 +10%·치명 +10%" }, { kind: "cooldown", turns: 1 }],
+      mods: [{ kind: "status", roll: { status: "execute", value: 0.1, turns: 2 }, to: "self" }, { kind: "cooldown", turns: 1 }],
     },
   ],
   races: {
@@ -471,8 +478,8 @@ const ASSASSIN = jobSet("assassin", {
       },
     ],
     beastfolk: [
-      { id: "as_beastfolk_main", name: "덮치기", target: "enemy", wait: 1, effects: [hit(0.5, { hits: 3 }), later("대상 체력이 50% 이하면 4번")] },
-      { id: "as_beastfolk_sub", name: "피 냄새", word: "피 냄새 맡은", mods: [{ kind: "later", text: "출혈 중인 적에게 위력 +{v}", lv: [0.1, 0.2], pct: true }] },
+      { id: "as_beastfolk_main", name: "덮치기", target: "enemy", wait: 1, effects: [hit(0.5, { hits: 3, hitsIf: { cond: "targetLowHp", hits: 4 } })] },
+      { id: "as_beastfolk_sub", name: "피 냄새", word: "피 냄새 맡은", mods: [{ kind: "powerIf", cond: "targetBleeding", pct: [0.1, 0.2] }] },
     ],
   },
   ultimate: {
@@ -480,7 +487,7 @@ const ASSASSIN = jobSet("assassin", {
     name: "그림자 난무",
     target: "none",
     wait: 0,
-    effects: [later("무조건 먼저 움직인다"), hit(0.6, { area: "all", hits: 2 }), st("bleed", { area: "all" })],
+    effects: [st("haste", { who: "self" }), hit(0.6, { area: "all", hits: 2 }), st("bleed", { area: "all" })],
   },
 });
 
@@ -488,8 +495,8 @@ const MONK = jobSet("monk", {
   mains: [
     { id: "monk_punch", name: "정권 지르기", target: "enemy", wait: 0, effects: [hit(0.6, { hits: 2 })] },
     { id: "monk_upper", name: "어퍼컷", target: "enemy", wait: 1, effects: [hit(0.8), st("stun", { chance: 1 })] },
-    { id: "monk_counter", name: "카운터", target: "none", wait: 1, effects: [later("2턴 동안 공격받으면 반드시 1.2배로 반격")] },
-    { id: "monk_breath", name: "호흡 가다듬기", target: "none", wait: 1, effects: [later("2턴 동안 공격 횟수 +1")] },
+    { id: "monk_counter", name: "카운터", target: "none", wait: 1, effects: [st("counter", { value: 1.2, turns: 2, who: "self" })] },
+    { id: "monk_breath", name: "호흡 가다듬기", target: "none", wait: 1, effects: [st("flurry", { value: 1, turns: 2, who: "self" })] },
   ],
   subs: [
     { id: "monk_vital", name: "급소 타격", word: "급소", mods: [{ kind: "power", pct: 0.2 }] },
@@ -499,7 +506,7 @@ const MONK = jobSet("monk", {
       name: "철신", word: "강철",
       mods: [{ kind: "status", roll: { status: "armorUp", value: 2, turns: 1 }, to: "self" }, { kind: "cooldown", turns: 1 }],
     },
-    { id: "monk_chain", name: "연계", word: "이어 치는", mods: [{ kind: "later", text: "다음 공격 횟수 +1" }, { kind: "power", pct: -0.2 }] },
+    { id: "monk_chain", name: "연계", word: "이어 치는", mods: [{ kind: "status", roll: { status: "chain", value: 1, turns: 2 }, to: "self" }, { kind: "power", pct: -0.2 }] },
   ],
   races: {
     human: [
@@ -520,11 +527,11 @@ const MONK = jobSet("monk", {
     ],
     beastfolk: [
       { id: "monk_beastfolk_main", name: "발톱 연격", target: "enemy", wait: 1, effects: [hit(0.4, { hits: 4 })] },
-      { id: "monk_beastfolk_sub", name: "야성의 리듬", word: "야성의", mods: [{ kind: "later", text: "3타 이상이면 마지막 타격 +{v}", lv: [0.15, 0.25], pct: true }] },
+      { id: "monk_beastfolk_sub", name: "야성의 리듬", word: "야성의", mods: [{ kind: "lastHit", minHits: 3, pct: [0.15, 0.25] }] },
     ],
     barbarian: [
       { id: "monk_barbarian_main", name: "메치기", target: "enemy", wait: 1, effects: [hit(1.3), st("armorDown", { value: 3, turns: 1 })] },
-      { id: "monk_barbarian_sub", name: "투혼", word: "투혼의", mods: [{ kind: "later", text: "체력 30% 이하일 때 위력 +{v}", lv: [0.2, 0.25], pct: true }] },
+      { id: "monk_barbarian_sub", name: "투혼", word: "투혼의", mods: [{ kind: "powerIf", cond: "selfLowHp30", pct: [0.2, 0.25] }] },
     ],
   },
   ultimate: {
@@ -550,7 +557,7 @@ const ARCHER = jobSet("archer", {
     },
   ],
   subs: [
-    { id: "ar_pierce", name: "꿰뚫기", word: "관통", mods: [{ kind: "later", text: "무작위 적 하나에게도 50% 피해" }, { kind: "power", pct: -0.1 }] },
+    { id: "ar_pierce", name: "꿰뚫기", word: "관통", mods: [{ kind: "splash", pct: 0.5 }, { kind: "power", pct: -0.1 }] },
     { id: "ar_multi", name: "연발", word: "연발", mods: [{ kind: "hits", add: 1, mult: 0.7 }] },
     {
       id: "ar_mark",
@@ -579,7 +586,7 @@ const ARCHER = jobSet("archer", {
       { id: "ar_elf_sub", name: "바람의 인도", word: "바람이 이끄는", mods: [{ kind: "crit", pct: [0.1, 0.2] }] },
     ],
     beastfolk: [
-      { id: "ar_beastfolk_main", name: "추적 사격", target: "enemy", wait: 1, effects: [hit(1.1), later("출혈 중인 대상에게 치명 +20%")] },
+      { id: "ar_beastfolk_main", name: "추적 사격", target: "enemy", wait: 1, effects: [hit(1.1, { critIf: [{ cond: "targetBleeding", pct: 0.2 }] })] },
       {
         id: "ar_beastfolk_sub",
         name: "사냥꾼의 표식", word: "사냥꾼의",
@@ -642,7 +649,7 @@ const PRIEST = jobSet("priest", {
         wait: 1,
         effects: [{ kind: "heal", amount: 4 }, st("evadeUp", { value: 0.1, turns: 2 })],
       },
-      { id: "pr_elf_sub", name: "생명의 숨결", word: "생명의", mods: [{ kind: "later", text: "다음 차례 시작에 체력 {v} 추가 회복", lv: [3, 6] }, { kind: "cooldown", turns: 1 }] },
+      { id: "pr_elf_sub", name: "생명의 숨결", word: "생명의", mods: [{ kind: "status", roll: { status: "regen", turns: 1 }, lv: [3, 6], to: "auto" }, { kind: "cooldown", turns: 1 }] },
     ],
     dwarf: [
       {
@@ -717,7 +724,7 @@ const MAGE = jobSet("mage", {
   races: {
     human: [
       { id: "mg_human_main", name: "마력 화살", target: "enemy", wait: 1, effects: [hit(0.7, { bonus: 5 })] },
-      { id: "mg_human_sub", name: "비전 각인", word: "비전", mods: [{ kind: "later", text: "2턴 동안 대상이 받는 마법 피해 +{v}", lv: [0.1, 0.2], pct: true }, { kind: "cooldown", turns: 1 }] },
+      { id: "mg_human_sub", name: "비전 각인", word: "비전", mods: [{ kind: "status", roll: { status: "arcaneMark", turns: 2 }, lv: [0.1, 0.2], to: "foe", when: "attack" }, { kind: "cooldown", turns: 1 }] },
     ],
     elf: [
       {
@@ -764,7 +771,7 @@ const MINSTREL = jobSet("minstrel", {
   races: {
     human: [
       { id: "mn_human_main", name: "행진곡", target: "none", wait: 1, effects: [st("speedUp", { value: 2, turns: 2, who: "allies" })] },
-      { id: "mn_human_sub", name: "박자 맞추기", word: "박자 맞춘", mods: [{ kind: "later", text: "노래를 받은 아군의 다음 공격 고정 피해 +{v}", lv: [2, 4] }, { kind: "cooldown", turns: 1 }] },
+      { id: "mn_human_sub", name: "박자 맞추기", word: "박자 맞춘", mods: [{ kind: "status", roll: { status: "tempo", turns: 2 }, lv: [2, 4], to: "auto" }, { kind: "cooldown", turns: 1 }] },
     ],
     elf: [
       {
@@ -808,7 +815,7 @@ const MINSTREL = jobSet("minstrel", {
     name: "영웅의 서사시",
     target: "none",
     wait: 0,
-    effects: [later("아군 전체가 이번 라운드에 한 번 더 행동하고, 바드는 다음 차례를 쉰다")],
+    effects: [{ kind: "extraTurn" }],
   },
 });
 
@@ -830,7 +837,7 @@ const RACE_COMMON = [
       name: "회피",
       target: "none",
       wait: 1,
-      effects: [st("evadeUp", { value: 0.15, turns: 1, who: "self" }), later("피하면 반격")],
+      effects: [st("evadeUp", { value: 0.15, turns: 1, who: "self" }), st("evadeCounter", { turns: 1, who: "self" })],
     },
   ]),
   // 드워프 공통에는 회복이 없다
@@ -848,7 +855,7 @@ const RACE_COMMON = [
       name: "회피",
       target: "none",
       wait: 1,
-      effects: [st("evadeUp", { value: 0.15, turns: 1, who: "self" }), later("피하면 다음 공격 강화")],
+      effects: [st("evadeUp", { value: 0.15, turns: 1, who: "self" }), st("evadeCharge", { turns: 1, who: "self" })],
     },
     { id: "rc_elf_spirit", name: "정령 공격", target: "enemy", wait: 0, effects: [hit(1, { stat: "mag" })] },
   ]),

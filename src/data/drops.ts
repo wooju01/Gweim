@@ -36,6 +36,8 @@ export const MONSTER_MATERIAL: Record<string, { id: string; count?: readonly [nu
   goblin_grunt: { id: "mat_whetstone" },
   goblin_shaman: { id: "mat_whetstone" },
   goblin_warrior: { id: "mat_whetstone" },
+  // 폭탄병: 터지기 전에 잡았을 때만 (자폭하면 battleSpoils의 noDrop으로 아무것도 안 떨어진다)
+  goblin_bomber: { id: "mat_whetstone" },
   hobgoblin: { id: "mat_whetstone" },
   goblin_king: { id: "mat_whetstone" },
   goblin_slinger: { id: "mat_arrowhead" },
