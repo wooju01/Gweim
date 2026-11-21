@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { GROWTH } from "@/data/growth";
+import { GROWTH, XP_TO_NEXT } from "@/data/growth";
 import { NO_GROWTH, canPromote, gainXp, validTraining, xpToNext } from "./growth";
 
 describe("성장", () => {
   it("경험치가 차면 레벨업하고, 직업 성장표대로 스탯 3이 붙고 단련 기회가 생긴다", () => {
-    const { growth, gained } = gainXp(NO_GROWTH, 5, "knight");
+    const { growth, gained } = gainXp(NO_GROWTH, XP_TO_NEXT[0], "knight");
     expect(growth).toMatchObject({ lv: 1, xp: 0, trainable: 1, stats: { str: 1, defense: 1, hp: 1 } });
     expect(gained).toEqual([GROWTH.knight]);
   });
 
   it("한 번에 여러 레벨도 오르고, 등급의 1단계(레벨 2)에서 멈춘다 (승급 전까지 경험치가 쌓이지 않는다)", () => {
-    const { growth, gained } = gainXp(NO_GROWTH, 100, "mage");
+    const { growth, gained } = gainXp(NO_GROWTH, XP_TO_NEXT[0] + XP_TO_NEXT[1] + 50, "mage");
     expect(gained).toHaveLength(2);
     expect(growth).toMatchObject({ lv: 2, xp: 0, trainable: 2, stats: { mag: 4, speed: 2 } });
     expect(canPromote(growth)).toBe(true);
@@ -18,7 +18,7 @@ describe("성장", () => {
   });
 
   it("모자란 경험치는 남는다", () => {
-    expect(gainXp(NO_GROWTH, 7, "priest").growth).toMatchObject({ lv: 1, xp: 2 });
+    expect(gainXp(NO_GROWTH, XP_TO_NEXT[0] + 2, "priest").growth).toMatchObject({ lv: 1, xp: 2 });
   });
 
   it("모든 직업의 성장표는 합이 3", () => {

@@ -74,8 +74,11 @@ export const DEFAULT_GROWTH: StatBlock = { hp: 1, str: 1, defense: 1 };
 
 /** 한 등급 안에서 오를 수 있는 레벨 수 (3단계 → 2단계 → 1단계). 다 채우면 승급할 수 있다 */
 export const LEVELS_PER_RANK = 2;
-/** 레벨 n → n+1에 필요한 경험치 */
-export const XP_TO_NEXT = [5, 8] as const;
+/**
+ * 레벨 n → n+1에 필요한 경험치. 원정 3번에 한 단계가 목표 (2026-11-21 시뮬레이션):
+ * 동3은 1층 목적지 귀환(평균 약 12) × 3, 동2는 2층 목적지 귀환(평균 약 38) × 3
+ */
+export const XP_TO_NEXT = [34, 110] as const;
 
 /** 경험치: 지나온 칸 1칸당, 목적지에 닿으면 추가 (살아 돌아온 용병만) */
 export const XP_PER_SQUARE = 1;

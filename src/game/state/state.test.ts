@@ -4,6 +4,7 @@ import { wageOf } from "@/game/merc/wages";
 import { promotionChoices } from "@/game/merc/promotion";
 import { knownFragments, ownerOf } from "@/game/merc/skillhall";
 import { getFragment } from "@/data/fragments";
+import { XP_TO_NEXT } from "@/data/growth";
 import { fragmentsFor, skillKey } from "@/game/skills";
 import { act, living } from "@/game/combat/engine";
 import { battleSpoils, finishBattle } from "@/game/dungeon/expedition";
@@ -298,11 +299,22 @@ describe("성장 (상태)", () => {
   it("살아 돌아온 용병은 지나온 칸만큼 경험치를 받고, 레벨업이 결산에 남는다", () => {
     let s = inDungeon(PARTY4);
     // xp 칸이 없는 이전 저장: 지나온 칸 수로 계산한다
-    s = { ...s, expedition: { ...s.expedition!, xp: undefined, visited: ["a", "b", "c", "d", "e", "f"], room: { kind: "goal" } } };
+    // 입구 + (XP_TO_NEXT[0]) 칸
+    const visited = Array.from({ length: XP_TO_NEXT[0] + 1 }, (_, i) => `n${i}`);
+    s = { ...s, expedition: { ...s.expedition!, xp: undefined, visited, room: { kind: "goal" } } };
     const back = gameReducer(s, { type: "endExpedition", seed: 1 });
-    // 5칸 + 목적지 3 = 8 → 레벨 1 (5 필요), 3 남음
+    // 칸 수(레벨업에 딱 맞음) + 목적지 3 → 레벨 1, 3 남음
     expect(back.progress["s-bran"]).toMatchObject({ lv: 1, xp: 3, trainable: 1, stats: { str: 1, defense: 1, hp: 1 } });
     expect(back.report!.growth.some((l) => l.includes("브란") && l.includes("레벨업 → 2단계"))).toBe(true);
+  });
+
+  it("전멸하면 경험치를 받지 않는다", () => {
+    let s = inDungeon(PARTY4);
+    const before = s.progress["s-bran"];
+    s = { ...s, expedition: { ...s.expedition!, xp: XP_TO_NEXT[0] * 3, xpBy: {}, room: { kind: "defeat" } } };
+    const back = gameReducer(s, { type: "endExpedition", seed: 1 });
+    expect(back.progress["s-bran"]).toMatchObject({ lv: before.lv, xp: before.xp });
+    expect(back.report!.growth).toEqual([]);
   });
 
   it("단련장: 금화 10을 내고 3점을 배분한다. 기회·금화가 없거나 배분이 틀리면 안 된다", () => {

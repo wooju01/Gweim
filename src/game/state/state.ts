@@ -1198,7 +1198,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         growth: [],
       };
       // 경험치: 살아 돌아온 용병. 지나온 칸 수 + 목적지 보너스, 층의 권장 등급보다 높은 용병은 줄어든다
-      if (expeditionXp(exp) > 0) {
+      // 전멸하면 금화·전리품처럼 경험치도 없다 (깊이 들어가 전멸하는 게 빨리 크는 길이 되지 않게)
+      if (!defeat && expeditionXp(exp) > 0) {
         const progress = { ...next.progress };
         for (const m of exp.members.filter((x) => !x.dead)) {
           const p = progress[m.id];
