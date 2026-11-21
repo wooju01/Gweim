@@ -3,7 +3,7 @@ import { CRAFT_COST, getFragment } from "@/data/fragments";
 import { sampleSeeds } from "@/data/sampleRoster";
 import { fragmentsFor, fragmentsIn, skillKey } from "@/game/skills";
 import { buildMerc } from "./generate";
-import { craft, craftBlock, knownFragments, ownerOf, paySalvage, swapSkills, unlockBlock, upgradeBlock } from "./skillhall";
+import { craft, craftBlock, forgetSkill, knownFragments, ownerOf, paySalvage, swapSkills, unlockBlock, upgradeBlock } from "./skillhall";
 
 const base = sampleSeeds().find((s) => s.id === "s-durgan")!; // 드워프 대검사
 const pool = fragmentsFor(ownerOf(base));
@@ -90,5 +90,21 @@ describe("조립과 장착", () => {
     // 배우지 않은 스킬은 낄 수 없다
     expect(swapSkills(out.seed, out.learned, { equip: "ult_mage" })).toBeNull();
     expect(getFragment(main)).toBeDefined();
+  });
+
+  it("보관함은 4개까지: 꽉 차면 조립·빼기를 막고, 잊으면 다시 된다", () => {
+    const four = subs.slice(0, 4).map((sub) => ({ main, subs: [sub] }));
+    const unlocked = [main, ...subs];
+    // 장착 칸도 꽉 찼고 보관함도 4개면 조립할 수 없다
+    const fifth = { main: pool.filter((f) => f.kind === "main")[4].id, subs: [] };
+    expect(craftBlock(full, four, [...unlocked, fifth.main], 999, fifth)).toBe("보관함이 꽉 찼다 (4개)");
+    // 장착 스킬을 빼서 보관할 수도 없다 (맞바꾸기는 된다)
+    expect(swapSkills(full, four, { unequip: skillKey(full.skills[0]) })).toBeNull();
+    expect(swapSkills(full, four, { equip: skillKey(four[0]), unequip: skillKey(full.skills[0]) })).not.toBeNull();
+    // 잊으면 자리가 난다
+    const three = forgetSkill(four, skillKey(four[0]))!;
+    expect(three).toHaveLength(3);
+    expect(forgetSkill(four, "nope")).toBeNull();
+    expect(craftBlock(full, three, [...unlocked, fifth.main], 999, fifth)).toBeNull();
   });
 });

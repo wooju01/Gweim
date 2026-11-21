@@ -19,6 +19,8 @@ type Props = {
   facilities: SceneFacility[];
   party: Merc[];
   onGo: (place: TownPlace) => void;
+  /** 광장의 용병을 누르면 정보 창 */
+  onInspect?: (mercId: string) => void;
 };
 
 /** 건물 자리: x(가운데 %), w(너비 %), h(높이 px), 그리고 모양 */
@@ -33,7 +35,7 @@ const LAYOUT: Record<string, { x: number; w: number; h: number; shape: (lit: boo
   yard: { x: 12, w: 12, h: 60, shape: (lit) => <Yard lit={lit} /> },
 };
 
-export function TownScene({ facilities, party, onGo }: Props) {
+export function TownScene({ facilities, party, onGo, onInspect }: Props) {
   const stage = useRef<HTMLDivElement>(null);
 
   // 마우스 위치를 CSS 변수로만 넘긴다 (다시 그리지 않는다)
@@ -125,12 +127,18 @@ export function TownScene({ facilities, party, onGo }: Props) {
           <span className="mt-0.5 text-[10px] text-ember">길안내자</span>
         </figure>
         {party.map((m) => (
-          <figure key={m.id} className="flex flex-col items-center">
+          <button
+            key={m.id}
+            type="button"
+            onClick={() => onInspect?.(m.id)}
+            title={`${m.name} 정보 보기`}
+            className="pointer-events-auto flex flex-col items-center transition-[filter] hover:brightness-150"
+          >
             <span className="anim-breathe block h-[78px] w-[54px] text-[#4a3d32]" style={{ animationDelay: `${(m.id.length % 5) * 0.3}s` }}>
               <MercSilhouette job={m.job} race={m.race} />
             </span>
             <span className="mt-0.5 text-[10px] text-bone/70">{m.name}</span>
-          </figure>
+          </button>
         ))}
       </div>
     </section>

@@ -1,6 +1,6 @@
 // 전수관 규칙 (순수 함수): 용병이 아는 조각, 조각 해금, 부 조각 강화, 스킬 조립, 장착 바꾸기.
 import { CRAFT_COST, MAX_SUB_LEVEL, getFragment, upgradeCost } from "@/data/fragments";
-import { SKILL_SLOTS } from "@/data/skills";
+import { LEARNED_SLOTS, SKILL_SLOTS } from "@/data/skills";
 import { canUseFragment, fragmentsFor, fragmentsIn, normalize, skillKey, validateSkill, type SkillOwner, type SubLevels } from "@/game/skills";
 import type { MercSeed, SkillBuild } from "@/lib/schemas";
 
@@ -78,6 +78,7 @@ export function craftBlock(seed: MercSeed, learned: SkillBuild[], unlocked: stri
   if (!fragmentsIn(build).every((id) => known.includes(id))) return "모르는 조각이 있다";
   if (ownedSkills(seed, learned).some((b) => skillKey(b) === skillKey(build))) return "이미 가진 스킬";
   if (gold < CRAFT_COST) return "금화가 모자란다";
+  if (seed.skills.length >= SKILL_SLOTS && learned.length >= LEARNED_SLOTS) return `보관함이 꽉 찼다 (${LEARNED_SLOTS}개)`;
   return null;
 }
 
@@ -122,6 +123,12 @@ export function swapSkills(
     skills = [...skills, toEquip];
   }
   if (toEquip) kept = kept.filter((s) => s !== toEquip);
-  if (skills.length < 1 || skills.length > SKILL_SLOTS) return null;
+  if (skills.length < 1 || skills.length > SKILL_SLOTS || kept.length > LEARNED_SLOTS) return null;
   return { seed: { ...seed, skills }, learned: kept };
+}
+
+/** 보관 중인 스킬을 잊는다 (조각은 그대로 안다. 다시 조립할 수 있다). 없으면 null */
+export function forgetSkill(learned: SkillBuild[], key: string): SkillBuild[] | null {
+  const i = learned.findIndex((b) => skillKey(b) === key);
+  return i < 0 ? null : learned.filter((_, j) => j !== i);
 }

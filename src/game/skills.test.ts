@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FRAGMENTS, JOB_BASIC, JOB_ULTIMATE, SUB_CAPS, getFragment, scaled, type MainFragment } from "@/data/fragments";
+import { COMBO_NAMES, FRAGMENTS, JOB_BASIC, JOB_ULTIMATE, SUB_CAPS, getFragment, scaled, type MainFragment } from "@/data/fragments";
 import { JOB_IDS, RACE_IDS, RACE_JOBS, canBe } from "@/data/jobs";
 import type { DamageEffect } from "@/data/skills";
 import {
@@ -145,10 +145,25 @@ describe("조각 합치기", () => {
     expect(dmg("mg_bolt", ["mg_wind", "mg_elf_sub"]).pierce).toBeCloseTo(0.22);
   });
 
+  it("이름: 정한 조합 이름, 없으면 첫 부 조각의 꾸밈말 + 메인", () => {
+    expect(resolveSkill({ main: "knight_human_main", subs: ["knight_human_sub"] })!.name).toBe("오러 슬래시");
+    expect(resolveSkill({ main: "mg_bolt", subs: ["mg_fire"] })!.name).toBe("화염구");
+    expect(resolveSkill({ main: "knight_charge", subs: ["knight_sweep"] })!.name).toBe("휩쓰는 돌진 베기");
+    expect(resolveSkill({ main: "knight_charge", subs: [] })!.name).toBe("돌진 베기");
+    // 부 조각이 둘이어도 짝지어 둔 이름이 있으면 그것
+    expect(resolveSkill(normalize({ main: "knight_human_main", subs: ["knight_grit", "knight_human_sub"] }))!.name).toBe("오러 슬래시");
+    // 조합 이름은 모두 있는 메인·부 조각을 가리킨다
+    for (const key of Object.keys(COMBO_NAMES)) {
+      const [m, sub] = key.split("+");
+      expect(getFragment(m)?.kind, key).toBe("main");
+      expect(getFragment(sub)?.kind, key).toBe("sub");
+    }
+  });
+
   it("id는 부 조각 순서와 상관없이 같다", () => {
     expect(skillKey({ main: "knight_slash", subs: ["knight_combo", "knight_sweep"] })).toBe(skillKey({ main: "knight_slash", subs: ["knight_sweep", "knight_combo"] }));
     expect(normalize({ main: "a", subs: [] })).toEqual({ main: "a", subs: [] });
-    expect(getSkill("knight_slash+knight_sweep")!.name).toContain("휩쓸기");
+    expect(getSkill("knight_slash+knight_sweep")!.name).toBe("회전 검격");
     expect(getSkill("m_web")).toBeDefined();
     expect(getSkill("nope")).toBeUndefined();
   });

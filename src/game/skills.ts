@@ -5,6 +5,7 @@
 // 부 조각 레벨이 들어간 실제 효과는 전투 유닛이 따로 들고 있다 (combat/engine.ts의 Unit.book).
 import { STATUS } from "@/data/combat";
 import {
+  COMBO_NAMES,
   FRAGMENTS,
   JOB_BASIC,
   NEUTRAL_MAIN,
@@ -343,7 +344,7 @@ function combine(main: MainFragment, subs: SubFragment[], levels: SubLevels, id:
 
   const def: SkillDef = {
     id,
-    name: subs.length ? `${main.name} (${subs.map((s) => s.name).join("·")})` : main.name,
+    name: skillName(main, subs),
     cooldown: main.ultimate ? 0 : Math.max(0, main.wait + sum.cooldown),
     target,
     effects,
@@ -351,6 +352,24 @@ function combine(main: MainFragment, subs: SubFragment[], levels: SubLevels, id:
     ...(main.ultimate ? { ultimate: true } : {}),
   };
   return { ...def, description: describeSkill(def) };
+}
+
+/**
+ * 스킬 이름: 따로 정한 조합 이름이 있으면 그것 (부 조각 하나와 짝지어 정한다),
+ * 없으면 첫 부 조각의 꾸밈말 + 메인 이름 ("휩쓰는 검격"). 부 조각이 없으면 메인 이름
+ */
+export function skillName(main: MainFragment, subs: SubFragment[]): string {
+  for (const sub of subs) {
+    const named = COMBO_NAMES[`${main.id}+${sub.id}`];
+    if (named) return named;
+  }
+  return subs.length ? `${subs[0].word} ${main.name}` : main.name;
+}
+
+/** 스킬 구성 ("오러 블레이드 + 오러 · 투지") */
+export function partsText(build: SkillBuild): string {
+  const name = (id: string) => getFragment(id)?.name ?? id;
+  return build.subs.length ? `${name(build.main)} + ${build.subs.map(name).join(" · ")}` : name(build.main);
 }
 
 // ── 조회 ───────────────────────────────────────────────

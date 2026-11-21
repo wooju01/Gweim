@@ -1,7 +1,7 @@
 import { MERC_SLOTS } from "@/game/merc/party";
 import { PACK_LIMIT } from "@/data/economy";
 import type { SupplyKind } from "@/data/combat";
-import { Button } from "@/components/common/parts";
+import { Button, Portrait } from "@/components/common/parts";
 import type { Fallen, TownPlace } from "@/game/state/state";
 import { TownBar } from "./TownBar";
 import { TownScene, type SceneFacility } from "./TownScene";
@@ -13,6 +13,9 @@ type Props = {
   hired: number;
   /** 원정 파티 (광장에 서 있다) */
   party: Merc[];
+  /** 고용한 용병 전부 (누르면 정보 창) */
+  crew: Merc[];
+  onInspect: (mercId: string) => void;
   /** 길드에 와 있는 고용 전 용병 수 */
   visitors: number;
   pack: Record<SupplyKind, number>;
@@ -32,7 +35,7 @@ type Facility = SceneFacility & { description: string };
 
 /** 마을(홈). 시설 카드에서 길드·상점·숙소·던전 입구로 간다. 나중 시설은 자리만 보인다 */
 export function TownScreen(props: Props) {
-  const { day, gold, hired, party, visitors, pack, relics, salvage, trainable, notices, memorial, onGo, onDismissNotices, onNewGame } = props;
+  const { day, gold, hired, party, crew, onInspect, visitors, pack, relics, salvage, trainable, notices, memorial, onGo, onDismissNotices, onNewGame } = props;
   const packed = Object.values(pack).reduce((a, b) => a + b, 0);
   const partySize = party.length;
 
@@ -113,7 +116,29 @@ export function TownScreen(props: Props) {
         <p className="text-sm text-ash">던전으로 내려가는 길목의 마지막 마을. 원정을 마치고 돌아오면 하루가 지난다.</p>
       </header>
 
-      <TownScene facilities={facilities} party={party} onGo={onGo} />
+      <TownScene facilities={facilities} party={party} onGo={onGo} onInspect={onInspect} />
+
+      {crew.length > 0 && (
+        <section aria-label="용병단" className="flex flex-col gap-2">
+          <h2 className="text-xs tracking-widest text-ash">용병단 · 누르면 정보를 보고 스킬·장신구를 바꿔 낀다</h2>
+          <div className="flex flex-wrap gap-2">
+            {crew.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => onInspect(m.id)}
+                className="flex items-center gap-2 rounded-sm border border-edge bg-panel px-2 py-1.5 text-left text-sm transition-colors hover:border-ember/50"
+              >
+                <Portrait merc={m} size="sm" />
+                <span className="flex flex-col leading-tight">
+                  <span className="font-bold">{m.name}</span>
+                  <span className="text-[11px] text-ash">{m.tags?.slice(0, 2).join(" · ")}</span>
+                  {party.some((x) => x.id === m.id) && <span className="text-[11px] text-ember">원정 파티</span>}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 같은 시설을 글로도: 건물을 누르기 어렵거나 상태를 한눈에 보고 싶을 때 */}
       <nav aria-label="시설" className="grid gap-2 sm:grid-cols-4">

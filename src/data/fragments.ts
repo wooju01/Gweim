@@ -97,6 +97,8 @@ export type MainFragment = Base & {
 export type SubFragment = Base & {
   kind: "sub";
   mods: SubMod[];
+  /** 스킬 이름 앞에 붙는 꾸밈말 ("휩쓰는" 검격, "화염" 마력탄). 조합 이름이 따로 있으면 그쪽을 쓴다 */
+  word: string;
   /** 마법사 원소 조각 */
   element?: Element;
 };
@@ -200,21 +202,21 @@ const KNIGHT = jobSet("knight", {
     { id: "knight_charge", name: "돌진 베기", target: "enemy", wait: 1, effects: [hit(1.2)] },
   ],
   subs: [
-    { id: "knight_sweep", name: "휩쓸기", mods: [{ kind: "area", mult: 0.6 }] },
-    { id: "knight_grit", name: "투지", mods: [{ kind: "lifesteal", pct: 0.3 }, { kind: "power", pct: -0.1 }] },
-    { id: "knight_chivalry", name: "기사도", mods: [{ kind: "support", shield: 3 }, { kind: "cooldown", turns: 1 }] },
-    { id: "knight_combo", name: "연격", mods: [{ kind: "hits", add: 1, mult: 0.6 }] },
+    { id: "knight_sweep", name: "휩쓸기", word: "휩쓰는", mods: [{ kind: "area", mult: 0.6 }] },
+    { id: "knight_grit", name: "투지", word: "투지의", mods: [{ kind: "lifesteal", pct: 0.3 }, { kind: "power", pct: -0.1 }] },
+    { id: "knight_chivalry", name: "기사도", word: "기사의", mods: [{ kind: "support", shield: 3 }, { kind: "cooldown", turns: 1 }] },
+    { id: "knight_combo", name: "연격", word: "연속", mods: [{ kind: "hits", add: 1, mult: 0.6 }] },
   ],
   races: {
     human: [
       { id: "knight_human_main", name: "오러 블레이드", target: "enemy", wait: 1, effects: [hit(1, { pierce: 0.2 })] },
-      { id: "knight_human_sub", name: "오러", mods: [{ kind: "flat", amount: [2, 5] }] },
+      { id: "knight_human_sub", name: "오러", word: "오러", mods: [{ kind: "flat", amount: [2, 5] }] },
     ],
     elf: [
       { id: "knight_elf_main", name: "정령 검격", target: "enemy", wait: 1, effects: [mixed(["str", 1], ["mag", 0.3])] },
       {
         id: "knight_elf_sub",
-        name: "바람 정령",
+        name: "바람 정령", word: "바람의",
         mods: [{ kind: "status", roll: { status: "evadeUp", value: 0.15, turns: 1 }, to: "self" }, { kind: "power", pct: -0.1 }],
       },
     ],
@@ -222,7 +224,7 @@ const KNIGHT = jobSet("knight", {
       { id: "knight_dwarf_main", name: "룬 새김", target: "enemy", wait: 1, effects: [hit(1.1), st("armorDown", { value: 2, turns: 3 })] },
       {
         id: "knight_dwarf_sub",
-        name: "보호의 룬",
+        name: "보호의 룬", word: "룬이 새겨진",
         mods: [{ kind: "status", roll: { status: "armorUp", value: 2, turns: 2 }, to: "self" }, { kind: "cooldown", turns: 1 }],
       },
     ],
@@ -252,12 +254,12 @@ const GUARDIAN = jobSet("guardian", {
     { id: "guardian_wall", name: "철벽", target: "none", wait: 1, effects: [st("armorUp", { value: 3, turns: 2, who: "self" })] },
   ],
   subs: [
-    { id: "guardian_sturdy", name: "견고", mods: [{ kind: "duration", turns: 1 }, { kind: "cooldown", turns: 1 }] },
-    { id: "guardian_thorns", name: "가시 방패", mods: [{ kind: "later", text: "받은 공격을 반사" }, { kind: "power", pct: -0.1 }] },
-    { id: "guardian_ward", name: "수호막", mods: [{ kind: "addShield", amount: 4, to: "auto" }, { kind: "cooldown", turns: 1 }] },
+    { id: "guardian_sturdy", name: "견고", word: "굳건한", mods: [{ kind: "duration", turns: 1 }, { kind: "cooldown", turns: 1 }] },
+    { id: "guardian_thorns", name: "가시 방패", word: "가시 돋친", mods: [{ kind: "later", text: "받은 공격을 반사" }, { kind: "power", pct: -0.1 }] },
+    { id: "guardian_ward", name: "수호막", word: "수호의", mods: [{ kind: "addShield", amount: 4, to: "auto" }, { kind: "cooldown", turns: 1 }] },
     {
       id: "guardian_resolve",
-      name: "결의",
+      name: "결의", word: "결연한",
       mods: [{ kind: "status", roll: { status: "armorUp", value: 1, turns: 2 }, to: "self" }, { kind: "power", pct: -0.1 }],
     },
   ],
@@ -266,7 +268,7 @@ const GUARDIAN = jobSet("guardian", {
       { id: "guardian_human_main", name: "수호의 깃발", target: "none", wait: 2, effects: [st("armorUp", { value: 1, turns: 2, who: "allies" })] },
       {
         id: "guardian_human_sub",
-        name: "굳은 의지",
+        name: "굳은 의지", word: "굳은",
         mods: [{ kind: "status", roll: { status: "toughen", turns: 2 }, lv: [0.05, 0.15], to: "self" }],
       },
     ],
@@ -280,7 +282,7 @@ const GUARDIAN = jobSet("guardian", {
       },
       {
         id: "guardian_dwarf_sub",
-        name: "대지의 룬",
+        name: "대지의 룬", word: "대지의",
         mods: [{ kind: "status", roll: { status: "armorUp", value: 1, turns: 2 }, to: "auto" }, { kind: "cooldown", turns: 1 }],
       },
     ],
@@ -294,7 +296,7 @@ const GUARDIAN = jobSet("guardian", {
       },
       {
         id: "guardian_barbarian_sub",
-        name: "문신의 맹세",
+        name: "문신의 맹세", word: "맹세의",
         mods: [{ kind: "status", roll: { status: "toughen", turns: 1 }, lv: [0.1, 0.2], to: "self" }, { kind: "power", pct: -0.1 }],
       },
     ],
@@ -316,19 +318,19 @@ const GREATSWORD = jobSet("greatsword", {
     { id: "gs_stance", name: "자세 잡기", target: "none", wait: 2, effects: [st("charge", { value: 1, turns: 1, who: "self" })] },
   ],
   subs: [
-    { id: "gs_recoil", name: "반동 강타", mods: [{ kind: "power", pct: 0.2 }, { kind: "selfCost", pctMaxHp: 0.05 }] },
-    { id: "gs_pierce", name: "관통", mods: [{ kind: "pierce", pct: 0.2 }] },
-    { id: "gs_shock", name: "충격", mods: [{ kind: "stunChance", pct: 0.2, when: "attack" }, { kind: "cooldown", turns: 1 }] },
-    { id: "gs_vamp", name: "흡혈 일격", mods: [{ kind: "lifesteal", pct: 0.2 }, { kind: "power", pct: -0.1 }] },
+    { id: "gs_recoil", name: "반동 강타", word: "무모한", mods: [{ kind: "power", pct: 0.2 }, { kind: "selfCost", pctMaxHp: 0.05 }] },
+    { id: "gs_pierce", name: "관통", word: "꿰뚫는", mods: [{ kind: "pierce", pct: 0.2 }] },
+    { id: "gs_shock", name: "충격", word: "울리는", mods: [{ kind: "stunChance", pct: 0.2, when: "attack" }, { kind: "cooldown", turns: 1 }] },
+    { id: "gs_vamp", name: "흡혈 일격", word: "피를 마시는", mods: [{ kind: "lifesteal", pct: 0.2 }, { kind: "power", pct: -0.1 }] },
   ],
   races: {
     human: [
       { id: "gs_human_main", name: "검기 날리기", target: "enemy", wait: 1, effects: [hit(1, { bonus: 3 })] },
-      { id: "gs_human_sub", name: "정확한 자세", mods: [{ kind: "crit", pct: [0.1, 0.2] }] },
+      { id: "gs_human_sub", name: "정확한 자세", word: "정확한", mods: [{ kind: "crit", pct: [0.1, 0.2] }] },
     ],
     dwarf: [
       { id: "gs_dwarf_main", name: "룬 각인 대검", target: "enemy", wait: 1, effects: [hit(1.3), later("기절 중인 대상에게 위력 +50%")] },
-      { id: "gs_dwarf_sub", name: "무게의 룬", mods: [{ kind: "stunChance", pct: [0.1, 0.2], when: "attack" }, { kind: "cooldown", turns: 1 }] },
+      { id: "gs_dwarf_sub", name: "무게의 룬", word: "무거운", mods: [{ kind: "stunChance", pct: [0.1, 0.2], when: "attack" }, { kind: "cooldown", turns: 1 }] },
     ],
     beastfolk: [
       {
@@ -338,13 +340,13 @@ const GREATSWORD = jobSet("greatsword", {
         wait: 1,
         effects: [hit(0.6, { hits: 3, perHit: { status: "bleed", chance: 0.3 } })],
       },
-      { id: "gs_beastfolk_sub", name: "광폭", mods: [{ kind: "later", text: "체력 50% 이하일 때 위력 +{v}", lv: [0.15, 0.25], pct: true }] },
+      { id: "gs_beastfolk_sub", name: "광폭", word: "광폭한", mods: [{ kind: "later", text: "체력 50% 이하일 때 위력 +{v}", lv: [0.15, 0.25], pct: true }] },
     ],
     barbarian: [
       { id: "gs_barbarian_main", name: "분쇄 일격", target: "enemy", wait: 2, effects: [hit(1.6), { kind: "selfCost", pctMaxHp: 0.08 }] },
       {
         id: "gs_barbarian_sub",
-        name: "전사의 함성",
+        name: "전사의 함성", word: "포효하는",
         mods: [
           { kind: "status", roll: { status: "attackUp", value: 2, turns: 2 }, to: "self" },
           { kind: "status", roll: { status: "armorDown", value: 2, turns: 1 }, to: "self" },
@@ -371,41 +373,41 @@ const ASSASSIN = jobSet("assassin", {
   subs: [
     {
       id: "as_bleed",
-      name: "출혈",
+      name: "출혈", word: "피를 부르는",
       mods: [{ kind: "status", roll: { status: "bleed", value: 2 }, to: "foe", when: "attack" }, { kind: "power", pct: -0.1 }],
     },
     {
       id: "as_venom",
-      name: "맹독",
+      name: "맹독", word: "독 묻은",
       mods: [
         { kind: "status", roll: { status: "poison", value: 4, turns: 2 }, to: "foe", when: "attack" },
         { kind: "later", text: "중독이 매 턴 30% 약해진다" },
         { kind: "cooldown", turns: 1 },
       ],
     },
-    { id: "as_aim", name: "치명 노림", mods: [{ kind: "crit", pct: 0.15 }, { kind: "power", pct: -0.1 }] },
+    { id: "as_aim", name: "치명 노림", word: "노리는", mods: [{ kind: "crit", pct: 0.15 }, { kind: "power", pct: -0.1 }] },
     {
       id: "as_finisher",
-      name: "마무리 일격",
+      name: "마무리 일격", word: "끝내는",
       mods: [{ kind: "later", text: "2턴 동안 체력 50% 이하인 적에게 위력 +10%·치명 +10%" }, { kind: "cooldown", turns: 1 }],
     },
   ],
   races: {
     human: [
       { id: "as_human_main", name: "약점 찌르기", target: "enemy", wait: 1, effects: [hit(0.8, { bonus: 4 })] },
-      { id: "as_human_sub", name: "이어지는 칼끝", mods: [{ kind: "status", roll: { status: "charge", turns: 1 }, lv: [0.1, 0.2], to: "self" }] },
+      { id: "as_human_sub", name: "이어지는 칼끝", word: "이어지는", mods: [{ kind: "status", roll: { status: "charge", turns: 1 }, lv: [0.1, 0.2], to: "self" }] },
     ],
     elf: [
       { id: "as_elf_main", name: "정령의 비수", target: "enemy", wait: 1, effects: [mixed(["str", 1], ["mag", 0.3], { critBonus: 0.1 })] },
       {
         id: "as_elf_sub",
-        name: "바람 걸음",
+        name: "바람 걸음", word: "바람 같은",
         mods: [{ kind: "status", roll: { status: "evadeUp", turns: 1 }, lv: [0.1, 0.2], to: "self" }, { kind: "power", pct: -0.1 }],
       },
     ],
     beastfolk: [
       { id: "as_beastfolk_main", name: "덮치기", target: "enemy", wait: 1, effects: [hit(0.5, { hits: 3 }), later("대상 체력이 50% 이하면 4번")] },
-      { id: "as_beastfolk_sub", name: "피 냄새", mods: [{ kind: "later", text: "출혈 중인 적에게 위력 +{v}", lv: [0.1, 0.2], pct: true }] },
+      { id: "as_beastfolk_sub", name: "피 냄새", word: "피 냄새 맡은", mods: [{ kind: "later", text: "출혈 중인 적에게 위력 +{v}", lv: [0.1, 0.2], pct: true }] },
     ],
   },
   ultimate: {
@@ -425,21 +427,21 @@ const MONK = jobSet("monk", {
     { id: "monk_breath", name: "호흡 가다듬기", target: "none", wait: 1, effects: [later("2턴 동안 공격 횟수 +1")] },
   ],
   subs: [
-    { id: "monk_vital", name: "급소 타격", mods: [{ kind: "power", pct: 0.2 }] },
-    { id: "monk_breathe", name: "호흡", mods: [{ kind: "addHeal", amount: 5, to: "self" }, { kind: "cooldown", turns: 1 }] },
+    { id: "monk_vital", name: "급소 타격", word: "급소", mods: [{ kind: "power", pct: 0.2 }] },
+    { id: "monk_breathe", name: "호흡", word: "숨 고른", mods: [{ kind: "addHeal", amount: 5, to: "self" }, { kind: "cooldown", turns: 1 }] },
     {
       id: "monk_iron",
-      name: "철신",
+      name: "철신", word: "강철",
       mods: [{ kind: "status", roll: { status: "armorUp", value: 2, turns: 1 }, to: "self" }, { kind: "cooldown", turns: 1 }],
     },
-    { id: "monk_chain", name: "연계", mods: [{ kind: "later", text: "다음 공격 횟수 +1" }, { kind: "power", pct: -0.2 }] },
+    { id: "monk_chain", name: "연계", word: "이어 치는", mods: [{ kind: "later", text: "다음 공격 횟수 +1" }, { kind: "power", pct: -0.2 }] },
   ],
   races: {
     human: [
       { id: "monk_human_main", name: "발경", target: "enemy", wait: 1, effects: [hit(0.9, { bonus: 4 })] },
       {
         id: "monk_human_sub",
-        name: "경락 타격",
+        name: "경락 타격", word: "경락",
         mods: [{ kind: "status", roll: { status: "shaken", turns: 2 }, lv: [0.2, 0.3], to: "foe", when: "attack" }, { kind: "cooldown", turns: 1 }],
       },
     ],
@@ -447,17 +449,17 @@ const MONK = jobSet("monk", {
       { id: "monk_dwarf_main", name: "강철 철권", target: "enemy", wait: 2, effects: [hit(1.5), st("slow", { value: 2, turns: 2 })] },
       {
         id: "monk_dwarf_sub",
-        name: "강철 피부",
+        name: "강철 피부", word: "단단한",
         mods: [{ kind: "status", roll: { status: "toughen", turns: 1 }, lv: [0.05, 0.15], to: "self" }, { kind: "power", pct: -0.1 }],
       },
     ],
     beastfolk: [
       { id: "monk_beastfolk_main", name: "발톱 연격", target: "enemy", wait: 1, effects: [hit(0.4, { hits: 4 })] },
-      { id: "monk_beastfolk_sub", name: "야성의 리듬", mods: [{ kind: "later", text: "3타 이상이면 마지막 타격 +{v}", lv: [0.15, 0.25], pct: true }] },
+      { id: "monk_beastfolk_sub", name: "야성의 리듬", word: "야성의", mods: [{ kind: "later", text: "3타 이상이면 마지막 타격 +{v}", lv: [0.15, 0.25], pct: true }] },
     ],
     barbarian: [
       { id: "monk_barbarian_main", name: "메치기", target: "enemy", wait: 1, effects: [hit(1.3), st("armorDown", { value: 3, turns: 1 })] },
-      { id: "monk_barbarian_sub", name: "투혼", mods: [{ kind: "later", text: "체력 30% 이하일 때 위력 +{v}", lv: [0.2, 0.25], pct: true }] },
+      { id: "monk_barbarian_sub", name: "투혼", word: "투혼의", mods: [{ kind: "later", text: "체력 30% 이하일 때 위력 +{v}", lv: [0.2, 0.25], pct: true }] },
     ],
   },
   ultimate: {
@@ -483,23 +485,23 @@ const ARCHER = jobSet("archer", {
     },
   ],
   subs: [
-    { id: "ar_pierce", name: "꿰뚫기", mods: [{ kind: "later", text: "무작위 적 하나에게도 50% 피해" }, { kind: "power", pct: -0.1 }] },
-    { id: "ar_multi", name: "연발", mods: [{ kind: "hits", add: 1, mult: 0.7 }] },
+    { id: "ar_pierce", name: "꿰뚫기", word: "관통", mods: [{ kind: "later", text: "무작위 적 하나에게도 50% 피해" }, { kind: "power", pct: -0.1 }] },
+    { id: "ar_multi", name: "연발", word: "연발", mods: [{ kind: "hits", add: 1, mult: 0.7 }] },
     {
       id: "ar_mark",
-      name: "표적 지정",
+      name: "표적 지정", word: "표적",
       mods: [{ kind: "status", roll: { status: "mark", value: 0.1, turns: 2 }, to: "foe", when: "attack" }, { kind: "cooldown", turns: 1 }],
     },
     {
       id: "ar_keep",
-      name: "거리 유지",
+      name: "거리 유지", word: "물러서며 쏘는",
       mods: [{ kind: "status", roll: { status: "evadeUp", value: 0.15, turns: 1 }, to: "self" }, { kind: "cooldown", turns: 1 }],
     },
   ],
   races: {
     human: [
       { id: "ar_human_main", name: "다리 쏘기", target: "enemy", wait: 1, effects: [hit(0.9), st("slow", { value: 3, turns: 2 })] },
-      { id: "ar_human_sub", name: "정밀 화살촉", mods: [{ kind: "flat", amount: [2, 4] }] },
+      { id: "ar_human_sub", name: "정밀 화살촉", word: "정밀", mods: [{ kind: "flat", amount: [2, 4] }] },
     ],
     elf: [
       {
@@ -509,13 +511,13 @@ const ARCHER = jobSet("archer", {
         wait: 1,
         effects: [mixed(["str", 1], ["mag", 0.3]), st("evadeDown", { value: 0.1, turns: 2 })],
       },
-      { id: "ar_elf_sub", name: "바람의 인도", mods: [{ kind: "crit", pct: [0.1, 0.2] }] },
+      { id: "ar_elf_sub", name: "바람의 인도", word: "바람이 이끄는", mods: [{ kind: "crit", pct: [0.1, 0.2] }] },
     ],
     beastfolk: [
       { id: "ar_beastfolk_main", name: "추적 사격", target: "enemy", wait: 1, effects: [hit(1.1), later("출혈 중인 대상에게 치명 +20%")] },
       {
         id: "ar_beastfolk_sub",
-        name: "사냥꾼의 표식",
+        name: "사냥꾼의 표식", word: "사냥꾼의",
         mods: [{ kind: "status", roll: { status: "bleedVuln", turns: 2 }, lv: [0.2, 0.3], to: "foe", when: "attack" }, { kind: "cooldown", turns: 1 }],
       },
     ],
@@ -523,7 +525,7 @@ const ARCHER = jobSet("archer", {
       { id: "ar_barbarian_main", name: "강궁 관통", target: "enemy", wait: 2, effects: [hit(1.5, { pierce: 0.2 })] },
       {
         id: "ar_barbarian_sub",
-        name: "위압의 화살",
+        name: "위압의 화살", word: "위압의",
         mods: [{ kind: "status", roll: { status: "weaken", value: 2, turns: 2 }, to: "foe", when: "attack" }, { kind: "power", pct: -0.1 }],
       },
     ],
@@ -547,14 +549,14 @@ const PRIEST = jobSet("priest", {
   subs: [
     {
       id: "pr_bless",
-      name: "축복",
+      name: "축복", word: "축복의",
       mods: [{ kind: "status", roll: { status: "attackUp", value: 2, turns: 2 }, to: "auto" }, { kind: "cooldown", turns: 1 }],
     },
-    { id: "pr_grace", name: "은총", mods: [{ kind: "heal", pct: 0.1 }] },
-    { id: "pr_barrier", name: "신성 방벽", mods: [{ kind: "shieldFromHeal", pct: 0.5 }, { kind: "cooldown", turns: 1 }] },
+    { id: "pr_grace", name: "은총", word: "은총의", mods: [{ kind: "heal", pct: 0.1 }] },
+    { id: "pr_barrier", name: "신성 방벽", word: "가호의", mods: [{ kind: "shieldFromHeal", pct: 0.5 }, { kind: "cooldown", turns: 1 }] },
     {
       id: "pr_punish",
-      name: "징벌",
+      name: "징벌", word: "징벌의",
       mods: [{ kind: "status", roll: { status: "weaken", value: 2, turns: 2 }, to: "foe", when: "attack" }, { kind: "power", pct: -0.1 }],
     },
   ],
@@ -563,7 +565,7 @@ const PRIEST = jobSet("priest", {
       { id: "pr_human_main", name: "신성한 심판", target: "enemy", wait: 1, stat: "faith", effects: [hit(0.8, { bonus: 4 })] },
       {
         id: "pr_human_sub",
-        name: "수호의 축언",
+        name: "수호의 축언", word: "수호의",
         mods: [{ kind: "status", roll: { status: "stunResUp", turns: 2 }, lv: [0.2, 0.3], to: "auto" }, { kind: "cooldown", turns: 1 }],
       },
     ],
@@ -575,7 +577,7 @@ const PRIEST = jobSet("priest", {
         wait: 1,
         effects: [{ kind: "heal", amount: 4 }, st("evadeUp", { value: 0.1, turns: 2 })],
       },
-      { id: "pr_elf_sub", name: "생명의 숨결", mods: [{ kind: "later", text: "다음 차례 시작에 체력 {v} 추가 회복", lv: [3, 6] }, { kind: "cooldown", turns: 1 }] },
+      { id: "pr_elf_sub", name: "생명의 숨결", word: "생명의", mods: [{ kind: "later", text: "다음 차례 시작에 체력 {v} 추가 회복", lv: [3, 6] }, { kind: "cooldown", turns: 1 }] },
     ],
     dwarf: [
       {
@@ -587,7 +589,7 @@ const PRIEST = jobSet("priest", {
       },
       {
         id: "pr_dwarf_sub",
-        name: "불씨의 룬",
+        name: "불씨의 룬", word: "불씨의",
         mods: [{ kind: "status", roll: { status: "armorDown", value: 2, turns: 2 }, to: "foe", when: "attack" }, { kind: "power", pct: -0.1 }],
       },
     ],
@@ -602,7 +604,7 @@ const PRIEST = jobSet("priest", {
       },
       {
         id: "pr_beastfolk_sub",
-        name: "독초의 축언",
+        name: "독초의 축언", word: "독초의",
         mods: [{ kind: "status", roll: { status: "poisonVuln", turns: 2 }, lv: [0.2, 0.3], to: "foe", when: "attack" }, { kind: "cooldown", turns: 1 }],
       },
     ],
@@ -610,7 +612,7 @@ const PRIEST = jobSet("priest", {
       { id: "pr_barbarian_main", name: "선조의 토템", target: "none", wait: 2, effects: [st("regen", { value: 2, turns: 2, who: "allies" })] },
       {
         id: "pr_barbarian_sub",
-        name: "선조의 힘",
+        name: "선조의 힘", word: "선조의",
         mods: [{ kind: "status", roll: { status: "attackUp", value: 2, turns: 2 }, to: "self" }, { kind: "cooldown", turns: 1 }],
       },
     ],
@@ -633,10 +635,10 @@ const MAGE = jobSet("mage", {
     { id: "mg_barrier", name: "마력 방벽", target: "ally", wait: 1, effects: [{ kind: "shield", amount: 5, stat: "mag" }] },
   ],
   subs: [
-    { id: "mg_fire", name: "불", element: "fire", mods: [{ kind: "power", pct: 0.1 }, { kind: "selfCost", pctMaxHp: 0.05 }] },
+    { id: "mg_fire", name: "불", word: "화염", element: "fire", mods: [{ kind: "power", pct: 0.1 }, { kind: "selfCost", pctMaxHp: 0.05 }] },
     {
       id: "mg_water",
-      name: "물",
+      name: "물", word: "물결",
       element: "water",
       mods: [
         { kind: "status", roll: { status: "weaken", value: 2, turns: 2 }, to: "foe", when: "attack" },
@@ -644,13 +646,13 @@ const MAGE = jobSet("mage", {
         { kind: "power", pct: -0.1 },
       ],
     },
-    { id: "mg_wind", name: "바람", element: "wind", mods: [{ kind: "pierce", pct: 0.2 }] },
-    { id: "mg_earth", name: "흙", element: "earth", mods: [{ kind: "stunChance", pct: 1, when: "attack" }, { kind: "cooldown", turns: 1 }] },
+    { id: "mg_wind", name: "바람", word: "바람", element: "wind", mods: [{ kind: "pierce", pct: 0.2 }] },
+    { id: "mg_earth", name: "흙", word: "대지", element: "earth", mods: [{ kind: "stunChance", pct: 1, when: "attack" }, { kind: "cooldown", turns: 1 }] },
   ],
   races: {
     human: [
       { id: "mg_human_main", name: "마력 화살", target: "enemy", wait: 1, effects: [hit(0.7, { bonus: 5 })] },
-      { id: "mg_human_sub", name: "비전 각인", mods: [{ kind: "later", text: "2턴 동안 대상이 받는 마법 피해 +{v}", lv: [0.1, 0.2], pct: true }, { kind: "cooldown", turns: 1 }] },
+      { id: "mg_human_sub", name: "비전 각인", word: "비전", mods: [{ kind: "later", text: "2턴 동안 대상이 받는 마법 피해 +{v}", lv: [0.1, 0.2], pct: true }, { kind: "cooldown", turns: 1 }] },
     ],
     elf: [
       {
@@ -660,13 +662,13 @@ const MAGE = jobSet("mage", {
         wait: 2,
         effects: [hit(0.5, { area: "all" }), st("evadeDown", { value: 0.1, turns: 2, area: "all" })],
       },
-      { id: "mg_elf_sub", name: "정령 공명", mods: [{ kind: "resonance", power: [0.05, 0.1], boost: [0.1, 0.2] }] },
+      { id: "mg_elf_sub", name: "정령 공명", word: "공명하는", mods: [{ kind: "resonance", power: [0.05, 0.1], boost: [0.1, 0.2] }] },
     ],
     dwarf: [
       { id: "mg_dwarf_main", name: "용암 분출", target: "enemy", wait: 1, effects: [hit(1.2), st("armorDown", { value: 2, turns: 2 })] },
       {
         id: "mg_dwarf_sub",
-        name: "바위 각인",
+        name: "바위 각인", word: "바위",
         mods: [{ kind: "status", roll: { status: "slow", turns: 2 }, lv: [2, 4], to: "foe", when: "attack" }, { kind: "cooldown", turns: 1 }],
       },
     ],
@@ -689,15 +691,15 @@ const MINSTREL = jobSet("minstrel", {
     { id: "mn_lullaby", name: "자장가", target: "enemy", wait: 2, effects: [st("stun", { chance: 0.5 })] },
   ],
   subs: [
-    { id: "mn_encore", name: "앙코르", mods: [{ kind: "duration", turns: 1 }, { kind: "cooldown", turns: 1 }] },
-    { id: "mn_chord", name: "화음", mods: [{ kind: "addHeal", amount: 2, to: "auto" }, { kind: "power", pct: -0.1 }] },
-    { id: "mn_solo", name: "독주", mods: [{ kind: "narrow" }, { kind: "effect", pct: 1 }] },
-    { id: "mn_tempo", name: "빠른 박자", mods: [{ kind: "cooldown", turns: -1 }, { kind: "effect", pct: -0.3 }] },
+    { id: "mn_encore", name: "앙코르", word: "앙코르", mods: [{ kind: "duration", turns: 1 }, { kind: "cooldown", turns: 1 }] },
+    { id: "mn_chord", name: "화음", word: "화음의", mods: [{ kind: "addHeal", amount: 2, to: "auto" }, { kind: "power", pct: -0.1 }] },
+    { id: "mn_solo", name: "독주", word: "독주", mods: [{ kind: "narrow" }, { kind: "effect", pct: 1 }] },
+    { id: "mn_tempo", name: "빠른 박자", word: "빠른", mods: [{ kind: "cooldown", turns: -1 }, { kind: "effect", pct: -0.3 }] },
   ],
   races: {
     human: [
       { id: "mn_human_main", name: "행진곡", target: "none", wait: 1, effects: [st("speedUp", { value: 2, turns: 2, who: "allies" })] },
-      { id: "mn_human_sub", name: "박자 맞추기", mods: [{ kind: "later", text: "노래를 받은 아군의 다음 공격 고정 피해 +{v}", lv: [2, 4] }, { kind: "cooldown", turns: 1 }] },
+      { id: "mn_human_sub", name: "박자 맞추기", word: "박자 맞춘", mods: [{ kind: "later", text: "노래를 받은 아군의 다음 공격 고정 피해 +{v}", lv: [2, 4] }, { kind: "cooldown", turns: 1 }] },
     ],
     elf: [
       {
@@ -709,7 +711,7 @@ const MINSTREL = jobSet("minstrel", {
       },
       {
         id: "mn_elf_sub",
-        name: "잔향",
+        name: "잔향", word: "울려 퍼지는",
         mods: [{ kind: "status", roll: { status: "regen", turns: 2 }, lv: [1, 3], to: "auto" }, { kind: "cooldown", turns: 1 }],
       },
     ],
@@ -717,7 +719,7 @@ const MINSTREL = jobSet("minstrel", {
       { id: "mn_beastfolk_main", name: "울부짖는 노래", target: "none", wait: 2, effects: [st("slow", { value: 2, turns: 2, area: "all" })] },
       {
         id: "mn_beastfolk_sub",
-        name: "불안의 메아리",
+        name: "불안의 메아리", word: "불안한",
         mods: [{ kind: "status", roll: { status: "shaken", turns: 2 }, lv: [0.15, 0.25], to: "allFoes" }, { kind: "cooldown", turns: 1 }],
       },
     ],
@@ -731,7 +733,7 @@ const MINSTREL = jobSet("minstrel", {
       },
       {
         id: "mn_barbarian_sub",
-        name: "뿔피리",
+        name: "뿔피리", word: "뿔피리",
         mods: [{ kind: "status", roll: { status: "weaken", turns: 1 }, lv: [1, 2], to: "allFoes" }, { kind: "cooldown", turns: 1 }],
       },
     ],
@@ -812,6 +814,35 @@ const BY_ID = new Map(FRAGMENTS.map((f) => [f.id, f]));
 export function getFragment(id: string): Fragment | undefined {
   return BY_ID.get(id);
 }
+
+/**
+ * 따로 정한 조합 이름 ("메인+부" → 이름). 없으면 첫 부 조각의 꾸밈말 + 메인 이름.
+ * 부 조각이 둘이면 둘 중 어느 쪽이 맞아도 그 이름을 쓴다
+ */
+export const COMBO_NAMES: Record<string, string> = {
+  "knight_human_main+knight_human_sub": "오러 슬래시",
+  "knight_slash+knight_human_sub": "오러 베기",
+  "knight_charge+knight_combo": "돌격 연참",
+  "knight_slash+knight_sweep": "회전 검격",
+  "gs_strike+gs_pierce": "관통 일섬",
+  "gs_whirl+gs_vamp": "피바람",
+  "as_throw+as_venom": "독침 던지기",
+  "as_flurry+as_bleed": "피의 난도질",
+  "monk_punch+monk_iron": "강철 정권",
+  "monk_upper+monk_human_sub": "경락 어퍼컷",
+  "ar_rapid+ar_multi": "연사",
+  "ar_aimed+ar_pierce": "관통 저격",
+  "pr_heal+pr_barrier": "가호의 기도",
+  "pr_smite+pr_punish": "심판의 일격",
+  "mg_bolt+mg_fire": "화염구",
+  "mg_bolt+mg_water": "물의 화살",
+  "mg_bolt+mg_wind": "바람 칼날",
+  "mg_bolt+mg_earth": "돌팔매",
+  "mg_burst+mg_fire": "화염 폭발",
+  "mg_burst+mg_earth": "지진",
+  "mn_discord+mn_tempo": "엇박자",
+  "mn_lullaby+mn_solo": "독창 자장가",
+};
 
 /** 직업의 궁극기 조각 id */
 export const JOB_ULTIMATE: Record<string, FragmentId> = Object.fromEntries(

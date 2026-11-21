@@ -33,9 +33,12 @@ const ELEMENT_NAME: Record<Element, string> = { fire: "불", water: "물", wind:
 /** 단련장: 레벨업으로 생긴 기회마다 금화를 내고 스탯 3을 직접 배분한다 */
 export function YardScreen({ day, gold, hired, progress, onTrain, promotions, onPromote, onBack }: Props) {
   const [picked, setPicked] = useState<string | null>(null);
+  /** 보고 있는 용병 */
+  const [viewId, setViewId] = useState<string | null>(hired[0]?.id ?? null);
+  const shown = hired.filter((m) => m.id === (hired.some((h) => h.id === viewId) ? viewId : hired[0]?.id));
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-4 py-8 sm:px-8">
+    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-4 py-8 sm:px-8">
       <TownBar place="단련장" day={day} gold={gold} onBack={onBack} />
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold">단련장</h1>
@@ -49,8 +52,36 @@ export function YardScreen({ day, gold, hired, progress, onTrain, promotions, on
         <p className="rounded-sm border border-dashed border-edge px-4 py-10 text-center text-sm text-ash">고용한 용병이 없다.</p>
       )}
 
+      {hired.length > 0 && (
+        <nav aria-label="용병" className="flex flex-wrap gap-2">
+          {hired.map((merc) => {
+            const p = progress[merc.id];
+            const ready = p.trainable > 0 || !!promotions[merc.id];
+            return (
+              <button
+                key={merc.id}
+                onClick={() => {
+                  setViewId(merc.id);
+                  setPicked(null);
+                }}
+                className={`flex items-center gap-2 rounded-sm border px-2 py-1.5 text-left text-sm transition-colors ${
+                  shown[0]?.id === merc.id ? "border-ember bg-ember/10" : "border-edge bg-panel hover:border-ember/50"
+                }`}
+              >
+                <Portrait merc={merc} size="sm" />
+                <span className="flex flex-col leading-tight">
+                  <span className="font-bold">{merc.name}</span>
+                  <span className="text-[11px] text-ash">{merc.tags?.slice(0, 2).join(" · ")}</span>
+                  {ready && <span className="text-[11px] text-ember">{promotions[merc.id] ? "승급 가능" : `단련 ${p.trainable}번`}</span>}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
+
       <section className="flex flex-col gap-3">
-        {hired.map((merc) => {
+        {shown.map((merc) => {
           const p = progress[merc.id];
           const need = xpToNext(p.lv);
           return (

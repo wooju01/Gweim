@@ -27,6 +27,7 @@ import { SkillHallScreen } from "@/components/town/SkillHallScreen";
 import { ForgeScreen } from "@/components/town/ForgeScreen";
 import { ShopScreen } from "@/components/town/ShopScreen";
 import { TownScreen } from "@/components/town/TownScreen";
+import { MercSheet } from "@/components/town/MercSheet";
 import { clearSave, loadGame, saveGame } from "@/game/state/save";
 import { salvageCount } from "@/data/loot";
 
@@ -70,6 +71,8 @@ export function Game() {
   }
 
   const findEntry = (mercId: string) => state.roster.find((e) => entryId(e) === mercId);
+  /** 마을에서 열어 둔 용병 정보 창 */
+  const [sheetId, setSheetId] = useState<string | null>(null);
   /** 보스 직전 경고에서 동료들이 한 말 (그 칸에 있는 동안만) */
   const [omen, setOmen] = useState<{ at: string; lines: string[] } | null>(null);
 
@@ -405,6 +408,7 @@ export function Game() {
           onUpgrade={(mercId, piece) => dispatch({ type: "upgradePiece", mercId, piece })}
           onCraft={(mercId, build) => dispatch({ type: "craftSkill", mercId, build })}
           onSwap={(mercId, change) => dispatch({ type: "swapSkill", mercId, ...change })}
+          onForget={(mercId, key) => dispatch({ type: "forgetSkill", mercId, key })}
           onBack={toTown}
         />
       );
@@ -423,13 +427,31 @@ export function Game() {
           onGo={go}
         />
       );
-    default:
+    default: {
+      const sheetEntry = sheetId ? findEntry(sheetId) : undefined;
+      const sheetMerc = sheetEntry && state.progress[sheetId!] ? mercOf(sheetEntry) : undefined;
       return (
+        <>
+        {sheetMerc && (
+          <MercSheet
+            merc={sheetMerc}
+            seed={sheetEntry!.kind === "random" ? sheetEntry!.seed : undefined}
+            progress={state.progress[sheetMerc.id]}
+            trinkets={state.trinkets}
+            onClose={() => setSheetId(null)}
+            onSwap={(change) => dispatch({ type: "swapSkill", mercId: sheetMerc.id, ...change })}
+            onForget={(key) => dispatch({ type: "forgetSkill", mercId: sheetMerc.id, key })}
+            onEquipTrinket={(index) => dispatch({ type: "equipTrinket", mercId: sheetMerc.id, index })}
+            onUnequipTrinket={() => dispatch({ type: "unequipTrinket", mercId: sheetMerc.id })}
+          />
+        )}
         <TownScreen
           day={state.day}
           gold={state.gold}
           hired={hired.length}
           party={partyMercs}
+          crew={hired}
+          onInspect={setSheetId}
           visitors={mercs.length - hired.length}
           pack={state.pack}
           relics={state.relics.length}
@@ -441,6 +463,8 @@ export function Game() {
           onDismissNotices={() => dispatch({ type: "dismissNotices" })}
           onNewGame={newGame}
         />
+        </>
       );
+    }
   }
 }

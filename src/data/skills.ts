@@ -98,6 +98,8 @@ export type SkillId = string;
 
 /** 일반 스킬 장착 칸 (궁극기 칸은 따로). 공격과 붕대는 칸을 차지하지 않는다 */
 export const SKILL_SLOTS = 4;
+/** 배운 스킬 보관함 칸 (장착하지 않은 스킬). 꽉 차면 잊어야 새로 보관할 수 있다 */
+export const LEARNED_SLOTS = 4;
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const round2 = (n: number) => Math.round(n * 100) / 100;

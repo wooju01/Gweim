@@ -14,7 +14,7 @@ import { WAGE } from "@/data/wages";
 import { STAT_NAME, TRAINING_COST, type StatBlock } from "@/data/growth";
 import { NO_GROWTH, addStats, canPromote, gainXp, statLine, validTraining, type Growth } from "@/game/merc/growth";
 import { promote, promoteCost } from "@/game/merc/promotion";
-import { craft, knownFragments, paySalvage, swapSkills, unlockBlock, upgradeBlock } from "@/game/merc/skillhall";
+import { craft, forgetSkill, knownFragments, paySalvage, swapSkills, unlockBlock, upgradeBlock } from "@/game/merc/skillhall";
 import { CRAFT_COST, getFragment, upgradeCost } from "@/data/fragments";
 import { FIRST_DUNGEON, getDungeon } from "@/data/regions";
 import { stageOf } from "@/data/ranks";
@@ -206,6 +206,8 @@ export type GameAction =
   | { type: "craftSkill"; mercId: string; build: SkillBuild }
   /** 전수관: 장착 바꾸기 (스킬 id: 배운 스킬 equip ↔ 장착 스킬 unequip) */
   | { type: "swapSkill"; mercId: string; equip?: string; unequip?: string }
+  /** 보관 중인 스킬을 잊는다 (보관함이 꽉 찼을 때) */
+  | { type: "forgetSkill"; mercId: string; key: string }
   /** 대장간: 장신구를 새로 만든다 (보관함으로) */
   | { type: "forgeTrinket"; trinket: string }
   /** 대장간: 장신구 강화 (용병이 낀 것은 mercId, 보관함 것은 index). 무조건 성공 */
@@ -703,6 +705,13 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         roster: state.roster.map((e) => (e === entry ? { kind: "random" as const, seed: done.seed } : e)),
         progress: { ...state.progress, [action.mercId]: { ...p, learned: done.learned } },
       };
+    }
+
+    case "forgetSkill": {
+      const p = state.progress[action.mercId];
+      if (state.expedition || !p?.hired) return state;
+      const learned = forgetSkill(p.learned, action.key);
+      return learned ? { ...state, progress: { ...state.progress, [action.mercId]: { ...p, learned } } } : state;
     }
 
     case "forgeTrinket": {

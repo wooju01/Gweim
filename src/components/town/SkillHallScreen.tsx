@@ -3,9 +3,9 @@ import { CURRENCY } from "@/data/economy";
 import { CRAFT_COST, MAX_SUB_LEVEL, getFragment, upgradeCost, type Fragment } from "@/data/fragments";
 import { getSalvage } from "@/data/loot";
 import { RANKS } from "@/data/ranks";
-import { SKILL_SLOTS } from "@/data/skills";
+import { LEARNED_SLOTS, SKILL_SLOTS } from "@/data/skills";
 import { craftBlock, knownFragments, ownedSkills, ownerOf, unlockBlock, upgradeBlock } from "@/game/merc/skillhall";
-import { describeFragment, fragmentsFor, resolveSkill, skillKey, type SubLevels } from "@/game/skills";
+import { describeFragment, fragmentsFor, parseKey, partsText, resolveSkill, skillKey, type SubLevels } from "@/game/skills";
 import type { Merc } from "@/game/types";
 import type { MercSeed, SkillBuild } from "@/lib/schemas";
 import { Button, Portrait } from "@/components/common/parts";
@@ -23,6 +23,7 @@ type Props = {
   onUpgrade: (mercId: string, piece: string) => void;
   onCraft: (mercId: string, build: SkillBuild) => void;
   onSwap: (mercId: string, change: { equip?: string; unequip?: string }) => void;
+  onForget: (mercId: string, key: string) => void;
   onBack: () => void;
 };
 
@@ -36,7 +37,7 @@ const costText = (cost: { gold: number; salvage: Record<string, number> }, salva
   [`${CURRENCY} ${cost.gold}`, ...Object.entries(cost.salvage).map(([id, n]) => `${getSalvage(id)?.name ?? id} ${salvage[id] ?? 0}/${n}`)].join(" · ");
 
 /** 전수관: 용병마다 조각을 가르치고, 부 조각을 강화하고, 아는 조각으로 스킬을 조립하고, 장착을 바꾼다 */
-export function SkillHallScreen({ day, gold, hired, progress, salvage, onUnlock, onUpgrade, onCraft, onSwap, onBack }: Props) {
+export function SkillHallScreen({ day, gold, hired, progress, salvage, onUnlock, onUpgrade, onCraft, onSwap, onForget, onBack }: Props) {
   const [pickedId, setPickedId] = useState<string | null>(hired[0]?.merc.id ?? null);
   const picked = hired.find((h) => h.merc.id === pickedId) ?? hired[0];
 
@@ -83,6 +84,7 @@ export function SkillHallScreen({ day, gold, hired, progress, salvage, onUnlock,
             onUpgrade={(piece) => onUpgrade(picked.merc.id, piece)}
             onCraft={(build) => onCraft(picked.merc.id, build)}
             onSwap={(change) => onSwap(picked.merc.id, change)}
+            onForget={(key) => onForget(picked.merc.id, key)}
           />
         </div>
       )}
@@ -100,6 +102,7 @@ function MercHall({
   onUpgrade,
   onCraft,
   onSwap,
+  onForget,
 }: {
   merc: Merc;
   seed: MercSeed;
@@ -110,6 +113,7 @@ function MercHall({
   onUpgrade: (piece: string) => void;
   onCraft: (build: SkillBuild) => void;
   onSwap: (change: { equip?: string; unequip?: string }) => void;
+  onForget: (key: string) => void;
 }) {
   const known = knownFragments(seed, p.learned, p.pieces);
   const pool = fragmentsFor(ownerOf(seed));
@@ -131,7 +135,7 @@ function MercHall({
           {RANKS[seed.level].name} · 부 조각 {RANKS[seed.level].subLimit}개까지 · 아는 조각 {known.length} / {pool.length}
         </span>
       </div>
-      <Loadout seed={seed} learned={p.learned} levels={p.levels} onSwap={onSwap} />
+      <Loadout seed={seed} learned={p.learned} levels={p.levels} onSwap={onSwap} onForget={onForget} />
       <Workbench seed={seed} learned={p.learned} unlocked={p.pieces} levels={p.levels} known={known} gold={gold} onCraft={onCraft} />
       <FragmentBoard
         seed={seed}
@@ -148,18 +152,21 @@ function MercHall({
   );
 }
 
-/** 장착 칸과 배운 스킬. 장착 스킬을 고른 채 배운 스킬을 누르면 맞바꾼다 */
-function Loadout({
+/** 장착 칸과 배운 스킬(보관함). 장착 스킬을 고른 채 배운 스킬을 누르면 맞바꾼다. 마을의 용병 정보에서도 쓴다 */
+export function Loadout({
   seed,
   learned,
   levels,
   onSwap,
+  onForget,
 }: {
   seed: MercSeed;
   learned: SkillBuild[];
   levels: SubLevels;
   onSwap: (c: { equip?: string; unequip?: string }) => void;
+  onForget: (key: string) => void;
 }) {
+  const learnedFull = learned.length >= LEARNED_SLOTS;
   const [sel, setSel] = useState<string | null>(null);
   const full = seed.skills.length >= SKILL_SLOTS;
   const ult = seed.ultimate ? resolveSkill({ main: seed.ultimate, subs: [] }) : undefined;
@@ -168,7 +175,9 @@ function Loadout({
     const sk = byKey.get(key);
     return (
       <>
-        <b className={on ? "text-ember" : ""}>{sk?.name ?? key}</b>
+        <b className={on ? "text-ember" : ""}>
+          {sk?.name ?? key} <span className="text-[10px] font-normal text-ash">{partsText(parseKey(key)!)}</span>
+        </b>
         <span className="text-bone/70">
           {sk?.description} · 대기 {sk?.cooldown}턴
         </span>
@@ -205,16 +214,18 @@ function Loadout({
       {sel && (
         <Button
           className="self-start !px-3 !py-1 text-xs"
-          disabled={seed.skills.length <= 1}
+          disabled={seed.skills.length <= 1 || learnedFull}
           onClick={() => {
             onSwap({ unequip: sel });
             setSel(null);
           }}
         >
-          {byKey.get(sel)?.name} 빼서 보관
+          {learnedFull ? "보관함이 꽉 찼다" : `${byKey.get(sel)?.name} 빼서 보관`}
         </Button>
       )}
-      <h3 className="mt-1 text-xs text-ash">배운 스킬 (보관 중)</h3>
+      <h3 className="mt-1 text-xs text-ash">
+        배운 스킬 (보관함 {learned.length} / {LEARNED_SLOTS}){learnedFull && " · 꽉 찼다. 새 스킬을 보관하려면 하나를 잊어야 한다"}
+      </h3>
       {learned.length === 0 ? (
         <p className="text-xs text-ash">보관 중인 스킬이 없다.</p>
       ) : (
@@ -222,18 +233,28 @@ function Loadout({
           {learned.map(skillKey).map((key) => {
             const can = !!sel || !full;
             return (
-              <button
-                key={key}
-                disabled={!can}
-                onClick={() => {
-                  onSwap(sel ? { equip: key, unequip: sel } : { equip: key });
-                  setSel(null);
-                }}
-                className="flex flex-col gap-0.5 rounded-sm border border-dashed border-edge bg-ink/30 px-3 py-2 text-left text-xs transition-colors enabled:hover:border-ember/50 disabled:opacity-60"
-              >
-                {card(key, false)}
-                <span className="text-[11px] text-ember">{sel ? `${byKey.get(sel)?.name} 대신 장착` : full ? "장착 칸이 꽉 찼다" : "장착하기"}</span>
-              </button>
+              <div key={key} className="relative">
+                <button
+                  disabled={!can}
+                  onClick={() => {
+                    onSwap(sel ? { equip: key, unequip: sel } : { equip: key });
+                    setSel(null);
+                  }}
+                  className="flex w-full flex-col gap-0.5 rounded-sm border border-dashed border-edge bg-ink/30 px-3 py-2 pr-12 text-left text-xs transition-colors enabled:hover:border-ember/50 disabled:opacity-60"
+                >
+                  {card(key, false)}
+                  <span className="text-[11px] text-ember">{sel ? `${byKey.get(sel)?.name} 대신 장착` : full ? "장착 칸이 꽉 찼다" : "장착하기"}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    if (window.confirm(`${byKey.get(key)?.name}을(를) 잊을까? 조각은 그대로 알고 있어서 다시 조립할 수 있다.`)) onForget(key);
+                  }}
+                  className="absolute right-2 top-2 rounded-sm px-1.5 text-[11px] text-ash hover:text-blood"
+                  title="보관함에서 지운다"
+                >
+                  잊기
+                </button>
+              </div>
             );
           })}
         </div>
@@ -311,7 +332,9 @@ function Workbench({
       <div className="flex items-center justify-between gap-3 rounded-sm bg-ink/50 px-3 py-2 text-xs">
         {preview ? (
           <span className="flex flex-col gap-0.5">
-            <b className="text-ember">{preview.name}</b>
+            <b className="text-ember">
+              {preview.name} <span className="text-[10px] font-normal text-ash">{partsText(build!)}</span>
+            </b>
             <span className="text-bone/70">
               {preview.description} · 대기 {preview.cooldown}턴
             </span>
