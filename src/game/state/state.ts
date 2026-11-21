@@ -17,7 +17,9 @@ import { promote, promoteCost } from "@/game/merc/promotion";
 import { craft, forgetSkill, knownFragments, paySalvage, swapSkills, unlockBlock, upgradeBlock } from "@/game/merc/skillhall";
 import { CRAFT_COST, getFragment, upgradeCost } from "@/data/fragments";
 import { FIRST_DUNGEON, getDungeon } from "@/data/regions";
-import { RANK_ORDER, stageOf } from "@/data/ranks";
+import { RANKS, RANK_ORDER, nextRank, stageOf } from "@/data/ranks";
+import { GUILD_PROMOTION, GUILD_START, PROOF_BOSSES } from "@/data/guild";
+import { getMonster } from "@/data/monsters";
 import { TRINKET_MAX_LV, forgeCost, getTrinket, trinketStats, type OwnedTrinket } from "@/data/trinkets";
 import { advanceCost, wageOf } from "@/game/merc/wages";
 import { act, giftsReceived, isDowned, type Battle, type BattleAction } from "@/game/combat/engine";
@@ -40,7 +42,7 @@ import {
 import { KEY_ITEMS, type KeyItemId } from "@/data/keyItems";
 import { ARREARS, CLAN_FOUNDERS, DAILY_SCENE_CHANCE, HOME_TALKS, SETTLEMENT_DAYS } from "@/data/clan";
 import { DISPATCH, MAX_ACTIVE_DIRECT, getQuest } from "@/data/quests";
-import { clanJoinChance, objectiveDone, resolveDispatch, rollBoard, settlementsDue, upkeepCost, type DispatchOutcome } from "@/game/quests";
+import { clanJoinChance, examQuest, objectiveDone, resolveDispatch, rollBoard, settlementsDue, upkeepCost, type DispatchOutcome } from "@/game/quests";
 import { buildMerc } from "@/game/merc/generate";
 import type { Merc } from "@/game/types";
 import type { Element, EventResponse, HistoryLine, MercLevel, MercRef, MercSeed, SkillBuild, Stage, TalkResponse, TalkState } from "@/lib/schemas";
@@ -67,6 +69,8 @@ export type MercProgress = TalkState & {
   busyUntilDay?: number;
   /** 마지막으로 클랜 가입을 제안한 날 (거절당하면 다음 귀환까지 다시 못 한다) */
   clanAskedDay?: number;
+  /** 살아서 이긴 던전 보스 (monster id). 등급이 바뀌는 승급의 증명 (data/guild.ts의 PROOF_BOSSES) */
+  bossWins: string[];
 } & Growth;
 
 /** 진행 중인 파견 */
@@ -152,6 +156,10 @@ export type GameState = {
   clanDebt: number;
   /** 이번 귀환에 집에서 1:1로 이야기할 수 있는 남은 사람 수 */
   talksLeft: number;
+  /** 길드 등급 (큰 등급만). 승급 시험 의뢰 + 금화로만 오른다 (data/guild.ts) */
+  guildGrade: MercLevel;
+  /** 통과한 길드 승급 시험 (그 등급으로 오를 수 있다) */
+  guildExams: MercLevel[];
   /** 게시판에 붙은 의뢰 id, 받아 둔 직접 의뢰, 진행 중인 파견, 끝난 파견 보고 (최근 것부터) */
   board: string[];
   activeQuests: string[];
@@ -246,6 +254,8 @@ export type GameAction =
   | { type: "train"; mercId: string; alloc: StatBlock }
   /** 단련장: 등급 승급 (등급의 1단계에서). 패시브 후보에서 하나, 금으로 오를 때는 전직 갈래(원소술사면 원소 둘)도 */
   | { type: "promote"; mercId: string; passive?: string; branch?: string; elements?: Element[] }
+  /** 길드 승급 (시험 통과 + 금화) */
+  | { type: "promoteGuild" }
   /** 전수관: 금화·유실물을 내고 이 용병에게 조각 하나를 뚫어 준다 */
   | { type: "unlockPiece"; mercId: string; piece: string }
   /** 전수관: 부 조각 강화 (한 단계, 100% 성공) */
@@ -386,7 +396,7 @@ function payWages(state: GameState, ids: string[]): { state: GameState; lines: s
 }
 
 /** 상점 재고를 새로 들인다 */
-const addOnce = (xs: string[], x: string) => (xs.includes(x) ? xs : [...xs, x]);
+const addOnce = <T extends string>(xs: T[], x: T): T[] => (xs.includes(x) ? xs : [...xs, x]);
 
 /** 금화와 유실물로 낼 수 있나 */
 function canPay(state: GameState, cost: { gold: number; salvage: Record<string, number> }): boolean {
@@ -404,14 +414,44 @@ export function isTown(kind: string): kind is TownPlace {
   return kind === "town" || kind === "guild" || kind === "shop" || kind === "inn" || kind === "gate" || kind === "yard" || kind === "hall" || kind === "forge" || kind === "board";
 }
 
-/** 길드 등급: 고용한 용병 중 가장 높은 등급 (아무도 없으면 동). 전수관의 은 조각 해금 조건 */
-export function guildRank(state: GameState): MercLevel {
-  let best = 0;
-  for (const e of state.roster) {
-    if (!state.progress[entryId(e)]?.hired) continue;
-    best = Math.max(best, RANK_ORDER.indexOf(mercOf(e).level ?? "bronze"));
-  }
-  return RANK_ORDER[best];
+/** 길드 등급 시험이 붙어야 하면 게시판에 더한다 */
+function withExam(state: GameState): GameState {
+  const exam = examQuest(state.guildGrade, state.guildExams, state.activeQuests, state.explored);
+  return exam && !state.board.includes(exam) ? { ...state, board: [exam, ...state.board] } : state;
+}
+
+/** 길드 승급: 다음 등급의 시험을 통과했고 금화가 있으면 오를 수 있다. 못 오르면 이유 */
+export function guildPromotionBlocks(state: GameState): { next: MercLevel | null; gold: number; blocks: string[] } {
+  const next = nextRank(state.guildGrade);
+  const rule = next ? GUILD_PROMOTION[next] : undefined;
+  if (!next || !rule) return { next: null, gold: 0, blocks: ["다음 길드 등급은 아직 열리지 않았다"] };
+  const blocks: string[] = [];
+  if (!state.guildExams.includes(next)) blocks.push(`승급 시험 필요: ${getQuest(rule.exam)?.title ?? rule.exam}`);
+  if (state.gold < rule.gold) blocks.push(`${CURRENCY} 부족 (${rule.gold})`);
+  return { next, gold: rule.gold, blocks };
+}
+
+/**
+ * 용병 승급(등급이 바뀌는 승급)을 막는 조건. 비어 있으면 승급할 수 있다.
+ * ① 등급 마지막 단계 경험치 ② 금화 ③ 현재 등급 던전 보스를 살아서 이긴 기록 ④ 길드 등급 ≥ 목표 등급
+ */
+export function promotionBlocks(state: GameState, mercId: string): string[] {
+  const p = state.progress[mercId];
+  const entry = state.roster.find((e) => entryId(e) === mercId);
+  if (!p?.hired || entry?.kind !== "random") return ["승급할 수 없는 용병"];
+  const level = entry.seed.level;
+  const next = nextRank(level);
+  if (!next) return ["더 오를 등급이 없다"];
+  const blocks: string[] = [];
+  if (!canPromote(p)) blocks.push("경험치 부족 (등급의 마지막 단계를 채워야 한다)");
+  const cost = promoteCost(level) ?? 0;
+  if (state.gold < cost) blocks.push(`${CURRENCY} 부족 (${cost})`);
+  const proof = PROOF_BOSSES[level];
+  if (!proof?.length) blocks.push("증명할 보스가 아직 정해지지 않았다");
+  else if (!proof.some((id) => p.bossWins?.includes(id)))
+    blocks.push(`보스전 승리 기록 필요 (${proof.map((id) => getMonster(id)?.name ?? id).join("·")} 중 하나)`);
+  if (RANK_ORDER.indexOf(state.guildGrade) < RANK_ORDER.indexOf(next)) blocks.push(`길드 등급 부족 (${RANKS[next].name} 필요)`);
+  return blocks;
 }
 
 /** 고용한 용병 수 (파티에 들지 않은 사람 포함). 지금은 이 수가 MERC_SLOTS를 넘지 못한다 */
@@ -498,6 +538,7 @@ function freshProgress(merc: Merc): MercProgress {
     pieces: [],
     levels: {},
     kind: "merc",
+    bossWins: [],
     ...NO_GROWTH,
   };
 }
@@ -538,7 +579,10 @@ export function initialState(): GameState {
     arrearsWeeks: 0,
     clanDebt: 0,
     talksLeft: HOME_TALKS,
-    board: rollBoard(1),
+    guildGrade: GUILD_START,
+    guildExams: [],
+    // 길드 승급 시험은 조건이 되면 맨 앞에 붙는다
+    board: [...[examQuest(GUILD_START, [], [], [])].flatMap((id) => (id ? [id] : [])), ...rollBoard(1, [], GUILD_START)],
     activeQuests: [],
     dispatches: [],
     dispatchLog: [],
@@ -596,9 +640,11 @@ function returnToVillage(state: GameState, exp: Expedition, report: Report, seed
         gold: next.gold + q.reward.gold,
         salvage: addSalvage(salvage, q.reward.salvage ?? {}),
         activeQuests: next.activeQuests.filter((x) => x !== id),
+        guildExams: q.exam ? addOnce(next.guildExams, q.exam) : next.guildExams,
       };
       tally.salvage = next.salvage;
       questLines.push(`의뢰 완료: ${q.title} · ${CURRENCY} +${q.reward.gold}`);
+      if (q.exam) questLines.push(`승급 시험 통과: 길드 창구에서 ${RANKS[q.exam].name} 등급으로 길드를 올릴 수 있다 (${CURRENCY} ${GUILD_PROMOTION[q.exam]?.gold ?? 0})`);
     }
   }
 
@@ -678,7 +724,7 @@ function returnToVillage(state: GameState, exp: Expedition, report: Report, seed
 
   // 6~7. 집에서 이야기할 수 있는 사람 수, 게시판 (상점은 이미 새로 들였다)
   const taken = [...next.activeQuests, ...next.dispatches.map((d) => d.questId)];
-  next = { ...next, talksLeft: HOME_TALKS, board: rollBoard(seed, taken) };
+  next = withExam({ ...next, talksLeft: HOME_TALKS, board: rollBoard(seed, taken, next.guildGrade) });
 
   // 일상 장면: 고용한 용병 둘 (확률)
   const hired = Object.entries(next.progress).filter(([, p]) => p.hired).map(([id]) => id);
@@ -871,9 +917,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case "promote": {
       const p = state.progress[action.mercId];
       const entry = state.roster.find((e) => entryId(e) === action.mercId);
-      if (state.expedition || !p?.hired || !canPromote(p) || entry?.kind !== "random") return state;
+      if (state.expedition || !p?.hired || entry?.kind !== "random" || promotionBlocks(state, action.mercId).length > 0) return state;
       const cost = promoteCost(entry.seed.level);
-      if (cost === null || state.gold < cost) return state;
+      if (cost === null) return state;
       const seed = promote(entry.seed, { passive: action.passive, branch: action.branch, elements: action.elements });
       if (!seed) return state;
       const roster = state.roster.map((e) => (e === entry ? { kind: "random" as const, seed } : e));
@@ -897,12 +943,18 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       };
     }
 
+    case "promoteGuild": {
+      const { next, gold, blocks } = guildPromotionBlocks(state);
+      if (state.expedition || !next || blocks.length > 0) return state;
+      return withExam({ ...state, gold: state.gold - gold, guildGrade: next, notices: [...state.notices, `길드가 ${RANKS[next].name} 등급이 되었다. ${RANKS[next].name} 등급 조각·용병·의뢰가 열린다.`] });
+    }
+
     case "unlockPiece": {
       const p = state.progress[action.mercId];
       const entry = state.roster.find((e) => entryId(e) === action.mercId);
       if (state.expedition || !p?.hired || entry?.kind !== "random") return state;
       const known = knownFragments(entry.seed, p.learned, p.pieces);
-      if (unlockBlock(action.piece, entry.seed, known, state.gold, state.salvage, guildRank(state))) return state;
+      if (unlockBlock(action.piece, entry.seed, known, state.gold, state.salvage, state.guildGrade)) return state;
       const { cost } = getFragment(action.piece)!;
       return {
         ...state,
@@ -1122,9 +1174,17 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const spoils = battleSpoils(finishBattle(state.expedition, state.screen.battle), state.screen.battle, action.seed ?? state.screen.battle.rng);
       // 던전 보스를 쓰러뜨렸으면 지도 기록에 남긴다 (보스는 다음 원정에도 다시 나온다)
       const conquered = spoils.exp.cleared && !state.expedition.cleared ? addOnce(state.conquered, spoils.exp.region!) : state.conquered;
+      // 던전 보스 승리 기록: 이긴 전투에 있던 던전 보스를, 살아남은 용병(서 있던·쓰러졌다 산) 모두에게 (승급 증명)
+      const battle = state.screen.battle;
+      const bosses = battle.outcome === "victory" ? [...new Set(battle.units.filter((u) => u.side === "enemy" && u.rank === "dungeonBoss" && u.kind).map((u) => u.kind!))] : [];
+      const progress = { ...gained.progress };
+      if (bosses.length > 0)
+        for (const u of battle.units.filter((x) => x.side === "merc" && !x.dead && progress[x.id]))
+          progress[u.id] = { ...progress[u.id], bossWins: [...new Set([...progress[u.id].bossWins, ...bosses])] };
       const next: GameState = {
         ...state,
         ...gained,
+        progress,
         reactions: [...spoils.lines, ...gained.lines],
         expedition: spoils.exp,
         conquered,

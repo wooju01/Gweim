@@ -3,7 +3,8 @@
 import { BACKGROUNDS, JOBS, PERSONALITIES, RACES, getTrait } from "@/data/traits";
 import { getPassive, passivesOf } from "@/data/passives";
 import { canBe, getBranch, jobTitle } from "@/data/jobs";
-import { RANKS, RECRUIT_LEVEL, RECRUIT_PASSIVE_CHANCE } from "@/data/ranks";
+import { RANKS, RANK_ORDER, RECRUIT_LEVEL, RECRUIT_PASSIVE_CHANCE } from "@/data/ranks";
+import { RECRUIT_TOP_CHANCE } from "@/data/guild";
 import { validateLoadout, validateUltimate } from "@/game/skills";
 import { ChoiceTone, type Gender, type MercLevel, type MercSeed, type MercTraits } from "@/lib/schemas";
 import { clampStat } from "./affinity";
@@ -166,10 +167,19 @@ export function pickImpression(id: string, traits: Trait[]): string | undefined 
   return options[hash % options.length];
 }
 
-/** 모집 시 패시브를 뽑는다. 지금은 모집 등급(동)만: 50% 확률로 종족 패시브 하나 */
+/**
+ * 고용 시장에 오는 용병의 등급: 길드 등급과 같은 등급은 RECRUIT_TOP_CHANCE, 아니면 한 등급 아래 (길드가 동이면 늘 동)
+ */
+export function recruitLevel(guildGrade: MercLevel, rand: Rand): MercLevel {
+  const i = RANK_ORDER.indexOf(guildGrade);
+  if (i <= RANK_ORDER.indexOf(RECRUIT_LEVEL)) return RECRUIT_LEVEL;
+  return rand() < RECRUIT_TOP_CHANCE ? guildGrade : RANK_ORDER[i - 1];
+}
+
+/** 모집 시 패시브를 뽑는다: 50% 확률로 종족 패시브 하나 (등급과 상관없이) */
 export function rollPassives(race: string, level: MercLevel, rand: Rand): string[] {
   const pool = passivesOf(race);
-  if (level !== RECRUIT_LEVEL || pool.length === 0) return [];
+  if (pool.length === 0 || RANKS[level].maxPassives < 1) return [];
   if (rand() >= RECRUIT_PASSIVE_CHANCE) return [];
   return [pool[Math.floor(rand() * pool.length)].id];
 }

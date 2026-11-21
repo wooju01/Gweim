@@ -34,6 +34,8 @@ export function objectiveText(o: Objective): string {
   switch (o.type) {
     case "killBoss":
       return `${getMonster(o.monsterId)?.name ?? o.monsterId} 처치`;
+    case "killAnyBoss":
+      return `${o.monsterIds.map((id) => getMonster(id)?.name ?? id).join("·")} 중 하나 처치`;
     case "killElite":
       return `${getMonster(o.monsterId)?.name ?? o.monsterId} ${o.count}마리 처치`;
     case "collect":

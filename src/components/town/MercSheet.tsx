@@ -105,7 +105,7 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
 
             <Box title="성장">
               <p className="text-xs">
-                {need === null ? <span className="text-ember">승급할 수 있다 (단련장)</span> : `경험치 ${p.xp} / ${need}`}
+                {need === null ? <span className="text-ember">승급 대기 (길드 창구에서 신청)</span> : `경험치 ${p.xp} / ${need}`}
                 {p.trainable > 0 && <span className="ml-2 text-ember">단련 기회 {p.trainable}번</span>}
               </p>
               <p className="text-xs text-bone/80">

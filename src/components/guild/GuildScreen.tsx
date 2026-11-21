@@ -7,6 +7,8 @@ import { Button, MercStats, Portrait } from "@/components/common/parts";
 import { ROSTER_LIMIT } from "@/data/clan";
 import type { MercProgress } from "@/game/state/state";
 import { TownBar } from "@/components/town/TownBar";
+import type { MercLevel } from "@/lib/schemas";
+import { Promotion, type PromotionOffer, type PromotionPick } from "./Promotion";
 
 type Props = {
   mercs: Merc[];
@@ -18,10 +20,17 @@ type Props = {
   day: number;
   gold: number;
   hired: number;
+  guildGrade: MercLevel;
+  guildPromotion: { next: MercLevel | null; gold: number; blocks: string[] };
+  onPromoteGuild: () => void;
+  /** 승급 대기 용병 (등급의 마지막 단계). blocks: 부족한 조건 */
+  promotions: Record<string, PromotionOffer>;
+  onPromote: (mercId: string, choice: PromotionPick) => void;
   onBack: () => void;
 };
 
-export function GuildScreen({ mercs, progress, recruit, onRecruit, onTalk, onDismiss, day, gold, hired, onBack }: Props) {
+export function GuildScreen({ mercs, progress, recruit, onRecruit, onTalk, onDismiss, day, gold, hired, guildGrade, guildPromotion, onPromoteGuild, promotions, onPromote, onBack }: Props) {
+  const waiting = mercs.filter((m) => promotions[m.id]);
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-4 py-10 sm:px-8">
@@ -45,6 +54,45 @@ export function GuildScreen({ mercs, progress, recruit, onRecruit, onTalk, onDis
           </span>
         </div>
       </header>
+
+      {/* 길드 창구: 길드 등급과 승급, 용병 승급 신청 */}
+      <section className="flex flex-col gap-3 rounded-sm border border-edge bg-panel p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-bold">
+            길드 창구 · <span className="text-ember">{RANKS[guildGrade].name} 등급 길드</span>
+          </h2>
+          {guildPromotion.next && (
+            <Button variant="ember" className="!px-3 !py-1 text-xs" disabled={guildPromotion.blocks.length > 0} onClick={onPromoteGuild}>
+              {RANKS[guildPromotion.next].name} 등급으로 길드 승급 · {CURRENCY} {guildPromotion.gold}
+            </Button>
+          )}
+        </div>
+        <p className="text-xs text-ash">
+          길드 등급까지의 조각을 전수관에서 익히고, 그 등급 용병이 모이고, 그 등급 의뢰가 붙는다. 용병은 길드 등급보다 높이 오를 수 없다.
+        </p>
+        {guildPromotion.blocks.length > 0 && (
+          <ul className="flex flex-col gap-0.5 text-xs text-bone/70">
+            {guildPromotion.blocks.map((b) => (
+              <li key={b}>· {b}</li>
+            ))}
+          </ul>
+        )}
+        <h3 className="mt-2 text-sm font-bold">용병 승급 신청</h3>
+        {waiting.length === 0 ? (
+          <p className="text-xs text-ash">등급의 마지막 단계(1단계)까지 경험치를 채운 용병이 여기서 승급을 신청한다.</p>
+        ) : (
+          waiting.map((m) => (
+            <div key={m.id} className="flex flex-col gap-2">
+              <span className="flex items-center gap-2 text-sm">
+                <Portrait merc={m} size="sm" />
+                <b>{m.name}</b>
+                <span className="text-xs text-ash">{m.level ? `${RANKS[m.level].name} → ${promotions[m.id].next}` : ""}</span>
+              </span>
+              <Promotion offer={promotions[m.id]} gold={gold} onDone={(choice) => onPromote(m.id, choice)} />
+            </div>
+          ))
+        )}
+      </section>
 
       <div>
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

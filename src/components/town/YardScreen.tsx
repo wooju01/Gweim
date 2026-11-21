@@ -1,13 +1,10 @@
 import { useState } from "react";
 import { CURRENCY } from "@/data/economy";
-import { PER_POINT, PROMOTE_BONUS, STAT_EFFECT, STAT_NAME, STAT_ORDER, TRAINING_COST, TRAINING_POINTS, type StatBlock, type StatKey } from "@/data/growth";
+import { STAT_EFFECT, STAT_NAME, STAT_ORDER, TRAINING_COST, TRAINING_POINTS, type StatBlock, type StatKey } from "@/data/growth";
 import { canPromote, xpToNext } from "@/game/merc/growth";
 import type { Merc } from "@/game/types";
 import { Button, Portrait } from "@/components/common/parts";
-import type { Passive } from "@/data/passives";
 import { rankLabel } from "@/data/ranks";
-import type { Skill } from "@/data/skills";
-import { Element } from "@/lib/schemas";
 import type { MercProgress } from "@/game/state/state";
 import { TownBar } from "./TownBar";
 
@@ -17,21 +14,11 @@ type Props = {
   hired: Merc[];
   progress: Record<string, MercProgress>;
   onTrain: (mercId: string, alloc: StatBlock) => void;
-  /** 승급할 수 있는 용병의 후보 (등급의 1단계, 더 오를 등급이 있다) */
-  promotions: Record<string, PromotionOffer>;
-  onPromote: (mercId: string, choice: PromotionPick) => void;
   onBack: () => void;
 };
 
-/** 2차 전직 갈래 (화면용) */
-export type BranchOption = { id: string; name: string; hint?: string; dualElement?: boolean };
-export type PromotionOffer = { next: string; cost: number; passives: Passive[]; branches: BranchOption[]; ultimate?: Skill };
-export type PromotionPick = { passive?: string; branch?: string; elements?: Element[] };
-
-const ELEMENT_NAME: Record<Element, string> = { fire: "불", water: "물", wind: "바람", earth: "흙" };
-
 /** 단련장: 레벨업으로 생긴 기회마다 금화를 내고 스탯 3을 직접 배분한다 */
-export function YardScreen({ day, gold, hired, progress, onTrain, promotions, onPromote, onBack }: Props) {
+export function YardScreen({ day, gold, hired, progress, onTrain, onBack }: Props) {
   const [picked, setPicked] = useState<string | null>(null);
   /** 보고 있는 용병 */
   const [viewId, setViewId] = useState<string | null>(hired[0]?.id ?? null);
@@ -56,7 +43,7 @@ export function YardScreen({ day, gold, hired, progress, onTrain, promotions, on
         <nav aria-label="용병" className="flex flex-wrap gap-2">
           {hired.map((merc) => {
             const p = progress[merc.id];
-            const ready = p.trainable > 0 || !!promotions[merc.id];
+            const ready = p.trainable > 0 || canPromote(p);
             return (
               <button
                 key={merc.id}
@@ -72,7 +59,7 @@ export function YardScreen({ day, gold, hired, progress, onTrain, promotions, on
                 <span className="flex flex-col leading-tight">
                   <span className="font-bold">{merc.name}</span>
                   <span className="text-[11px] text-ash">{merc.tags?.slice(0, 2).join(" · ")}</span>
-                  {ready && <span className="text-[11px] text-ember">{promotions[merc.id] ? "승급 가능" : `단련 ${p.trainable}번`}</span>}
+                  {ready && <span className="text-[11px] text-ember">{p.trainable > 0 ? `단련 ${p.trainable}번` : "승급은 길드 창구"}</span>}
                 </span>
               </button>
             );
@@ -95,7 +82,7 @@ export function YardScreen({ day, gold, hired, progress, onTrain, promotions, on
                   <span className="text-xs text-ash">
                     {merc.level ? rankLabel(merc.level, p.lv) : `레벨 ${p.lv}`} ·{" "}
                     {need === null ? (
-                      <span className="text-ember">{promotions[merc.id] ? "승급할 수 있다" : "더 오를 등급이 없다"}</span>
+                      <span className="text-ember">등급의 마지막 단계 · 승급은 길드 창구에서</span>
                     ) : (
                       `경험치 ${p.xp} / ${need}`
                     )}
@@ -113,13 +100,6 @@ export function YardScreen({ day, gold, hired, progress, onTrain, promotions, on
                   {p.trainable > 0 ? `단련하기 (${p.trainable}번)` : canPromote(p) ? "기회 없음" : "레벨업하면 열린다"}
                 </Button>
               </div>
-              {promotions[merc.id] && (
-                <Promotion
-                  offer={promotions[merc.id]}
-                  gold={gold}
-                  onDone={(choice) => onPromote(merc.id, choice)}
-                />
-              )}
               {picked === merc.id && p.trainable > 0 && (
                 <Allocate
                   gold={gold}
@@ -134,80 +114,6 @@ export function YardScreen({ day, gold, hired, progress, onTrain, promotions, on
         })}
       </section>
     </main>
-  );
-}
-
-/** 승급: 패시브 후보에서 하나, 금으로 오를 때는 전직 갈래(원소술사면 원소 둘)도 고르고 금화를 낸다 */
-function Promotion({ offer, gold, onDone }: { offer: PromotionOffer; gold: number; onDone: (choice: PromotionPick) => void }) {
-  const [passive, setPassive] = useState<string | undefined>();
-  const [branch, setBranch] = useState<string | undefined>();
-  const [elements, setElements] = useState<Element[]>([]);
-  const dual = offer.branches.find((b) => b.id === branch)?.dualElement ?? false;
-  const ready =
-    (offer.passives.length === 0 || passive) && (offer.branches.length === 0 || branch) && (!dual || elements.length === 2) && gold >= offer.cost;
-  const option = (on: boolean) =>
-    `flex flex-col gap-0.5 rounded-sm border px-3 py-2 text-left text-xs transition-colors ${
-      on ? "border-ember bg-ember/10" : "border-edge bg-ink/50 hover:border-ember/50"
-    }`;
-  const toggleElement = (e: Element) =>
-    setElements((xs) => (xs.includes(e) ? xs.filter((x) => x !== e) : xs.length < 2 ? [...xs, e] : xs));
-
-  return (
-    <div className="flex flex-col gap-3 rounded-sm border border-ember/40 bg-ember/5 p-3">
-      <p className="text-sm">
-        <b className="text-ember">{offer.next}</b>(으)로 승급 · 최대 체력 +{PROMOTE_BONUS.hp * PER_POINT.hp}, 단련 기회 +{PROMOTE_BONUS.trainable} · 3단계부터 다시 오르고, 보수도 오른다
-      </p>
-      {offer.branches.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          <span className="text-xs text-ash">2차 전직 (한 번 고르면 바꿀 수 없다)</span>
-          <div className="grid gap-1.5 sm:grid-cols-2">
-            {offer.branches.map((b) => (
-              <button key={b.id} className={option(branch === b.id)} onClick={() => setBranch(b.id)}>
-                <b>{b.name}</b>
-                {b.hint && <span className="text-bone/70">{b.hint}</span>}
-              </button>
-            ))}
-          </div>
-          {dual && (
-            <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              <span className="text-ash">함께 쓸 원소 둘:</span>
-              {Element.options.map((e) => (
-                <button key={e} className={option(elements.includes(e))} onClick={() => toggleElement(e)}>
-                  {ELEMENT_NAME[e]}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-      {offer.passives.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          <span className="text-xs text-ash">새 패시브 하나</span>
-          <div className="grid gap-1.5 sm:grid-cols-2">
-            {offer.passives.map((ps) => (
-              <button key={ps.id} className={option(passive === ps.id)} onClick={() => setPassive(ps.id)}>
-                <b>✦ {ps.name}</b>
-                <span className="text-bone/70">{ps.description}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      {offer.ultimate && (
-        <p className="text-xs">
-          궁극기가 열린다: <b className="text-ember">{offer.ultimate.name}</b>{" "}
-          <span className="text-bone/70">— {offer.ultimate.description} (전투당 1번)</span>
-        </p>
-      )}
-      <Button
-        variant="ember"
-        className="self-start"
-        disabled={!ready}
-        onClick={() => onDone({ passive, branch, elements: dual ? elements : undefined })}
-      >
-        {gold < offer.cost ? `${CURRENCY}이 모자라다 (${offer.cost})` : `${CURRENCY} ${offer.cost} · 승급한다`}
-      </Button>
-    </div>
   );
 }
 

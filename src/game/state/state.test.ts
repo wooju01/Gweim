@@ -5,10 +5,16 @@ import { promotionChoices } from "@/game/merc/promotion";
 import { knownFragments, ownerOf } from "@/game/merc/skillhall";
 import { getFragment } from "@/data/fragments";
 import { PROMOTE_BONUS, XP_TO_NEXT } from "@/data/growth";
+import { GUILD_PROMOTION } from "@/data/guild";
+import { getQuest } from "@/data/quests";
+import { examQuest, objectiveDone, questGrade, rollBoard } from "@/game/quests";
+import { battleFor } from "@/game/dungeon/expedition";
+import { recruitLevel } from "@/game/merc/generate";
+import { tierOpen } from "@/game/merc/skillhall";
 import { fragmentsFor, skillKey } from "@/game/skills";
 import { act, living } from "@/game/combat/engine";
 import { battleSpoils, finishBattle } from "@/game/dungeon/expedition";
-import { entryId, gameReducer, initialState, mercOf, type GameState } from "./state";
+import { entryId, gameReducer, guildPromotionBlocks, initialState, mercOf, promotionBlocks, type GameState } from "./state";
 
 /** 샘플 용병 중 넷을 동행시키고 던전에 들어간 상태 */
 function inDungeon(ids: string[], seed = 1): GameState {
@@ -345,10 +351,10 @@ describe("성장 (상태)", () => {
 });
 
 describe("승급 (상태)", () => {
-  it("등급의 1단계(레벨 2)인 용병은 금화를 내고 승급한다. 3단계부터 다시, 보수는 올라간다", () => {
+  it("등급의 1단계(레벨 2)인 용병은 길드 창구에서 금화를 내고 승급한다 (보스 승리 기록 + 길드 등급). 3단계부터 다시, 보수는 올라간다", () => {
     let s = initialState();
     const id = "s-durgan";
-    s = { ...s, gold: 100, progress: { ...s.progress, [id]: { ...s.progress[id], hired: true, lv: 2 } } };
+    s = { ...s, gold: 100, guildGrade: "silver", progress: { ...s.progress, [id]: { ...s.progress[id], hired: true, lv: 2, bossWins: ["goblin_king"] } } };
     const entry = s.roster.find((e) => entryId(e) === id)!;
     if (entry.kind !== "random") throw new Error();
     const { passives } = promotionChoices(entry.seed);
@@ -364,6 +370,91 @@ describe("승급 (상태)", () => {
     expect(done.progress[id].trainable).toBe(before.trainable + PROMOTE_BONUS.trainable);
     // 단계가 모자라면 승급할 수 없다
     expect(gameReducer({ ...s, progress: { ...s.progress, [id]: { ...s.progress[id], lv: 1 } } }, { type: "promote", mercId: id, passive: passives[0] }).gold).toBe(100);
+  });
+
+  it("부족한 조건을 알려 준다: 경험치, 금화, 보스전 승리 기록, 길드 등급", () => {
+    let s = initialState();
+    const id = "s-durgan";
+    s = { ...s, gold: 0, progress: { ...s.progress, [id]: { ...s.progress[id], hired: true, lv: 1 } } };
+    const blocks = promotionBlocks(s, id);
+    expect(blocks.some((b) => b.startsWith("경험치 부족"))).toBe(true);
+    expect(blocks.some((b) => b.includes("부족 (20)"))).toBe(true);
+    expect(blocks.some((b) => b.startsWith("보스전 승리 기록 필요") && b.includes("고블린 킹"))).toBe(true);
+    expect(blocks).toContain("길드 등급 부족 (은 필요)");
+    // 조건을 채우면 비어 있다
+    const ok = { ...s, gold: 20, guildGrade: "silver" as const, progress: { ...s.progress, [id]: { ...s.progress[id], lv: 2, bossWins: ["spider_queen"] } } };
+    expect(promotionBlocks(ok, id)).toEqual([]);
+    // 길드 등급이 동이면 승급하지 못한다
+    const { passives } = promotionChoices((s.roster.find((e) => entryId(e) === id) as { seed: Parameters<typeof promotionChoices>[0] }).seed);
+    expect(gameReducer({ ...ok, guildGrade: "bronze" }, { type: "promote", mercId: id, passive: passives[0] })).toEqual({ ...ok, guildGrade: "bronze" });
+  });
+});
+
+describe("길드 등급", () => {
+  it("처음은 동. 승급 시험(3층 던전 보스 아무나 하나)은 길드가 동이면 게시판에 붙는다", () => {
+    const s = initialState();
+    expect(s.guildGrade).toBe("bronze");
+    expect(s.board).toContain("q_exam_silver");
+    expect(examQuest("bronze", [], [], [])).toBe("q_exam_silver");
+    // 받아 뒀거나 이미 통과했으면 다시 붙지 않는다
+    expect(examQuest("bronze", [], ["q_exam_silver"], [])).toBeNull();
+    expect(examQuest("bronze", ["silver"], [], [])).toBeNull();
+    // 넷 중 아무나 하나를 잡으면 된다
+    const q = getQuest("q_exam_silver")!;
+    if (q.kind !== "direct") throw new Error();
+    expect(objectiveDone(q.objective, { kills: { spider_queen: 1 }, eliteKills: {}, salvage: {} })).toBe(true);
+    expect(objectiveDone(q.objective, { kills: { orc_king: 1 }, eliteKills: {}, salvage: {} })).toBe(false);
+  });
+
+  it("시험을 통과하고 금화를 내야 길드가 오른다", () => {
+    const s = { ...initialState(), gold: 500 };
+    expect(guildPromotionBlocks(s).blocks.some((b) => b.startsWith("승급 시험 필요"))).toBe(true);
+    expect(gameReducer(s, { type: "promoteGuild" })).toBe(s);
+    const passed = { ...s, guildExams: ["silver" as const] };
+    const up = gameReducer(passed, { type: "promoteGuild" });
+    expect(up.guildGrade).toBe("silver");
+    expect(up.gold).toBe(500 - GUILD_PROMOTION.silver!.gold);
+    // 금화가 모자라면 못 오른다
+    expect(gameReducer({ ...passed, gold: 10 }, { type: "promoteGuild" }).guildGrade).toBe("bronze");
+  });
+
+  it("전수관 은 조각은 길드 등급이 은이어야 열린다 (용병 등급과 상관없이)", () => {
+    expect(tierOpen("silver", "bronze")).toBe(false);
+    expect(tierOpen("silver", "silver")).toBe(true);
+  });
+
+  it("게시판에는 길드 등급 이하의 의뢰만 붙는다", () => {
+    for (let seed = 0; seed < 30; seed++) {
+      const ids = rollBoard(seed, [], "bronze");
+      expect(ids.every((id) => questGrade(getQuest(id)!) === "bronze")).toBe(true);
+      expect(ids).not.toContain("q_exam_silver");
+    }
+    const silver = new Set(Array.from({ length: 40 }, (_, seed) => rollBoard(seed, [], "silver")).flat());
+    expect([...silver].some((id) => questGrade(getQuest(id)!) === "silver")).toBe(true);
+  });
+
+  it("던전 보스를 이기면 살아남은 용병(쓰러졌다 산 용병 포함)에게 승리 기록이 남는다. 죽은 용병은 없다", () => {
+    const s = inDungeon(["s-bran", "s-mirel", "s-tob"]);
+    const exp = s.expedition!;
+    const mercs = ["s-bran", "s-mirel", "s-tob"].map((id) => mercOf(s.roster.find((e) => entryId(e) === id)!));
+    const b = battleFor(exp, mercs, 3, {}, "goblin_king");
+    const won = {
+      ...b,
+      outcome: "victory" as const,
+      units: b.units.map((u) =>
+        u.side === "enemy" ? { ...u, hp: 0 } : u.id === "s-mirel" ? { ...u, hp: 0, downedTurnsLeft: 1 } : u.id === "s-tob" ? { ...u, hp: 0, dead: true } : u,
+      ),
+    };
+    const after = gameReducer({ ...s, screen: { kind: "battle", battle: won } }, { type: "battleFinish", seed: 1 });
+    expect(after.progress["s-bran"].bossWins).toContain("goblin_king");
+    expect(after.progress["s-mirel"].bossWins).toContain("goblin_king");
+    expect(after.progress["s-tob"]).toBeUndefined(); // 죽은 용병은 명단에서 빠진다
+  });
+
+  it("고용 시장: 길드가 동이면 늘 동, 은이면 가끔 은", () => {
+    expect(recruitLevel("bronze", () => 0)).toBe("bronze");
+    expect(recruitLevel("silver", () => 0)).toBe("silver");
+    expect(recruitLevel("silver", () => 0.99)).toBe("bronze");
   });
 });
 

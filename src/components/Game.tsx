@@ -11,10 +11,11 @@ import { nodeById } from "@/game/dungeon/map";
 import { getStage } from "@/game/merc/affinity";
 import { DialogueScreen } from "@/components/dialogue/DialogueScreen";
 import { GuildScreen } from "@/components/guild/GuildScreen";
-import { entryId, gameReducer, guildRank, hiredCount, initialState, mercOf, type TownPlace } from "@/game/state/state";
+import { entryId, gameReducer, guildPromotionBlocks, hiredCount, promotionBlocks, initialState, mercOf, type TownPlace } from "@/game/state/state";
 import { GateScreen } from "@/components/town/GateScreen";
 import { ReportScreen } from "@/components/town/ReportScreen";
-import { YardScreen, type PromotionOffer } from "@/components/town/YardScreen";
+import { YardScreen } from "@/components/town/YardScreen";
+import type { PromotionOffer } from "@/components/guild/Promotion";
 import { canPromote } from "@/game/merc/growth";
 import { nextRank, promoteCost, promotionChoices } from "@/game/merc/promotion";
 import { getPassive } from "@/data/passives";
@@ -188,7 +189,7 @@ export function Game() {
     dispatch({ type: "recruitStart" });
     try {
       const avoidNames = state.roster.map((e) => mercOf(e).name);
-      const res = await postRecruit({ avoidNames });
+      const res = await postRecruit({ avoidNames, guildGrade: state.guildGrade });
       dispatch({ type: "recruited", seeds: res.seeds });
     } catch (e) {
       dispatch({ type: "recruitFailed", error: e instanceof Error ? e.message : String(e) });
@@ -350,7 +351,7 @@ export function Game() {
   const mercs = state.roster.map(mercOf);
   const hired = mercs.filter((m) => state.progress[m.id]?.hired);
   const partyMercs = state.party.flatMap((id) => mercs.filter((m) => m.id === id));
-  // 단련장의 승급 후보 (등급의 1단계를 채운, 더 오를 등급이 있는 용병)
+  // 길드 창구의 승급 후보 (등급의 마지막 단계를 채운, 더 오를 등급이 있는 용병). 부족한 조건도 함께
   const promotionOffers: Record<string, PromotionOffer> = {};
   for (const e of state.roster) {
     if (e.kind !== "random") continue;
@@ -361,6 +362,7 @@ export function Game() {
     promotionOffers[e.seed.id] = {
       next: RANKS[next].name,
       cost: promoteCost(e.seed.level)!,
+      blocks: promotionBlocks(state, e.seed.id),
       passives: choices.passives.flatMap((id) => getPassive(id) ?? []),
       branches: choices.branches.map((b) => ({
         id: b.id,
@@ -395,6 +397,11 @@ export function Game() {
           day={state.day}
           gold={state.gold}
           hired={hired.length}
+          guildGrade={state.guildGrade}
+          guildPromotion={guildPromotionBlocks(state)}
+          onPromoteGuild={() => dispatch({ type: "promoteGuild" })}
+          promotions={promotionOffers}
+          onPromote={(mercId, choice) => dispatch({ type: "promote", mercId, ...choice })}
           onBack={toTown}
         />
       );
@@ -468,8 +475,6 @@ export function Game() {
           hired={hired}
           progress={state.progress}
           onTrain={(mercId, alloc) => dispatch({ type: "train", mercId, alloc })}
-          promotions={promotionOffers}
-          onPromote={(mercId, choice) => dispatch({ type: "promote", mercId, ...choice })}
           onBack={toTown}
         />
       );
@@ -499,7 +504,7 @@ export function Game() {
           )}
           progress={state.progress}
           salvage={state.salvage}
-          guildRank={guildRank(state)}
+          guildRank={state.guildGrade}
           onUnlock={(mercId, piece) => dispatch({ type: "unlockPiece", mercId, piece })}
           onUpgrade={(mercId, piece) => dispatch({ type: "upgradePiece", mercId, piece })}
           onCraft={(mercId, build) => dispatch({ type: "craftSkill", mercId, build })}

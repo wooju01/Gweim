@@ -8,13 +8,28 @@ export type Reward = { gold: number; salvage?: Record<string, number> };
 
 export type Objective =
   | { type: "killBoss"; monsterId: string }
+  /** 이 보스들 중 아무나 하나 처치 (길드 승급 시험) */
+  | { type: "killAnyBoss"; monsterIds: string[] }
   | { type: "killElite"; monsterId: string; count: number }
   | { type: "collect"; itemId: string; count: number };
 
 export type Risk = "low" | "mid" | "high";
 
 export type Quest =
-  | { kind: "direct"; id: string; title: string; dungeonId: string; objective: Objective; reward: Reward }
+  | {
+      kind: "direct";
+      id: string;
+      title: string;
+      dungeonId: string;
+      objective: Objective;
+      reward: Reward;
+      /** 이 길드 등급부터 게시판에 나온다 (없으면 동) */
+      grade?: MercLevel;
+      /** 길드 승급 시험: 마치면 이 등급으로 길드를 올릴 수 있다 (게시판에 무작위로 붙지 않고, 조건이 되면 따로 붙는다) */
+      exam?: MercLevel;
+      /** 이 지역에 한 번이라도 들어가 봐야 게시판에 나온다 */
+      appearAfter?: string;
+    }
   | {
       kind: "dispatch";
       id: string;
@@ -46,6 +61,9 @@ export const QUESTS: Quest[] = [
   { kind: "direct", id: "q_wolf_fang", title: "송곳니 수집", dungeonId: "unknown_forest", objective: { type: "collect", itemId: "wolf_fang", count: 4 }, reward: { gold: 30 } },
   { kind: "direct", id: "q_silk", title: "재봉사의 거미줄", dungeonId: "unknown_forest", objective: { type: "collect", itemId: "spider_silk", count: 4 }, reward: { gold: 25 } },
 
+  // ── 길드 승급 시험 ──
+  // 동 → 은: 미지의 숲 3층 던전 보스 넷 중 아무나 하나 (길드가 동이면 늘 게시판에 붙는다)
+  { kind: "direct", id: "q_exam_silver", title: "승급 시험: 3층 던전 보스 토벌", dungeonId: "unknown_forest", objective: { type: "killAnyBoss", monsterIds: ["goblin_king", "slime_king", "spider_queen", "alpha_wolf"] }, reward: { gold: 80 }, exam: "silver" },
   // ── 파견 의뢰 ──
   { kind: "dispatch", id: "d_escort", title: "상단 호위", days: 2, difficulty: 30, recommendedGrade: "bronze", risk: "low", reward: { gold: 35 }, likedBy: ["honorable", "kind"], dislikedBy: ["reckless"], size: [1, 2] },
   { kind: "dispatch", id: "d_herbs", title: "약초 채집 길잡이", days: 1, difficulty: 20, recommendedGrade: "bronze", risk: "low", reward: { gold: 20, salvage: { slime_jelly: 2 } }, likedBy: ["curious", "easygoing"], dislikedBy: ["proud"], size: [1, 1] },

@@ -1,11 +1,11 @@
 import { getPassive } from "@/data/passives";
-import { RECRUIT_LEVEL } from "@/data/ranks";
 import { rollStartSkills } from "@/game/skills";
-import { resolveTraits, rollPassives, rollRecruitCount, rollStart, rollTraits } from "@/game/merc/generate";
+import { recruitLevel, resolveTraits, rollPassives, rollRecruitCount, rollStart, rollTraits } from "@/game/merc/generate";
 import {
   MercProfile,
   RecruitRequest,
   type AIMode,
+  type MercLevel,
   type MercSeed,
   type MercTraits,
   type RecruitResponse,
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return Response.json({ error: "잘못된 요청", issues: parsed.error.issues }, { status: 400 });
   }
-  const { avoidNames } = parsed.data;
+  const { avoidNames, guildGrade } = parsed.data;
   // 몇 명이 올지는 코드가 정한다 (게시판 공고에 매번 다른 수가 모인다)
   const count = parsed.data.count ?? rollRecruitCount(Math.random);
 
@@ -29,12 +29,12 @@ export async function POST(request: Request) {
   const batch = rollDistinct(count);
 
   // 프로필은 빠르게 하려고 동시에 만든다. 같은 요청 안에서 이름이 겹치면 그 한 명만 다시 만든다.
-  const drafts = await Promise.all(batch.map((traits) => recruitOne(traits, avoidNames)));
+  const drafts = await Promise.all(batch.map((traits) => recruitOne(traits, avoidNames, recruitLevel(guildGrade, Math.random))));
   const taken = new Set(avoidNames);
   const results: { seed: MercSeed; mode: AIMode }[] = [];
   for (const draft of drafts) {
     const result = taken.has(draft.seed.profile.name)
-      ? await recruitOne(draft.seed.traits, [...taken])
+      ? await recruitOne(draft.seed.traits, [...taken], draft.seed.level)
       : draft;
     taken.add(result.seed.profile.name);
     results.push(result);
@@ -67,10 +67,10 @@ function rollDistinct(count: number): MercTraits[] {
 async function recruitOne(
   traitIds: MercTraits,
   avoidNames: string[],
+  level: MercLevel,
 ): Promise<{ seed: MercSeed; mode: AIMode }> {
   const traits = resolveTraits(traitIds)!;
   const start = rollStart(traits, Math.random);
-  const level = RECRUIT_LEVEL;
   const passives = rollPassives(traitIds.race, level, Math.random);
   const skills = rollStartSkills({ job: traitIds.job, race: traitIds.race, level }, Math.random);
   const id = `r-${crypto.randomUUID().slice(0, 8)}`;

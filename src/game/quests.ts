@@ -4,19 +4,42 @@ import { BOARD_SIZE, DISPATCH, QUESTS, getQuest, type Objective, type Quest } fr
 import type { StatBlock } from "@/data/growth";
 import { createRng, type Rng } from "@/game/random";
 import type { MercLevel } from "@/lib/schemas";
+import { RANK_ORDER } from "@/data/ranks";
+import { GUILD_PROMOTION } from "@/data/guild";
 
 // ── 게시판 ─────────────────────────────────────────────
 
-/** 게시판을 새로 붙인다. 이미 받은 의뢰(진행 중)는 빼고, 종류별로 정해진 수만큼 무작위로 */
-export function rollBoard(seed: number, taken: string[] = []): string[] {
+/** 의뢰 등급: 파견은 권장 등급, 직접 의뢰는 grade (없으면 동) */
+export function questGrade(q: Quest): MercLevel {
+  return q.kind === "dispatch" ? q.recommendedGrade : (q.grade ?? "bronze");
+}
+
+/**
+ * 게시판을 새로 붙인다. 이미 받은 의뢰(진행 중)는 빼고, 길드 등급 이하의 의뢰만, 종류별로 정해진 수만큼 무작위로.
+ * 승급 시험은 무작위로 붙지 않는다 (examQuest)
+ */
+export function rollBoard(seed: number, taken: string[] = [], guildGrade: MercLevel = "bronze"): string[] {
   const rng = createRng(seed ^ 0x0b0a7d);
+  const open = (q: Quest) => RANK_ORDER.indexOf(questGrade(q)) <= RANK_ORDER.indexOf(guildGrade) && !(q.kind === "direct" && q.exam);
   const pick = (kind: Quest["kind"], n: number) => {
-    const pool = QUESTS.filter((q) => q.kind === kind && !taken.includes(q.id)).map((q) => q.id);
+    const pool = QUESTS.filter((q) => q.kind === kind && !taken.includes(q.id) && open(q)).map((q) => q.id);
     const out: string[] = [];
     while (out.length < n && pool.length > 0) out.push(pool.splice(Math.floor(rng.next() * pool.length), 1)[0]);
     return out;
   };
   return [...pick("direct", BOARD_SIZE.direct), ...pick("dispatch", BOARD_SIZE.dispatch)];
+}
+
+/**
+ * 지금 게시판에 붙어야 할 길드 승급 시험 (다음 등급의 시험, 아직 통과하지 않았고, 받아 두지 않았고, 나올 조건이 됐으면)
+ */
+export function examQuest(guildGrade: MercLevel, passed: MercLevel[], active: string[], explored: string[]): string | null {
+  const next = RANK_ORDER[RANK_ORDER.indexOf(guildGrade) + 1];
+  const rule = next ? GUILD_PROMOTION[next] : undefined;
+  if (!next || !rule || passed.includes(next) || active.includes(rule.exam)) return null;
+  const q = getQuest(rule.exam);
+  if (q?.kind !== "direct" || (q.appearAfter && !explored.includes(q.appearAfter))) return null;
+  return q.id;
 }
 
 // ── 직접 의뢰 ──────────────────────────────────────────
@@ -29,6 +52,8 @@ export function objectiveProgress(o: Objective, t: Tally): [number, number] {
   switch (o.type) {
     case "killBoss":
       return [Math.min(1, t.kills[o.monsterId] ?? 0), 1];
+    case "killAnyBoss":
+      return [o.monsterIds.some((id) => (t.kills[id] ?? 0) > 0) ? 1 : 0, 1];
     case "killElite":
       return [Math.min(o.count, t.eliteKills[o.monsterId] ?? 0), o.count];
     case "collect":

@@ -13,6 +13,7 @@ describe("의뢰 데이터", () => {
       if (q.kind === "direct") {
         const o = q.objective;
         if (o.type === "collect") expect(getSalvage(o.itemId), q.id).toBeDefined();
+        else if (o.type === "killAnyBoss") for (const id of o.monsterIds) expect(getMonster(id), q.id).toBeDefined();
         else expect(getMonster(o.monsterId), q.id).toBeDefined();
       } else {
         expect(q.days).toBeGreaterThan(0);
