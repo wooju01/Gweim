@@ -18,20 +18,28 @@ export const BOND = {
   /** 탐험이 끝난 뒤 적대 단계인 용병이 계약을 깨고 떠날 확률 */
   leaveChance: 0.3,
 
-  /** 전투 중 후퇴: 살아 있는 동행 용병의 호감 변화 (싸움에서 등을 보였다) */
-  fleeAffinity: -5,
+  /** 전투 중 후퇴: 살아 있는 동행 용병의 기본 호감 변화 (성격이 없으면 0) */
+  fleeAffinity: 0,
 } as const;
 
-/** 전투 중 후퇴에 대한 성격별 추가 반응 (기본 fleeAffinity에 더한다) */
+/**
+ * 전투 중 후퇴에 대한 성격별 반응 (기본 fleeAffinity에 더한다).
+ * 신중 계열은 반기고(+), 호전·자존심 계열은 싫어한다(-). 나머지는 0. 대사는 AI가 만든다 (/api/react)
+ */
 export const FLEE_TEMPER: Record<string, number> = {
-  proud: -3,
-  reckless: -3,
-  honorable: -3,
-  cruel: -2,
-  timid: 4,
-  paranoid: 3,
-  kind: 2,
-  boastful: -2,
-  optimistic: 1,
-  easygoing: 2,
+  // 신중
+  timid: 5,
+  paranoid: 4,
+  cynical: 2,
+  // 호전·자존심
+  proud: -5,
+  reckless: -5,
+  honorable: -4,
+  boastful: -4,
+  cruel: -3,
 };
+
+/** 성격들의 후퇴 반응 합 (+ 신중, - 호전·자존심) */
+export function fleeTemper(personalities: string[] = []): number {
+  return personalities.reduce((s, id) => s + (FLEE_TEMPER[id] ?? 0), 0);
+}

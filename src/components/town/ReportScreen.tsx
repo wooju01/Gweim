@@ -111,6 +111,16 @@ export function ReportScreen({ report, deaths, day, gold, onDone }: Props) {
         </Section>
       )}
 
+      {(report.keys?.length ?? 0) > 0 && (
+        <Section title="클랜 창고">
+          {report.keys!.map((line, i) => (
+            <p key={i} className="text-sm text-frost">
+              {line}
+            </p>
+          ))}
+        </Section>
+      )}
+
       {report.growth.length > 0 && (
         <Section title="성장">
           {report.growth.map((line, i) => (

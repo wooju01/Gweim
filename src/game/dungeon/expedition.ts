@@ -8,11 +8,16 @@ import {
   type SupplyKind,
 } from "@/data/combat";
 import {
-  PATH_LENGTH,
   depthGold,
+  floorCells,
+  GOAL_ELITES,
+  GOAL_FALLBACK,
+  GOAL_TREASURE,
   REST_HEAL_RATIO,
   TREASURE_COUNT,
   TREASURE_WEIGHTS,
+  XP_RATE_BY_GAP,
+  type GoalContent,
   type RoomKind,
 } from "@/data/dungeon";
 import {
@@ -24,8 +29,10 @@ import {
 } from "@/data/economy";
 import { rollRelic } from "@/data/relics";
 import { XP_GOAL_BONUS, XP_PER_SQUARE } from "@/data/growth";
-import { FIRST_DUNGEON, getDungeon, getRegion, type Region } from "@/data/regions";
-import { ELITE_DROP_ROLLS, FLOOR_BOSS_TRINKET_CHANCE } from "@/data/monsters";
+import { FIRST_DUNGEON, getDungeon, getRegion, hiddenFrom, type Region } from "@/data/regions";
+import { ELITE_DROP_ROLLS, FLOOR_BOSS_TRINKET_CHANCE, getMonster } from "@/data/monsters";
+import { KEY_ITEMS, isKeyItem, type KeyItemId } from "@/data/keyItems";
+import { RANK_ORDER } from "@/data/ranks";
 import { TREASURE_TRINKET_CHANCE, rollTrinket } from "@/data/trinkets";
 import { addSalvage, getSalvage, rollDrops } from "@/data/loot";
 import {
@@ -36,7 +43,7 @@ import {
   type EventRequirement,
   type EventUnlock,
 } from "@/data/events";
-import type { ChoiceTone, Stage } from "@/lib/schemas";
+import type { ChoiceTone, MercLevel, Stage } from "@/lib/schemas";
 import { BOND } from "@/data/bond";
 import { JOBS } from "@/data/traits";
 import {
@@ -85,7 +92,8 @@ export type Room =
         unlocks: EventUnlock[];
       } | null;
     }
-  | { kind: "goal" }
+  /** lines: 목적지에서 찾은 것 (보물 목적지) */
+  | { kind: "goal"; lines?: string[] }
   /** 전투에서 전멸했다 */
   | { kind: "defeat" };
 
@@ -110,12 +118,26 @@ export type Expedition = {
   /** 던전과 지금 지역 (data/regions.ts). 이전 저장에는 없다 → 미지의 숲 1층 */
   dungeon?: string;
   region?: string;
-  /** 이 층의 던전 보스를 쓰러뜨렸다 (그 갈래의 끝) */
+  /** 이 층 목적지의 보스를 쓰러뜨렸다 */
   cleared?: boolean;
-  /** 이 층의 층 보스가 기다리는 전투 칸 ("강한 기척") */
-  floorBoss?: { node: string; id: string };
-  /** 이번 원정에서 쌓인 경험치 (칸마다 층 수만큼, 목적지마다 보너스 × 층). 살아 돌아온 용병이 받는다 */
+  /** 이 층 목적지에 무엇이 있나 (층을 만들 때 정한다) */
+  goal?: GoalContent;
+  /** 앞 층들에서 걸은 칸 수 (깊은 곳의 피 패시브) */
+  walked?: number;
+  /** 이번 원정에서 쌓인 경험치 합 (칸마다 층 수만큼, 목적지마다 보너스 × 층) */
   xp?: number;
+  /** 권장 등급별로 쌓인 경험치. 귀환할 때 용병 등급과 비교해 배율을 곱한다 (xpFor) */
+  xpBy?: Partial<Record<MercLevel, number>>;
+  /** 원정을 시작할 때 클랜 창고에 있던 히든 열쇠 */
+  keys?: KeyItemId[];
+  /** 이번 원정에서 얻은 히든 열쇠 (살아 돌아와야 창고에 들어간다) */
+  keyFound?: KeyItemId[];
+  /** 이 층에서 히든 사건이 이미 나왔나 (층마다 한 번) */
+  hiddenOffered?: boolean;
+  /** 히든 사건으로 열린 다음 갈래 (이 층의 다음 갈래가 이 지역으로 바뀐다) */
+  hiddenNext?: string;
+  /** 히든 층에 들어갔다: 쓴 열쇠 (보스를 잡고 나오면 소모, 후퇴하면 유지, 전멸하면 잃는다) */
+  keyUsed?: KeyItemId;
 };
 
 // ── 시작 ────────────────────────────────────────────────
@@ -126,9 +148,11 @@ export function startExpedition(
   seed: number,
   pack: Record<SupplyKind, number> = START_SUPPLIES,
   dungeonId: string = FIRST_DUNGEON,
+  keys: KeyItemId[] = [],
 ): Expedition {
-  const map = generateMap(seed);
   const dungeon = getDungeon(dungeonId) ?? getDungeon(FIRST_DUNGEON)!;
+  const region = getRegion(dungeon.entry)!;
+  const map = generateMap(seed, cellsOf(region));
   return {
     map,
     at: map.startId,
@@ -154,23 +178,44 @@ export function startExpedition(
     salvage: {},
     trinkets: [],
     xp: 0,
+    xpBy: {},
+    walked: 0,
+    keys: [...keys],
+    keyFound: [],
     dungeon: dungeon.id,
-    region: dungeon.entry,
-    floorBoss: placeFloorBoss(map, getRegion(dungeon.entry)!, seed),
+    region: region.id,
+    goal: planGoal(region, seed),
   };
 }
 
+/** 층 칸 수 범위: 지역에 정해져 있으면 그것, 아니면 층 기본값 */
+export function cellsOf(region: Region): { min: number; max: number } {
+  return region.cells ?? floorCells(region.depth);
+}
+
 /**
- * 층 보스 자리: 지역의 층 보스 확률로, 전투 칸 하나에 후보 중 하나를 둔다.
- * force를 주면 반드시 그 보스를 둔다 (나중에 의뢰의 "필수 적")
+ * 목적지에 무엇이 있을지 정한다 (층을 만들 때 한 번).
+ * 보스 확률에 걸리면 후보 중 가중치로 하나 (가중치 0은 나오지 않는다), 아니면 보물이나 정예 전투.
+ * force를 주면 반드시 그 보스 (나중에 의뢰의 "필수 적")
  */
-export function placeFloorBoss(map: DungeonMap, region: Region, seed: number, force?: string): Expedition["floorBoss"] {
+export function planGoal(region: Region, seed: number, force?: string): GoalContent {
   const rng = createRng(seed ^ 0x5bd1e995);
-  const battles = map.nodes.filter((n) => n.kind === "battle");
-  if (battles.length === 0) return undefined;
-  const id = force ?? (region.floorBosses.length && rng.next() < region.floorBossChance ? region.floorBosses[Math.floor(rng.next() * region.floorBosses.length)] : undefined);
-  if (!id) return undefined;
-  return { node: battles[Math.floor(rng.next() * battles.length)].id, id };
+  if (force) return { kind: "boss", id: force };
+  const pool = (region.boss?.pool ?? []).filter((p) => p.weight > 0 && getMonster(p.monsterId));
+  if (pool.length && rng.next() < region.boss!.chance) {
+    const total = pool.reduce((s, p) => s + p.weight, 0);
+    let roll = rng.next() * total;
+    const pick = pool.find((p) => (roll -= p.weight) < 0) ?? pool[pool.length - 1];
+    return { kind: "boss", id: pick.monsterId, ...(pick.warn ? { warn: true } : {}) };
+  }
+  const t = GOAL_FALLBACK.treasure;
+  return rng.next() * (t + GOAL_FALLBACK.elite) < t ? { kind: "treasure" } : { kind: "elite" };
+}
+
+/** 보스 직전 칸(다음 칸이 목적지)에 서 있고, 목적지 보스가 경고 대상인가 */
+export function bossWarning(exp: Expedition): boolean {
+  if (exp.goal?.kind !== "boss" || !exp.goal.warn || exp.room) return false;
+  return nodeById(exp.map, exp.at)?.next.includes(exp.map.goalId) ?? false;
 }
 
 /** 지금 지역 (이전 저장은 첫 던전의 입구 지역) */
@@ -178,9 +223,9 @@ export function regionOf(exp: Expedition): Region {
   return getRegion(exp.region ?? "") ?? getRegion(getDungeon(FIRST_DUNGEON)!.entry)!;
 }
 
-/** 목적지에서 고를 수 있는 다음 갈래 (던전 보스를 잡았거나 끝 지역이면 없다) */
+/** 목적지에서 고를 수 있는 다음 갈래 (끝 지역이면 없다). 히든 사건으로 열렸으면 히든 지역 하나 */
 export function nextRegions(exp: Expedition): Region[] {
-  if (exp.cleared) return [];
+  if (exp.hiddenNext) return [getRegion(exp.hiddenNext)].flatMap((r) => r ?? []);
   return regionOf(exp).next.flatMap((id) => getRegion(id) ?? []);
 }
 
@@ -197,10 +242,40 @@ export function canMove(exp: Expedition, nodeId: string): boolean {
   return nodeById(exp.map, exp.at)?.next.includes(nodeId) ?? false;
 }
 
-/** 이벤트 칸에 들어갈 때 어떤 사건이 나올지. 같은 시드면 같은 사건 */
+/** 이벤트 칸에 들어갈 때 어떤 사건이 나올지. 같은 시드면 같은 사건 (히든 사건은 빼고) */
 export function pickEvent(seed: number): string {
   const rng = createRng(seed);
-  return EVENTS[Math.floor(rng.next() * EVENTS.length)].id;
+  const pool = EVENTS.filter((e) => !e.hidden);
+  return pool[Math.floor(rng.next() * pool.length)].id;
+}
+
+/**
+ * 이 층에서 나올 수 있는 히든 사건: 이 지역에서 열리는 히든 지역이 있고, 그 열쇠가 창고에 있고,
+ * 이 층에서 아직 나오지 않았으면
+ */
+export function hiddenEventFor(exp: Expedition): Region | undefined {
+  if (exp.hiddenOffered || exp.hiddenNext) return undefined;
+  return hiddenFrom(regionOf(exp).id).find((r) => exp.keys?.includes(r.hidden!.keyItem));
+}
+
+/** 권장 등급별로 경험치를 쌓는다 */
+function addXp(exp: Expedition, amount: number) {
+  const grade = regionOf(exp).recommended[1];
+  exp.xpBy = { ...exp.xpBy, [grade]: (exp.xpBy?.[grade] ?? 0) + amount };
+  exp.xp = expeditionXp(exp) + amount;
+}
+
+/** 경험치 배율: 용병 등급이 권장 등급보다 몇 등급 위인가 (같거나 낮으면 1) */
+export function xpRate(level: MercLevel, recommended: MercLevel): number {
+  const gap = Math.max(0, RANK_ORDER.indexOf(level) - RANK_ORDER.indexOf(recommended));
+  return XP_RATE_BY_GAP[Math.min(gap, XP_RATE_BY_GAP.length - 1)];
+}
+
+/** 이 등급의 용병이 받을 경험치 (권장 등급별로 배율을 곱해 합친다). 등급이 없으면 동 */
+export function xpFor(exp: Expedition, level: MercLevel = "bronze"): number {
+  if (!exp.xpBy || Object.keys(exp.xpBy).length === 0) return expeditionXp(exp);
+  const total = (Object.entries(exp.xpBy) as [MercLevel, number][]).reduce((s, [g, n]) => s + n * xpRate(level, g), 0);
+  return Math.round(total);
 }
 
 /**
@@ -220,8 +295,8 @@ export function moveTo(
     ...exp,
     at: nodeId,
     visited: [...exp.visited, nodeId],
-    xp: expeditionXp(exp) + XP_PER_SQUARE * exp.depth,
   });
+  addXp(next, XP_PER_SQUARE * exp.depth);
   const rng = createRng(seed);
 
   switch (node.kind) {
@@ -237,15 +312,25 @@ export function moveTo(
     case "treasure":
       next.room = { kind: "treasure", lines: treasure(next, rng) };
       break;
-    case "event":
-      next.room = { kind: "event", eventId: pickEvent(seed), result: null };
+    case "event": {
+      // 열쇠가 있으면 히든 사건이 나올 수 있다 (층마다 한 번)
+      const hidden = hiddenEventFor(next);
+      if (hidden && rng.next() < hidden.hidden!.triggerChance) {
+        next.hiddenOffered = true;
+        next.room = { kind: "event", eventId: hidden.hidden!.event, result: null };
+      } else {
+        next.room = { kind: "event", eventId: pickEvent(seed), result: null };
+      }
       break;
+    }
     case "goal": {
-      // 던전 보스가 있는 지역은 목적지가 보스 전투다 (이기면 finishBattle에서 목적지 처리)
-      const boss = regionOf(next).dungeonBoss;
-      if (boss && !next.cleared)
-        return { exp: next, battle: battleFor(next, mercs, seed, bonds, boss), kind: node.kind };
-      reachGoal(next);
+      // 목적지: 보스 전투 / 정예 전투 (이기면 finishBattle에서 목적지 처리) / 보물
+      const goal = next.goal ?? { kind: "treasure" };
+      if (goal.kind === "boss" && !next.cleared)
+        return { exp: next, battle: battleFor(next, mercs, seed, bonds, goal.id), kind: node.kind };
+      if (goal.kind === "elite")
+        return { exp: next, battle: battleFor(next, mercs, seed, bonds, undefined, GOAL_ELITES), kind: node.kind };
+      reachGoal(next, goal.kind === "treasure" ? goalTreasure(next, rng) : []);
       break;
     }
   }
@@ -258,10 +343,21 @@ export function expeditionXp(exp: Expedition): number {
 }
 
 /** 목적지에 닿았다: 금화·경험치 보너스 (exp를 바꾼다) */
-function reachGoal(exp: Expedition) {
-  exp.room = { kind: "goal" };
+function reachGoal(exp: Expedition, lines: string[] = []) {
+  exp.room = { kind: "goal", ...(lines.length ? { lines } : {}) };
   exp.gold += depthGold(exp.depth, GOAL_GOLD);
-  exp.xp = expeditionXp(exp) + XP_GOAL_BONUS * exp.depth;
+  addXp(exp, XP_GOAL_BONUS * exp.depth);
+}
+
+/** 보물 목적지: 물자 여럿과 유물 */
+function goalTreasure(exp: Expedition, rng: Rng): string[] {
+  const kinds = Object.keys(TREASURE_WEIGHTS) as (keyof typeof TREASURE_WEIGHTS)[];
+  const found: Partial<Record<SupplyKind, number>> = {};
+  for (let i = 0; i < rollInt(rng.next, GOAL_TREASURE.supplies[0], GOAL_TREASURE.supplies[1]); i++) {
+    const k = kinds[Math.floor(rng.next() * kinds.length)];
+    found[k] = (found[k] ?? 0) + 1;
+  }
+  return ["보물 상자를 찾았다.", ...supplyLines(exp, found), ...gain(exp, 0, GOAL_TREASURE.relics, rng)];
 }
 
 /** 목적지에서 더 내려갈 수 있나 (다음 갈래가 있고, 일어서 있는 동료가 있다) */
@@ -277,10 +373,11 @@ export function descend(exp: Expedition, seed: number, regionId: string): Expedi
   if (!canDescend(exp)) return null;
   const region = nextRegions(exp).find((r) => r.id === regionId);
   if (!region) return null;
-  const map = generateMap(seed);
+  const map = generateMap(seed, cellsOf(region));
   return {
     ...exp,
     xp: expeditionXp(exp),
+    walked: (exp.walked ?? 0) + exp.visited.length - 1,
     map,
     at: map.startId,
     visited: [map.startId],
@@ -288,7 +385,11 @@ export function descend(exp: Expedition, seed: number, regionId: string): Expedi
     region: region.id,
     room: null,
     cleared: false,
-    floorBoss: placeFloorBoss(map, region, seed),
+    goal: planGoal(region, seed),
+    hiddenOffered: false,
+    hiddenNext: undefined,
+    // 히든 층에 들어가면 그 열쇠를 쓴다
+    ...(region.hidden ? { keyUsed: region.hidden.keyItem } : {}),
   };
 }
 
@@ -336,6 +437,7 @@ export function battleFor(
   seed: number,
   bonds: Record<string, Stage> = {},
   boss?: string,
+  elites = 0,
 ): Battle {
   const units: Unit[] = alive(exp).flatMap((m) => {
     const merc = mercs.find((x) => x.id === m.id);
@@ -354,10 +456,11 @@ export function battleFor(
     depth: exp.depth,
     supplies: exp.supplies,
     // 지나온 칸 수 (앞 층들을 포함)
-    walked: (exp.depth - 1) * PATH_LENGTH + exp.visited.length - 1,
+    walked: (exp.walked ?? 0) + exp.visited.length - 1,
     region: regionOf(exp),
-    // 던전 보스(목적지) 또는 이 칸의 층 보스
-    boss: boss ?? (exp.floorBoss?.node === exp.at ? exp.floorBoss.id : undefined),
+    // 목적지 보스
+    boss,
+    elites,
   });
 }
 
@@ -388,9 +491,9 @@ export function finishBattle(exp: Expedition, battle: Battle): Expedition {
   };
   if (battle.outcome === "defeat" || members.every((m) => m.down))
     next.room = { kind: "defeat" };
-  // 목적지의 던전 보스를 쓰러뜨렸다: 그 갈래는 끝 (귀환만)
+  // 목적지 전투(보스·정예)를 이겼다
   else if (won && exp.at === exp.map.goalId) {
-    next.cleared = true;
+    if (exp.goal?.kind === "boss") next.cleared = true;
     reachGoal(next);
   }
   return next;
@@ -452,6 +555,12 @@ export function battleSpoils(
     // 정예는 드롭을 두 번 굴린다
     const rolls = enemy.rank === "elite" ? ELITE_DROP_ROLLS : 1;
     for (let r = 0; r < rolls; r++) for (const id of rollDrops(enemy.kind, rng)) dropped[id] = (dropped[id] ?? 0) + 1;
+    // 히든 열쇠 (나무 거인의 세계수의 가지 등)
+    const key = getMonster(enemy.kind ?? "")?.keyDrop;
+    if (key && isKeyItem(key.item) && rng.next() < key.chance) {
+      next.keyFound = [...(next.keyFound ?? []), key.item];
+      lines.push(`열쇠: ${KEY_ITEMS[key.item].name}`);
+    }
     // 층 보스는 장신구를 떨어뜨리기도 한다
     if (enemy.rank === "floorBoss" && rng.next() < FLOOR_BOSS_TRINKET_CHANCE) {
       const t = rollTrinket(rng);
@@ -726,6 +835,8 @@ export function chooseEvent(
   const outcome = pickOutcome(choice.outcomes, rng);
   const applied = applyEffect(next, outcome.effect, rng);
   lines.push(...applied.lines);
+  // 히든 지역으로 가는 길이 열렸다: 이 층의 다음 갈래가 그 지역이 된다
+  for (const u of choice.unlocks ?? []) if (u.kind === "hiddenRegion" && getRegion(u.region)) next.hiddenNext = u.region;
   next.room = {
     kind: "event",
     eventId: room.eventId,

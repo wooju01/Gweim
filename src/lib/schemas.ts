@@ -232,3 +232,23 @@ export type FarewellRequest = z.infer<typeof FarewellRequest>;
 
 export const Farewell = z.object({ words: z.string().min(1).max(100) });
 export type FarewellResponse = { mode: AIMode; words: string };
+
+// ── 상황 반응 한마디 ───────────────────────────────────────
+
+/**
+ * 용병 한마디. flee: 전투 중 후퇴했다 / omen: 보스 직전, 불길한 기운을 느꼈다.
+ * feeling: 그 일로 마음이 어떻게 움직였나 (코드가 성격으로 정한다)
+ */
+export const ReactSituation = z.enum(["flee", "omen"]);
+export type ReactSituation = z.infer<typeof ReactSituation>;
+
+export const ReactRequest = z.object({
+  merc: MercRef,
+  situation: ReactSituation,
+  feeling: z.enum(["up", "down", "none"]),
+  stage: Stage,
+});
+export type ReactRequest = z.infer<typeof ReactRequest>;
+
+export const ReactLine = z.object({ words: z.string().min(1).max(100) });
+export type ReactResponse = { mode: AIMode; words: string };

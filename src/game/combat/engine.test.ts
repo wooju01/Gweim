@@ -1588,6 +1588,18 @@ describe("조각 스킬 (엔진 1단계)", () => {
     expect(t.log.some((e) => e.type === "heal" && e.target === varn.id && e.amount === 2)).toBe(true);
   });
 
+  it("치유 감소: 받는 회복이 줄고, 미리보기도 같다", () => {
+    let b = start([{ ...elke, job: "priest", kit: ["pray"] }], 1, [dummy("e0", 999)]);
+    b = edit(b, (x) => {
+      const me = unitById(x, elke.id)!;
+      me.hp = 1;
+      me.statuses.push({ kind: "healReduction", turns: 2, value: 0.5 });
+    });
+    expect(previewAction(b, { type: "skill", skill: "pray", target: elke.id })!.heal!.amount).toBe(4);
+    b = act(b, { type: "skill", skill: "pray", target: elke.id });
+    expect(b.log).toContainEqual({ type: "heal", target: elke.id, amount: 4, by: elke.id });
+  });
+
   it("2단계 효과(later)는 전투에서 아무 일도 하지 않는다", () => {
     let b = one({ job: "knight", skills: [build("knight_duel")] }, [dummy("e0", 999)]);
     const before = structuredClone(unitById(b, "e0")!);

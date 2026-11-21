@@ -3,8 +3,7 @@ import { TEST_MERCS } from "@/test/fixtures";
 import { ELITE_TRAITS, MAX_ENEMIES, MONSTERS, getMonster } from "@/data/monsters";
 import { getRegion } from "@/data/regions";
 import { createRng } from "@/game/random";
-import { generateMap } from "@/game/dungeon/map";
-import { placeFloorBoss } from "@/game/dungeon/expedition";
+import { planGoal } from "@/game/dungeon/expedition";
 import { getSkill } from "@/game/skills";
 import { act, bossEncounter, currentActor, enemyUnit, living, makeElite, mercUnit, rollEncounter, startBattleWithUnits, strikeFactors, type Battle, type Unit } from "./engine";
 import { describe as describeEvent } from "./text";
@@ -137,21 +136,37 @@ describe("정예", () => {
   });
 });
 
-describe("층 보스", () => {
-  it("층 보스 확률에 맞게 전투 칸 하나에 놓이고, force면 반드시 놓인다", () => {
-    const region = getRegion("uf_deep_forest")!;
-    let placed = 0;
-    for (let seed = 0; seed < 400; seed++) {
-      const map = generateMap(seed);
-      const fb = placeFloorBoss(map, region, seed);
-      if (!fb) continue;
-      placed++;
-      expect(map.nodes.find((n) => n.id === fb.node)!.kind).toBe("battle");
-      expect(region.floorBosses).toContain(fb.id);
+describe("목적지 보스", () => {
+  it("보스 확률에 맞게 목적지에 놓이고, 안 나오면 보물이나 정예. force면 반드시 그 보스", () => {
+    const region = getRegion("uf_deep_forest")!; // 나무 거인, 중간 층 확률
+    const kinds = { boss: 0, treasure: 0, elite: 0 };
+    for (let seed = 0; seed < 600; seed++) {
+      const goal = planGoal(region, seed);
+      kinds[goal.kind]++;
+      if (goal.kind === "boss") expect(goal.id).toBe("tree_giant");
     }
-    expect(placed / 400).toBeGreaterThan(0.08);
-    expect(placed / 400).toBeLessThan(0.22);
-    expect(placeFloorBoss(generateMap(1), getRegion("uf_forest")!, 1)).toBeUndefined();
-    expect(placeFloorBoss(generateMap(1), getRegion("uf_forest")!, 1, "goblin_glutton")!.id).toBe("goblin_glutton");
+    expect(kinds.boss / 600).toBeGreaterThan(region.boss!.chance - 0.07);
+    expect(kinds.boss / 600).toBeLessThan(region.boss!.chance + 0.07);
+    expect(kinds.treasure).toBeGreaterThan(0);
+    expect(kinds.elite).toBeGreaterThan(0);
+    // 보스가 없는 지역은 보물이나 정예
+    expect(planGoal(getRegion("uf_forest")!, 1).kind).not.toBe("boss");
+    expect(planGoal(getRegion("uf_forest")!, 1, "goblin_glutton")).toEqual({ kind: "boss", id: "goblin_glutton" });
+    // 끝 지역 보스는 확정
+    for (let seed = 0; seed < 50; seed++) expect(planGoal(getRegion("uf_goblin_village")!, seed)).toEqual({ kind: "boss", id: "goblin_king" });
+  });
+
+  it("히든 보스는 확정이고, 가중치 0인 후보(타락한 엘프 여왕)는 나오지 않는다", () => {
+    for (let seed = 0; seed < 100; seed++) expect(planGoal(getRegion("uf_corrupted_forest")!, seed)).toEqual({ kind: "boss", id: "corrupted_spirit_king" });
+  });
+
+  it("정예 목적지 전투는 반드시 정예가 하나 이상", () => {
+    for (let seed = 0; seed < 50; seed++) expect(rollEncounter(createRng(seed), getRegion("uf_forest")!, 1).some((u) => u.rank === "elite")).toBe(true);
+  });
+
+  it("나무 거인은 차례마다 체력을 되찾는다", () => {
+    let b = startBattleWithUnits([hero("h", [1, 1]), mob("tree_giant", "e0", { hp: 50 })], 1);
+    b = hit(b, "e0");
+    expect(b.log.some((e) => e.type === "heal" && e.target === "e0" && e.amount === 4)).toBe(true);
   });
 });

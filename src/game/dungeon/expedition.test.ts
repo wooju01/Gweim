@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { START_SUPPLIES } from "@/data/combat";
-import { EVENTS } from "@/data/events";
+import { EVENTS, getEvent } from "@/data/events";
 import { TEST_MERCS } from "@/test/fixtures";
 import { act, currentActor, living, rollEncounter } from "@/game/combat/engine";
 import { createRng } from "@/game/random";
-import { REGIONS, getRegion } from "@/data/regions";
+import { PLANNED_BOSSES, REGIONS, getDungeon, getRegion } from "@/data/regions";
 import { getMonster } from "@/data/monsters";
 import type { Merc } from "@/game/types";
 import {
@@ -26,6 +26,12 @@ import {
   startExpedition,
   supplyProblem,
   type Expedition,
+  planGoal,
+  xpRate,
+  xpFor,
+  hiddenEventFor,
+  bossWarning,
+  pickEvent,
 } from "./expedition";
 import { nodeById } from "./map";
 
@@ -187,8 +193,8 @@ describe("탐험", () => {
     expect(choiceProblem(exp, "sealed_door", "pour")).toBe("물약 1 필요");
   });
 
-  it("모든 사건에 아이템·사람·위험 세 갈래가 있다", () => {
-    for (const event of EVENTS) {
+  it("모든 사건에 아이템·사람·위험 세 갈래가 있다 (히든 사건은 빼고)", () => {
+    for (const event of EVENTS.filter((e) => !e.hidden)) {
       const approaches = new Set(event.choices.map((c) => c.approach));
       for (const a of ["item", "person", "risk"] as const) expect(approaches.has(a), `${event.id} ${a}`).toBe(true);
       for (const c of event.choices) {
@@ -318,15 +324,27 @@ describe("층과 갈래", () => {
     }
   });
 
-  it("모든 지역의 몬스터·보스·갈래는 있는 것을 가리키고, 갈래는 한 층씩 내려간다", () => {
+  it("열린 던전의 몬스터·보스·갈래는 있는 것을 가리키고, 갈래는 한 층씩 내려간다", () => {
     for (const r of REGIONS) {
-      for (const m of [...r.monsters.map((x) => x.id), ...r.floorBosses, ...(r.dungeonBoss ? [r.dungeonBoss] : [])]) {
+      const open = getDungeon(r.dungeon)!.open;
+      for (const m of [...r.monsters.map((x) => x.id), ...(r.boss?.pool.map((p) => p.monsterId) ?? [])]) {
+        if (!open) {
+          // 닫힌 던전(안개 늪)은 보스 이름 자리만 있어도 된다
+          expect(getMonster(m) ?? PLANNED_BOSSES[m], `${r.id}: ${m}`).toBeDefined();
+          continue;
+        }
         expect(getMonster(m), `${r.id}: ${m}`).toBeDefined();
         for (const e of getMonster(m)!.escort ?? []) expect(getMonster(e), e).toBeDefined();
       }
+      if (open) expect(r.monsters.length, r.id).toBeGreaterThan(0);
       for (const n of r.next) expect(getRegion(n)!.depth).toBe(r.depth + 1);
-      // 던전 보스가 있는 지역은 끝이다
-      if (r.dungeonBoss) expect(r.next).toEqual([]);
+      // 히든 지역은 갈래에 없고, 출발 지역 바로 아래 층이며, 사건이 있다
+      if (r.hidden) {
+        expect(REGIONS.some((x) => x.next.includes(r.id))).toBe(false);
+        expect(r.depth).toBe(getRegion(r.hidden.from)!.depth + 1);
+        expect(getEvent(r.hidden.event)?.hidden, r.hidden.event).toBe(true);
+        expect(r.boss?.chance).toBe(1);
+      }
     }
   });
 
@@ -342,8 +360,9 @@ describe("층과 갈래", () => {
     expect(descend({ ...atGoal, members: atGoal.members.map((m) => ({ ...m, down: true })) }, 2, "uf_cave")).toBeNull();
   });
 
-  it("던전 보스 지역은 목적지가 보스 전투이고, 이기면 그 갈래는 끝 (귀환만)", () => {
+  it("끝 지역은 목적지가 보스 전투이고, 이기면 그 갈래는 끝 (귀환만)", () => {
     let exp: Expedition = { ...startExpedition(mercs, 1), region: "uf_wolf_den", depth: 3 };
+    exp = { ...exp, goal: planGoal(getRegion("uf_wolf_den")!, 1) };
     const goal = exp.map.goalId;
     const before = exp.map.nodes.find((n) => n.next.includes(goal))!;
     exp = { ...exp, at: before.id };
@@ -359,13 +378,26 @@ describe("층과 갈래", () => {
     expect(canDescend(after)).toBe(false);
   });
 
-  it("강한 기척 칸에 들어가면 층 보스와 호위가 나온다", () => {
-    const { exp, target } = expeditionWithFirst("battle");
-    const withBoss: Expedition = { ...exp, floorBoss: { node: target, id: "goblin_glutton" } };
-    const { battle } = moveTo(withBoss, mercs, target, 4)!;
-    const enemies = battle!.units.filter((u) => u.side === "enemy");
+  it("목적지 보스는 호위와 함께 나오고, 정예 목적지는 정예가 섞이고, 보물 목적지는 바로 보물", () => {
+    const base = startExpedition(mercs, 1);
+    const goal = base.map.goalId;
+    const before = base.map.nodes.find((n) => n.next.includes(goal))!;
+    const at = { ...base, at: before.id };
+    const boss = moveTo({ ...at, goal: { kind: "boss", id: "goblin_glutton" } }, mercs, goal, 4)!;
+    const enemies = boss.battle!.units.filter((u) => u.side === "enemy");
     expect(enemies.map((u) => u.kind)).toEqual(["goblin_glutton", "goblin_grunt", "goblin_grunt"]);
-    expect(enemies[0].rank).toBe("floorBoss");
+    const elite = moveTo({ ...at, goal: { kind: "elite" } }, mercs, goal, 4)!;
+    expect(elite.battle!.units.some((u) => u.side === "enemy" && u.rank === "elite")).toBe(true);
+    const chest = moveTo({ ...at, goal: { kind: "treasure" } }, mercs, goal, 4)!;
+    expect(chest.battle).toBeNull();
+    expect(chest.exp.room?.kind === "goal" && chest.exp.room.lines?.[0]).toBe("보물 상자를 찾았다.");
+    // 중간 층 보스(나무 거인)를 잡아도 다음 갈래로 내려갈 수 있다
+    const deep: Expedition = { ...at, region: "uf_deep_forest", depth: 2, goal: { kind: "boss", id: "tree_giant" } };
+    const fought = moveTo(deep, mercs, goal, 4)!;
+    const won = { ...fought.battle!, outcome: "victory" as const, units: fought.battle!.units.map((u) => (u.side === "enemy" ? { ...u, hp: 0 } : u)) };
+    const after = finishBattle(fought.exp, won);
+    expect(after.cleared).toBe(true);
+    expect(canDescend(after)).toBe(true);
   });
 
   it("깊은 층의 전투는 금화를 더 준다", () => {
@@ -375,5 +407,89 @@ describe("층과 갈래", () => {
     const g1 = battleSpoils(exp, b, 9).exp.gold;
     const g3 = battleSpoils({ ...exp, depth: 3 }, b, 9).exp.gold;
     expect(g3).toBe(Math.round(g1 * 2));
+  });
+});
+
+describe("경험치 배율", () => {
+  it("용병 등급이 층의 권장 등급보다 높을수록 줄어든다 (같거나 낮음 1 / 한 등급 0.5 / 두 등급 0.1 / 세 등급 0)", () => {
+    expect(xpRate("bronze", "bronze")).toBe(1);
+    expect(xpRate("bronze", "silver")).toBe(1);
+    expect(xpRate("silver", "bronze")).toBe(0.5);
+    expect(xpRate("gold", "bronze")).toBe(0.1);
+    expect(xpRate("mithril", "bronze")).toBe(0);
+    expect(xpRate("radiant", "bronze")).toBe(0);
+  });
+
+  it("층마다 그 층의 권장 등급(높은 쪽)으로 쌓고, 귀환할 때 등급별로 계산한다", () => {
+    const exp: Expedition = { ...startExpedition(mercs, 1), xpBy: { bronze: 10, silver: 20 } };
+    expect(xpFor(exp, "bronze")).toBe(30);
+    expect(xpFor(exp, "silver")).toBe(5 + 20);
+    expect(xpFor(exp, "gold")).toBe(1 + 10);
+    // 이동하면 지금 층의 권장 등급으로 쌓인다
+    const { exp: start, target } = expeditionWithFirst("rest");
+    const moved = moveTo(start, mercs, target, 1)!.exp;
+    expect(moved.xpBy).toEqual({ bronze: 1 });
+  });
+});
+
+describe("히든 층", () => {
+  const atDeeper = (keys: Expedition["keys"]): Expedition => {
+    const exp = startExpedition(mercs, 1, START_SUPPLIES, "unknown_forest", keys);
+    return { ...exp, region: "uf_deeper_forest", depth: 3 };
+  };
+
+  it("열쇠가 있으면 그 지역의 사건 칸에서 확률로 히든 사건이 나온다 (층마다 한 번). 열쇠가 없으면 안 나온다", () => {
+    expect(hiddenEventFor(atDeeper([]))).toBeUndefined();
+    expect(hiddenEventFor(atDeeper(["world_tree_branch"]))?.id).toBe("uf_corrupted_forest");
+    expect(hiddenEventFor({ ...atDeeper(["world_tree_branch"]), hiddenOffered: true })).toBeUndefined();
+    let seen = 0;
+    for (let seed = 0; seed < 300; seed++) {
+      const { exp, target } = expeditionWithFirst("event");
+      const withKey: Expedition = { ...exp, region: "uf_deeper_forest", depth: 3, keys: ["world_tree_branch"] };
+      const room = moveTo(withKey, mercs, target, seed)!.exp.room;
+      if (room?.kind === "event" && room.eventId === "whispering_grove") seen++;
+    }
+    expect(seen / 300).toBeGreaterThan(0.4);
+    expect(seen / 300).toBeLessThan(0.6);
+    // 무작위 사건으로는 히든 사건이 나오지 않는다
+    for (let seed = 0; seed < 300; seed++) expect(getEvent(pickEvent(seed))!.hidden).toBeFalsy();
+  });
+
+  it("따라가면 이 층의 다음 갈래가 히든 지역이 되고, 내려가면 열쇠를 쓴 것으로 남는다", () => {
+    const exp: Expedition = { ...atDeeper(["world_tree_branch"]), room: { kind: "event", eventId: "whispering_grove", result: null } };
+    // 엘프가 없으면 '듣게 한다'는 고를 수 없다
+    expect(choiceProblem(exp, "whispering_grove", "listen")).toBe("엘프 동료가 있어야 한다");
+    const chosen = chooseEvent(exp, "follow", 1);
+    expect(chosen.hiddenNext).toBe("uf_corrupted_forest");
+    const atGoal: Expedition = { ...chosen, room: { kind: "goal" } };
+    expect(nextRegions(atGoal).map((r) => r.id)).toEqual(["uf_corrupted_forest"]);
+    const down = descend(atGoal, 3, "uf_corrupted_forest")!;
+    expect(down).toMatchObject({ region: "uf_corrupted_forest", depth: 4, keyUsed: "world_tree_branch", hiddenNext: undefined });
+    expect(down.map.length).toBe(12);
+    expect(down.goal).toEqual({ kind: "boss", id: "corrupted_spirit_king" });
+    // 무시하면 원래 길
+    expect(chooseEvent(exp, "leave", 1).hiddenNext).toBeUndefined();
+  });
+
+  it("나무 거인은 확률로 세계수의 가지를 떨어뜨린다", () => {
+    const { exp } = expeditionWithFirst("battle");
+    const giant = { ...battleFor(exp, mercs, 1, {}, "tree_giant"), outcome: "victory" as const };
+    let found = 0;
+    for (let seed = 0; seed < 200; seed++) if (battleSpoils(exp, giant, seed).exp.keyFound?.includes("world_tree_branch")) found++;
+    expect(found / 200).toBeGreaterThan(0.35);
+    expect(found / 200).toBeLessThan(0.65);
+  });
+});
+
+describe("보스 직전 경고", () => {
+  it("경고 보스로 정해진 층에서 목적지 바로 앞 칸에 서면 경고한다", () => {
+    const base = startExpedition(mercs, 1);
+    const before = base.map.nodes.find((n) => n.next.includes(base.map.goalId))!;
+    const warned: Expedition = { ...base, at: before.id, goal: { kind: "boss", id: "goblin_king", warn: true } };
+    expect(bossWarning(warned)).toBe(true);
+    expect(bossWarning({ ...warned, goal: { kind: "boss", id: "goblin_king" } })).toBe(false);
+    expect(bossWarning({ ...warned, at: base.map.startId })).toBe(false);
+    // 뱀파이어 성의 로드는 경고 대상 (안개 늪은 아직 닫혀 있다)
+    expect(getRegion("fm_vampire_castle")!.boss!.pool.find((p) => p.monsterId === "vampire_lord")).toMatchObject({ warn: true, weight: 3 });
   });
 });

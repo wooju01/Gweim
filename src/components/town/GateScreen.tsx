@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { DUNGEONS, FIRST_DUNGEON, getDungeon, getRegion } from "@/data/regions";
+import { DUNGEONS, FIRST_DUNGEON, bossNames, getDungeon, getRegion, recommendedLabel } from "@/data/regions";
+import { KEY_ITEMS, type KeyItemId } from "@/data/keyItems";
 import { getMonster } from "@/data/monsters";
 import { layoutDungeon } from "@/game/dungeon/atlas";
 import { DungeonTree } from "@/components/dungeon/DungeonTree";
@@ -22,6 +23,8 @@ type Props = {
   pack: Record<SupplyKind, number>;
   explored: string[];
   conquered: string[];
+  /** 클랜 창고의 히든 열쇠 */
+  keyItems: KeyItemId[];
   onDepart: (dungeonId: string) => void;
   onGo: (place: TownPlace) => void;
 };
@@ -29,13 +32,13 @@ type Props = {
 const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
 
 /** 던전 입구: 파티와 짐을 확인하고 출발한다 */
-export function GateScreen({ day, gold, party, progress, pack, explored, conquered, onDepart, onGo }: Props) {
+export function GateScreen({ day, gold, party, progress, pack, explored, conquered, keyItems, onDepart, onGo }: Props) {
   const [dungeonId, setDungeonId] = useState(FIRST_DUNGEON);
   const [regionId, setRegionId] = useState<string | null>(null);
   const dungeon = getDungeon(dungeonId)!;
   const mapProgress = Object.fromEntries(
     DUNGEONS.filter((d) => d.open).map((d) => {
-      const ids = layoutDungeon(d.id).nodes.map((n) => n.region.id);
+      const ids = layoutDungeon(d.id).nodes.filter((n) => !n.region.hidden || explored.includes(n.region.id)).map((n) => n.region.id);
       return [d.id, { explored: ids.filter((id) => explored.includes(id)).length, total: ids.length, conquered: ids.filter((id) => conquered.includes(id)).length }];
     }),
   );
@@ -51,6 +54,11 @@ export function GateScreen({ day, gold, party, progress, pack, explored, conquer
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold">던전 입구</h1>
         <p className="text-sm text-ash">한번 내려가면 목적지에 닿거나 후퇴할 때까지 마을로 돌아올 수 없다.</p>
+        {keyItems.length > 0 && (
+          <p className="text-sm text-frost" title="원정 중 어딘가에서 이 열쇠가 숨겨진 길을 연다">
+            클랜 창고의 열쇠: {keyItems.map((k) => KEY_ITEMS[k].name).join(", ")}
+          </p>
+        )}
       </header>
 
       <section aria-label="지도" className="grid gap-4 lg:grid-cols-[3fr_2fr]">
@@ -74,7 +82,7 @@ export function GateScreen({ day, gold, party, progress, pack, explored, conquer
                 <div className="flex flex-col gap-1 text-xs">
                   <b className="text-sm">
                     {region.depth}층 {regionKnown ? region.name : "???"}{" "}
-                    <span className="font-normal text-ember">{regionKnown ? region.difficulty : ""}</span>
+                    <span className="font-normal text-ember">{regionKnown ? `권장 ${recommendedLabel(region)}` : ""}</span>
                   </b>
                   {regionKnown ? (
                     <>
@@ -82,10 +90,11 @@ export function GateScreen({ day, gold, party, progress, pack, explored, conquer
                       <span className="text-ash">
                         나오는 적: {region.monsters.map((m) => getMonster(m.id)?.name ?? m.id).join(", ")}
                       </span>
-                      {region.dungeonBoss && (
+                      {bossNames(region).length > 0 && (
                         <span className={conquered.includes(region.id) ? "text-ember" : "text-blood"}>
-                          우두머리: {getMonster(region.dungeonBoss)?.name}
-                          {conquered.includes(region.id) ? " (쓰러뜨린 적 있다. 갈 때마다 다시 나타난다)" : ""}
+                          우두머리: {bossNames(region).join(" / ")}
+                          {region.boss!.chance < 1 ? " (가끔 나타난다)" : ""}
+                          {conquered.includes(region.id) ? " · 쓰러뜨린 적 있다. 갈 때마다 다시 나타난다" : ""}
                         </span>
                       )}
                     </>

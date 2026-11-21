@@ -1,14 +1,13 @@
 // 던전 맵 생성. 매번 무작위로, 갈라졌다가 다시 합쳐지는 길을 만든다.
 // AI·React와 상관없는 순수 규칙. 난수는 시드로 받는다.
 //
-// 구조: 0단계 입구 → 1~6단계 칸(단계마다 2~3갈래) → 7단계 목적지.
+// 구조: 0단계 입구 → 1~(길이-1)단계 칸(단계마다 2~3갈래) → 마지막 단계 목적지. 길이는 층마다 다르다 (data/dungeon.ts의 FLOOR_CELLS).
 // 각 칸은 다음 단계의 가까운 칸 1~2곳으로 이어진다. 여러 칸이 같은 칸으로 이어지면 길이 합쳐진다.
 // 어떤 길로 가도 전투는 최대 2번, 휴식·사건·보물은 합쳐서 최대 2번까지만 연달아 나온다.
 import {
   LANES,
   MAX_BATTLE_RUN,
   MAX_QUIET_RUN,
-  PATH_LENGTH,
   ROOM_WEIGHTS,
   SPLIT_CHANCE,
   type RoomKind,
@@ -17,7 +16,7 @@ import { createRng, rollInt, type Rng } from "@/game/random";
 
 export type MapNode = {
   id: string;
-  /** 단계. 0은 입구, PATH_LENGTH는 목적지 */
+  /** 단계. 0은 입구, 맵의 length가 목적지 */
   step: number;
   /** 같은 단계 안에서의 위치 (0부터, 위에서 아래로) */
   lane: number;
@@ -28,6 +27,8 @@ export type MapNode = {
 
 export type DungeonMap = {
   nodes: MapNode[];
+  /** 입구에서 목적지까지 걷는 칸 수 (목적지 단계). 이전 저장에는 없다 → 7 */
+  length?: number;
   startId: string;
   goalId: string;
 };
@@ -38,9 +39,14 @@ export function nodeById(map: DungeonMap, id: string): MapNode | undefined {
   return map.nodes.find((n) => n.id === id);
 }
 
+/** 맵의 길이 (목적지 단계) */
+export function mapLength(map: DungeonMap): number {
+  return map.length ?? Math.max(...map.nodes.map((n) => n.step));
+}
+
 /** 단계별 칸 목록 */
 export function byStep(map: DungeonMap): MapNode[][] {
-  const steps: MapNode[][] = Array.from({ length: PATH_LENGTH + 1 }, () => []);
+  const steps: MapNode[][] = Array.from({ length: mapLength(map) + 1 }, () => []);
   for (const n of map.nodes) steps[n.step].push(n);
   for (const s of steps) s.sort((a, b) => a.lane - b.lane);
   return steps;
@@ -65,21 +71,21 @@ function position(lane: number, count: number): number {
 }
 
 /** 단계마다 칸 수를 정하고 길을 잇는다 (종류는 아직 없음) */
-function buildShape(rng: Rng): MapNode[][] {
-  const counts = Array.from({ length: PATH_LENGTH + 1 }, (_, step) =>
-    step === 0 || step === PATH_LENGTH ? 1 : rollInt(rng.next, LANES[0], LANES[1]),
+function buildShape(rng: Rng, length: number): MapNode[][] {
+  const counts = Array.from({ length: length + 1 }, (_, step) =>
+    step === 0 || step === length ? 1 : rollInt(rng.next, LANES[0], LANES[1]),
   );
   const steps: MapNode[][] = counts.map((count, step) =>
     Array.from({ length: count }, (_, lane) => ({
       id: nodeId(step, lane),
       step,
       lane,
-      kind: step === 0 ? "start" : step === PATH_LENGTH ? "goal" : "battle",
+      kind: step === 0 ? "start" : step === length ? "goal" : "battle",
       next: [],
     })),
   );
 
-  for (let step = 0; step < PATH_LENGTH; step++) {
+  for (let step = 0; step < length; step++) {
     const here = steps[step];
     const there = steps[step + 1];
     const near = (from: MapNode) =>
@@ -120,7 +126,7 @@ function assignKinds(steps: MapNode[][], rng: Rng): boolean {
   const runs = new Map<string, Runs>([[steps[0][0].id, { battle: 0, quiet: 0 }]]);
   const incoming = (node: MapNode) => steps[node.step - 1].filter((p) => p.next.includes(node.id));
 
-  for (let step = 1; step < PATH_LENGTH; step++) {
+  for (let step = 1; step < steps.length - 1; step++) {
     for (const node of steps[step]) {
       const before = incoming(node).map((p) => runs.get(p.id)!);
       const battleRun = Math.max(...before.map((r) => r.battle));
@@ -147,14 +153,21 @@ function assignKinds(steps: MapNode[][], rng: Rng): boolean {
   return true;
 }
 
-/** 시드로 던전 한 층의 맵을 만든다. 같은 시드면 같은 맵 */
-export function generateMap(seed: number): DungeonMap {
+/** 길이를 정하지 않았을 때 (테스트 등) */
+export const DEFAULT_LENGTH = 7;
+
+/**
+ * 시드로 던전 한 층의 맵을 만든다. 같은 시드면 같은 맵.
+ * cells를 주면 그 범위에서 길이를 굴리고, 숫자면 그 길이로
+ */
+export function generateMap(seed: number, cells: number | { min: number; max: number } = DEFAULT_LENGTH): DungeonMap {
   const rng = createRng(seed);
+  const length = typeof cells === "number" ? cells : rollInt(rng.next, cells.min, cells.max);
   for (let attempt = 0; attempt < 100; attempt++) {
-    const steps = buildShape(rng);
+    const steps = buildShape(rng, length);
     if (!assignKinds(steps, rng)) continue;
     const nodes = steps.flat();
-    return { nodes, startId: steps[0][0].id, goalId: steps[PATH_LENGTH][0].id };
+    return { nodes, length, startId: steps[0][0].id, goalId: steps[length][0].id };
   }
   throw new Error("맵을 만들지 못했다 (조건이 너무 빡빡하다)");
 }

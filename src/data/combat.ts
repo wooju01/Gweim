@@ -32,7 +32,8 @@ export type StatusKind =
   | "toughen"
   | "charge"
   | "pierceUp"
-  | "regen";
+  | "regen"
+  | "healReduction";
 export type SupplyKind = "bandage" | "antidote" | "potion";
 
 /** 공격이 상태이상을 걸 확률 */
@@ -105,6 +106,8 @@ export const STATUS: Record<StatusKind, StatusInfo> = {
   pierceUp: { name: "꿰뚫는 눈", damage: 0, turns: 2, debuff: false, value: 0.2, pct: true, text: "방어 {v} 무시" },
   /** 턴 시작에 회복 */
   regen: { name: "재생", damage: 0, turns: 2, debuff: false, value: 2, text: "턴마다 체력 {v} 회복" },
+  /** 받는 회복량 감소 (저항 있음) */
+  healReduction: { name: "치유 감소", damage: 0, turns: 2, debuff: true, value: 0.5, pct: true, text: "받는 회복 -{v}" },
 };
 
 /** 붕대·해독제로 치료하는 상태이상 (기본 정화 대상) */
@@ -115,7 +118,7 @@ export const DEBUFFS = (Object.keys(STATUS) as StatusKind[]).filter((k) => STATU
 
 // ── 저항 ──
 /** 저항이 있는 상태이상. 거는 확률에서 저항을 뺀다 */
-export type ResistKind = "stun" | "bleed" | "poison";
+export type ResistKind = "stun" | "bleed" | "poison" | "healReduction";
 export const RESIST = {
   /** 기절에 걸릴 때마다 쌓이는 기절 저항 */
   stunStep: 0.4,

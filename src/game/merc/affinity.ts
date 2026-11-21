@@ -12,6 +12,14 @@ export const WILLINGNESS_STEP = 15;
 /** 동행 제안이 거절되면 고용 의향이 이만큼 떨어진다 */
 export const REFUSAL_PENALTY = 15;
 
+/**
+ * 중립(인사·질문·잡담)도 성의로 친다: 반응표와 상관없이 조금 오른다 (반복 감쇠는 같다).
+ * 직접 쓴 말은 오르는 쪽 변화가 FREE_TEXT_MULTIPLIER배 (떨어지는 쪽은 그대로).
+ * 2026-11-21 사용자 결정: 직접 입력으로는 고용 의향이 거의 오르지 않아서.
+ */
+export const NEUTRAL_GAIN = { affinity: 2, willingness: 5 } as const;
+export const FREE_TEXT_MULTIPLIER = 1.5;
+
 /** 최근 몇 턴의 성향을 기억해 같은 성향 반복을 막을지 */
 export const REPEAT_WINDOW = 3;
 
@@ -83,13 +91,22 @@ function decay(delta: number, repeats: number, table: readonly number[]): number
   return Math.round(delta * table[Math.min(repeats, table.length - 1)]);
 }
 
-/** 반복 감쇠까지 적용한 두 수치의 변화량 (clamp 전) */
-export function toneDeltas(merc: Merc, tone: Tone, recentTones: readonly Tone[]): Stats {
+/** 직접 쓴 말이면 오르는 쪽만 배율 */
+function boost(delta: number, free: boolean): number {
+  return free && delta > 0 ? Math.round(delta * FREE_TEXT_MULTIPLIER) : delta;
+}
+
+/** 반복 감쇠까지 적용한 두 수치의 변화량 (clamp 전). free: 플레이어가 직접 쓴 말 */
+export function toneDeltas(merc: Merc, tone: Tone, recentTones: readonly Tone[], free = false): Stats {
   const reaction = reactionTo(merc, tone);
   const repeats = recentTones.slice(-REPEAT_WINDOW).filter((t) => t === tone).length;
+  const base =
+    tone === "neutral"
+      ? { affinity: NEUTRAL_GAIN.affinity, willingness: NEUTRAL_GAIN.willingness }
+      : { affinity: reaction.affinity * AFFINITY_STEP, willingness: reaction.willingness * WILLINGNESS_STEP };
   return {
-    affinity: decay(reaction.affinity * AFFINITY_STEP, repeats, AFFINITY_REPEAT),
-    willingness: decay(reaction.willingness * WILLINGNESS_STEP, repeats, WILLINGNESS_REPEAT),
+    affinity: boost(decay(base.affinity, repeats, AFFINITY_REPEAT), free),
+    willingness: boost(decay(base.willingness, repeats, WILLINGNESS_REPEAT), free),
   };
 }
 
@@ -103,8 +120,9 @@ export function applyTone(
   merc: Merc,
   state: Stats & { recentTones: readonly Tone[] },
   tone: Tone,
+  free = false,
 ): ToneResult {
-  const raw = toneDeltas(merc, tone, state.recentTones);
+  const raw = toneDeltas(merc, tone, state.recentTones, free);
   const affinity = clampStat(state.affinity + raw.affinity);
   const willingness = clampStat(state.willingness + raw.willingness);
   return {

@@ -1,5 +1,6 @@
 import type {
   Gender,
+  ReactSituation,
   HistoryLine,
   MercProfile,
   MercReply,
@@ -76,6 +77,9 @@ export type EventInput = {
 /** 마지막 말 입력 */
 export type FarewellInput = { merc: Merc; memory: string; stage: Stage };
 
+/** 상황 반응 한마디 입력 */
+export type ReactInput = { merc: Merc; situation: ReactSituation; feeling: "up" | "down" | "none"; stage: Stage };
+
 /** 실제 AI와 mock이 똑같이 구현하는 인터페이스 */
 export interface MercAI {
   readonly mode: "mock" | "live";
@@ -89,4 +93,6 @@ export interface MercAI {
   narrateEvent(input: EventInput): Promise<EventNarration>;
   /** 던전에서 죽어 가는 용병이 길안내자에게 남기는 마지막 한마디 */
   farewell(input: FarewellInput): Promise<string>;
+  /** 상황 반응 한마디 (전투 후퇴, 불길한 기운) */
+  react(input: ReactInput): Promise<string>;
 }

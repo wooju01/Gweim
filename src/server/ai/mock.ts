@@ -11,7 +11,7 @@ import {
 import { dislikedTones, likedTones } from "@/game/merc/affinity";
 import type { Merc } from "@/game/types";
 import { MEMORY_MAX_CHARS } from "@/game/merc/memory";
-import type { EventInput, FarewellInput, MercAI, ProfileInput, ReplyContext, SummaryInput } from "./types";
+import type { EventInput, FarewellInput, MercAI, ProfileInput, ReactInput, ReplyContext, SummaryInput } from "./types";
 
 type MercLines = {
   open: Record<Stage, string>;
@@ -194,6 +194,15 @@ export function mockFarewell({ stage }: FarewellInput): string {
   }[stage];
 }
 
+/** 상황 반응 기본 한마디 */
+export function mockReact({ situation, feeling }: ReactInput): string {
+  const lines = {
+    flee: { up: "휴, 살았다. 잘 물러났어.", down: "칫… 등을 보이다니, 다음엔 끝까지 간다.", none: "됐어, 다음에 다시 오면 되지." },
+    omen: { up: "오, 저 안에 뭔가 대단한 게 있겠는데?", down: "저건 아니야. 지금은 물러나자.", none: "…어떻게 할지는 당신이 정해." },
+  } as const;
+  return lines[situation][feeling];
+}
+
 /** 사건 틀의 기본 문장을 그대로 쓴다 */
 export function mockNarration({ event }: EventInput) {
   return { intro: event.intro, choices: event.choices.map((c) => ({ id: c.id, text: c.text })) };
@@ -217,6 +226,9 @@ export function createMockAI(rand: () => number = Math.random): MercAI {
     async farewell(input) {
       return mockFarewell(input);
     },
+    async react(input) {
+      return mockReact(input);
+    },
     async reply({ merc, stage, event }: ReplyContext) {
       const lines = GENERIC_LINES;
       const choices = mockChoices(merc, rand);
@@ -228,9 +240,7 @@ export function createMockAI(rand: () => number = Math.random): MercAI {
             emotion:
               stage === "hostile"
                 ? "annoyed"
-                : stage === "wary"
-                  ? "suspicious"
-                  : "neutral",
+                : "neutral",
             choices,
           };
         case "talk": {

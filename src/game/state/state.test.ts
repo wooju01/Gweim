@@ -241,7 +241,7 @@ describe("전투 중 후퇴 (상태)", () => {
   }
 
   it("후퇴하면 원정이 끝나 결산으로 가고, 성격에 따라 호감이 오르내린다", () => {
-    // 브란(명예): -5 -3, 미렐(다정): -5 +2, 토브(탐욕): -5, 두르강(유쾌): -5
+    // 신중 계열 +, 호전·자존심 계열 -, 나머지 0: 브란(명예) -4, 미렐(다정) 0, 토브(탐욕) 0
     const s = inBattle(["s-bran", "s-mirel", "s-tob", "s-durgan"]);
     expect(s.screen.kind).toBe("battle");
     const before = Object.fromEntries(["s-bran", "s-mirel", "s-tob"].map((id) => [id, s.progress[id].affinity]));
@@ -249,9 +249,9 @@ describe("전투 중 후퇴 (상태)", () => {
     expect(fled.screen.kind).toBe("report");
     expect(fled.expedition).toBeNull();
     expect(fled.report).toMatchObject({ outcome: "retreat", fled: true });
-    expect(fled.progress["s-bran"].affinity).toBe(Math.max(0, before["s-bran"] - 8));
-    expect(fled.progress["s-mirel"].affinity).toBe(Math.max(0, before["s-mirel"] - 3));
-    expect(fled.progress["s-tob"].affinity).toBe(Math.max(0, before["s-tob"] - 5));
+    expect(fled.progress["s-bran"].affinity).toBe(Math.max(0, before["s-bran"] - 4));
+    expect(fled.progress["s-mirel"].affinity).toBe(before["s-mirel"]);
+    expect(fled.progress["s-tob"].affinity).toBe(before["s-tob"]);
     expect(fled.report!.bonds.some((l) => l.includes("등을 보였다"))).toBe(true);
   });
 
@@ -264,7 +264,7 @@ describe("전투 중 후퇴 (상태)", () => {
     );
     const before = s.progress[id].affinity;
     const fled = gameReducer({ ...s, roster }, { type: "fleeBattle", seed: 1 });
-    expect(fled.progress[id].affinity).toBe(before - 1); // 기본 -5, 소심 +4
+    expect(fled.progress[id].affinity).toBe(before + 5); // 소심 +5
   });
 
   it("전투가 이미 끝났거나 던전 밖이면 후퇴하지 않는다", () => {
@@ -519,3 +519,35 @@ describe("전투 전리품 미리보기", () => {
   });
 });
 
+
+describe("히든 열쇠 (클랜 창고)", () => {
+  const ids = ["s-bran", "s-durgan"];
+  const back = (patch: Partial<NonNullable<GameState["expedition"]>>, keyItems: GameState["keyItems"] = [], room: "goal" | "defeat" | null = null) => {
+    const s = inDungeon(ids);
+    const expedition = { ...s.expedition!, ...patch, room: room ? { kind: room } : null } as NonNullable<GameState["expedition"]>;
+    return gameReducer({ ...s, keyItems, expedition }, { type: "endExpedition", seed: 1 });
+  };
+
+  it("얻은 열쇠는 살아 돌아와야 창고에 들어가고, 이미 있으면 금화로 바뀐다", () => {
+    expect(back({ keyFound: ["world_tree_branch"] }).keyItems).toEqual(["world_tree_branch"]);
+    expect(back({ keyFound: ["world_tree_branch"] }, [], "defeat").keyItems).toEqual([]);
+    const dup = back({ keyFound: ["world_tree_branch"] }, ["world_tree_branch"]);
+    const plain = back({}, ["world_tree_branch"]);
+    expect(dup.keyItems).toEqual(["world_tree_branch"]);
+    expect(dup.gold - plain.gold).toBe(30);
+    expect(dup.report!.keys!.join(" ")).toContain("금화");
+  });
+
+  it("히든 층에 쓴 열쇠: 보스를 잡고 나오면 소모, 후퇴하면 유지, 전멸하면 잃는다", () => {
+    const hidden = { region: "uf_corrupted_forest", depth: 4, keyUsed: "world_tree_branch" as const };
+    expect(back({ ...hidden, cleared: true }, ["world_tree_branch"], "goal").keyItems).toEqual([]);
+    expect(back(hidden, ["world_tree_branch"]).keyItems).toEqual(["world_tree_branch"]);
+    expect(back(hidden, ["world_tree_branch"], "defeat").keyItems).toEqual([]);
+  });
+
+  it("던전에 들어갈 때 창고의 열쇠를 원정이 알고 있다", () => {
+    let s = initialState();
+    s = { ...s, keyItems: ["world_tree_branch"], party: ["s-bran"], progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], hired: true } } };
+    expect(gameReducer(s, { type: "enterDungeon", seed: 1 }).expedition!.keys).toEqual(["world_tree_branch"]);
+  });
+});

@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useReducer } from "react";
+import { useEffect, useReducer, useState } from "react";
 import type { TalkAction } from "@/lib/schemas";
-import { postEvent, postFarewell, postRecruit, postTalk } from "@/lib/api";
+import { postEvent, postFarewell, postReact, postRecruit, postTalk } from "@/lib/api";
 import { BattleScreen } from "@/components/battle/BattleScreen";
 import { DungeonScreen } from "@/components/dungeon/DungeonScreen";
-import { alive, battleSpoils, finishBattle, pickEvent } from "@/game/dungeon/expedition";
+import { alive, battleSpoils, finishBattle, moveTo } from "@/game/dungeon/expedition";
+import { fleeTemper } from "@/data/bond";
 import { nodeById } from "@/game/dungeon/map";
 import { getStage } from "@/game/merc/affinity";
 import { DialogueScreen } from "@/components/dialogue/DialogueScreen";
@@ -69,6 +70,27 @@ export function Game() {
   }
 
   const findEntry = (mercId: string) => state.roster.find((e) => entryId(e) === mercId);
+  /** 보스 직전 경고에서 동료들이 한 말 (그 칸에 있는 동안만) */
+  const [omen, setOmen] = useState<{ at: string; lines: string[] } | null>(null);
+
+  /** 성격으로 정한 마음의 방향 (후퇴를 반기면 up) */
+  const temperFeeling = (mercId: string): "up" | "down" | "none" => {
+    const entry = findEntry(mercId);
+    const t = entry ? fleeTemper(mercOf(entry).traitIds?.personalities) : 0;
+    return t > 0 ? "up" : t < 0 ? "down" : "none";
+  };
+
+  /** 용병 한마디를 AI에게 부탁한다. 실패하면 null */
+  async function reactLine(mercId: string, situation: "flee" | "omen", feeling: "up" | "down" | "none"): Promise<string | null> {
+    const entry = findEntry(mercId);
+    const p = state.progress[mercId];
+    if (!entry || !p) return null;
+    try {
+      return (await postReact({ merc: entry, situation, feeling, stage: getStage(p.affinity) })).words;
+    } catch {
+      return null;
+    }
+  }
 
   async function send(mercId: string, action: TalkAction) {
     const entry = findEntry(mercId);
@@ -118,9 +140,22 @@ export function Game() {
     if (!exp) return;
     const seed = roll();
     dispatch({ type: "move", nodeId, seed });
+    // 이동 결과는 순수 함수라 여기서도 똑같이 계산할 수 있다 (어떤 사건이 나왔는지, 보스 직전인지)
+    const moved = moveTo(exp, [], nodeId, seed);
+    const room = moved?.exp.room;
+    // 보스 직전 칸 (경고 보스): 동료들이 한마디씩. 신중한 용병은 물러나자고, 호전적인 용병은 들어가 보자고 한다
+    const node = nodeById(exp.map, nodeId);
+    if (exp.goal?.kind === "boss" && exp.goal.warn && node?.next.includes(exp.map.goalId)) {
+      setOmen({ at: nodeId, lines: [] });
+      for (const m of alive(exp)) {
+        const t = temperFeeling(m.id);
+        const words = await reactLine(m.id, "omen", t === "up" ? "down" : t === "down" ? "up" : "none");
+        if (words) setOmen((o) => (o?.at === nodeId ? { at: nodeId, lines: [...o.lines, `${m.name}: “${words}”`] } : o));
+      }
+    }
     // 사건 칸이면 AI에게 묘사를 부탁한다 (결과는 코드가 정한다). 실패하면 기본 문장을 쓴다
-    if (nodeById(exp.map, nodeId)?.kind !== "event") return;
-    const eventId = pickEvent(seed);
+    if (room?.kind !== "event") return;
+    const eventId = room.eventId;
     try {
       const party = alive(exp).map((m) => ({ name: m.name, race: m.race, job: m.job }));
       dispatch({ type: "narrated", eventId, data: await postEvent({ eventId, party }) });
@@ -161,7 +196,13 @@ export function Game() {
         const p = state.progress[u.id];
         return entry && p ? [{ id: u.id, entry, memory: p.memory, stage: getStage(p.affinity) }] : [];
       });
+    // 후퇴: 살아 있는 동행 용병들이 한마디씩 (결산에 붙는다)
+    const survivors = flee ? state.screen.battle.units.filter((u) => u.side === "merc" && !u.dead).map((u) => ({ id: u.id, name: u.name })) : [];
     dispatch(flee ? { type: "fleeBattle", seed: roll() } : { type: "battleFinish" });
+    for (const m of survivors) {
+      const words = await reactLine(m.id, "flee", temperFeeling(m.id));
+      if (words) dispatch({ type: "fleeLine", name: m.name, words });
+    }
     for (const r of requests) {
       try {
         const res = await postFarewell({ merc: r.entry, memory: r.memory, stage: r.stage });
@@ -208,6 +249,7 @@ export function Game() {
         onDescend={(region) => dispatch({ type: "descend", seed: roll(), region })}
         explored={state.explored}
         conquered={state.conquered}
+        omenLines={omen?.at === state.expedition.at ? omen.lines : []}
         restTalk={state.restTalk}
         progress={state.progress}
         onRestTalk={(mercId) => {
@@ -376,6 +418,7 @@ export function Game() {
           pack={state.pack}
           explored={state.explored}
           conquered={state.conquered}
+          keyItems={state.keyItems}
           onDepart={(dungeon) => dispatch({ type: "enterDungeon", seed: roll(), dungeon })}
           onGo={go}
         />

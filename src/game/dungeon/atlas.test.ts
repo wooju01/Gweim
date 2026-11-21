@@ -3,12 +3,13 @@ import { DUNGEONS, REGIONS } from "@/data/regions";
 import { dungeonStats, layoutDungeon } from "./atlas";
 
 describe("던전 지도 배치", () => {
-  it("미지의 숲: 모든 지역이 한 번씩, 층이 깊을수록 아래, 갈래는 부모와 이어진다", () => {
-    const { nodes, edges } = layoutDungeon("unknown_forest");
+  it("미지의 숲: 모든 지역이 한 번씩(히든 포함), 층이 깊을수록 아래, 갈래는 부모와 이어진다", () => {
+    const { nodes, edges, hidden } = layoutDungeon("unknown_forest");
+    expect(hidden).toEqual([["uf_deeper_forest", "uf_corrupted_forest"]]);
     const forest = REGIONS.filter((r) => r.dungeon === "unknown_forest");
     expect(nodes.map((n) => n.region.id).sort()).toEqual(forest.map((r) => r.id).sort());
     const at = Object.fromEntries(nodes.map((n) => [n.region.id, n]));
-    for (const [a, b] of edges) expect(at[b].y).toBeGreaterThan(at[a].y);
+    for (const [a, b] of [...edges, ...hidden]) expect(at[b].y).toBeGreaterThan(at[a].y);
     for (const n of nodes) {
       expect(n.x).toBeGreaterThanOrEqual(0);
       expect(n.x).toBeLessThanOrEqual(1);

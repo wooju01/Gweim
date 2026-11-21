@@ -1,6 +1,6 @@
 // 던전 갈래 지도 (프로토타입). 지역 데이터에서 자동으로 나무 모양을 그린다 (game/dungeon/atlas.ts).
 // 가 본 지역은 이름이 보이고, 아직 못 가 본 지역은 "???"로 남는다. 던전 입구와 층 끝 갈래 선택에서 같이 쓴다.
-import { getMonster } from "@/data/monsters";
+import { bossNames, recommendedLabel } from "@/data/regions";
 import { layoutDungeon } from "@/game/dungeon/atlas";
 
 type Props = {
@@ -21,11 +21,15 @@ type Props = {
 const ROW = 84;
 
 export function DungeonTree({ dungeonId, explored, conquered, current, options = [], onPick, selected, onSelect }: Props) {
-  const { nodes, edges } = layoutDungeon(dungeonId);
+  const layout = layoutDungeon(dungeonId);
+  const known = (id: string) => explored.includes(id) || options.includes(id) || id === current;
+  // 히든 지역은 발견하기(가 보거나 갈래로 열리기) 전에는 그리지 않는다
+  const nodes = layout.nodes.filter((n) => !n.region.hidden || known(n.region.id));
+  const shown = new Set(nodes.map((n) => n.region.id));
+  const edges = [...layout.edges, ...layout.hidden].filter(([a, b]) => shown.has(a) && shown.has(b));
   if (nodes.length === 0) return <p className="text-sm text-ash">아직 아무도 길을 그리지 못한 곳이다.</p>;
   const levels = new Set(nodes.map((n) => n.region.depth)).size;
   const height = levels * ROW;
-  const known = (id: string) => explored.includes(id) || options.includes(id) || id === current;
   // 좌우 여백을 두고 0~1을 8~92%로
   const px = (x: number) => 8 + x * 84;
   const py = (y: number) => 30 + y * (height - 60);
@@ -66,7 +70,8 @@ export function DungeonTree({ dungeonId, explored, conquered, current, options =
         const here = r.id === current;
         const option = options.includes(r.id);
         const won = conquered.includes(r.id);
-        const boss = r.dungeonBoss ? getMonster(r.dungeonBoss) : undefined;
+        const bosses = bossNames(r);
+        const boss = bosses.length > 0;
         const clickable = (option && onPick) || onSelect;
         return (
           <button
@@ -74,7 +79,7 @@ export function DungeonTree({ dungeonId, explored, conquered, current, options =
             type="button"
             disabled={!clickable}
             onClick={() => (option && onPick ? onPick(r.id) : onSelect?.(r.id))}
-            title={isKnown ? `${r.name} · ${r.difficulty}${boss ? ` · 우두머리 ${explored.includes(r.id) ? boss.name : "?"}` : ""}` : "아직 가 보지 않은 곳"}
+            title={isKnown ? `${r.name} · 권장 ${recommendedLabel(r)}${boss ? ` · 우두머리 ${explored.includes(r.id) ? bosses.join(" / ") : "?"}` : ""}` : "아직 가 보지 않은 곳"}
             className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center rounded-sm border px-2 py-1 text-center text-[11px] leading-tight transition-colors ${
               here
                 ? "border-ember bg-ember/20 text-ember ring-2 ring-ember/60"
@@ -90,7 +95,7 @@ export function DungeonTree({ dungeonId, explored, conquered, current, options =
           >
             <span className="whitespace-nowrap font-bold">{isKnown ? r.name : "???"}</span>
             <span className="whitespace-nowrap text-[10px] text-ash">
-              {isKnown ? r.difficulty : "미탐험"}
+              {isKnown ? `권장 ${recommendedLabel(r)}` : "미탐험"}
               {boss && <span className={won ? " text-ember" : " text-blood"}>{won ? " · 우두머리 처치함" : " · 우두머리"}</span>}
             </span>
           </button>

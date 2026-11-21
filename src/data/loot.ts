@@ -24,6 +24,8 @@ export const SALVAGE: Salvage[] = [
   { id: "orc_tusk", name: "오크 엄니", description: "굵고 묵직한 엄니. 오크 전사의 훈장이다.", value: 7 },
   { id: "shaman_feather", name: "주술 깃털", description: "주술사가 지니던 알록달록한 깃털. 희미한 힘이 남아 있다.", value: 6 },
   { id: "chief_token", name: "우두머리의 증표", description: "무리의 우두머리가 지니던 장식. 길드에서 무용담의 증거로 쳐준다.", value: 15 },
+  { id: "glowing_sap", name: "빛나는 수액", description: "나무 거인의 상처에서 흘러나온 수액. 어둠 속에서 은은하게 빛난다.", value: 10 },
+  { id: "withered_petal", name: "시든 꽃잎", description: "타락한 숲에서 주운 검은 꽃잎. 손에 쥐면 서늘하다.", value: 6 },
   // ── 다음 던전용 (기존 적 5종) ──
   { id: "rat_fang", name: "쥐 이빨", description: "누렇게 변한 앞니. 갈아서 쓰는 사람이 있다.", value: 2 },
   { id: "ash_hide", name: "잿빛 가죽", description: "털이 빠진 질긴 가죽. 덧대기 좋다.", value: 4 },
@@ -95,6 +97,13 @@ export const DROPS: Record<string, { id: string; chance: number }[]> = {
   orc_king: [c("chief_token", 1), c("chief_token", 1), c("orc_tusk", 1)],
   spider_queen: [c("chief_token", 1), c("venom_gland", 1), c("spider_silk", 1)],
   alpha_wolf: [c("chief_token", 1), c("wolf_fang", 1), c("soft_pelt", 1)],
+  tree_giant: [c("glowing_sap", 1), c("chief_token", 1)],
+  // ── 타락한 엘프의 숲 ──
+  corrupted_sprite: [c("withered_petal", 0.5)],
+  thorn_vine: [c("withered_petal", 0.4), c("spider_silk", 0.3)],
+  spore_treant: [c("withered_petal", 0.5), c("glowing_sap", 0.1)],
+  corrupted_spirit_king: [c("chief_token", 1), c("glowing_sap", 1), c("withered_petal", 1)],
+  corrupted_elf_queen: [c("chief_token", 1), c("withered_petal", 1)],
 };
 
 

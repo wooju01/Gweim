@@ -52,7 +52,7 @@ export async function POST(request: Request) {
       // 자유 입력도 같은 성향 태그로 분류한 뒤 같은 계산을 거친다
       tone = action.type === "choice" ? action.choice.tone : await classify(action.text, merc);
 
-      const result = applyTone(merc, state, tone);
+      const result = applyTone(merc, state, tone, action.type === "free");
       ({ affinity, willingness, recentTones, delta } = result);
       // 휴식 대화는 이미 동행 중이라 고용 의향은 움직이지 않는다
       if (rest) {

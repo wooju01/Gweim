@@ -49,7 +49,8 @@ export type EventRequirement = {
 };
 
 /** 숨겨진 칸·이어지는 사건 (구조만 있다. 맵 쪽이 아직 읽지 않는다) */
-export type EventUnlock = { kind: "hiddenNode"; id: string } | { kind: "followUp"; eventId: string };
+/** hiddenRegion: 이 층의 다음 갈래가 히든 지역으로 바뀐다 (data/regions.ts의 hidden) */
+export type EventUnlock = { kind: "hiddenNode"; id: string } | { kind: "followUp"; eventId: string } | { kind: "hiddenRegion"; region: string };
 
 export type EventChoice = {
   id: string;
@@ -75,6 +76,8 @@ export type EventTemplate = {
   /** AI에게 주는 상황 요약. 이 사실은 바꾸지 말라고 한다 */
   facts: string;
   choices: EventChoice[];
+  /** 히든 사건: 무작위 사건으로는 나오지 않고, 열쇠가 있을 때 정해진 지역에서만 나온다 */
+  hidden?: boolean;
 };
 
 const once = (text: string, effect: EventEffect = {}): EventOutcome[] => [{ weight: 1, text, effect }];
@@ -377,6 +380,55 @@ export const EVENTS: EventTemplate[] = [
         tone: null,
         outcomes: once("떨어지는 돌을 맞으며 간신히 빠져나왔다.", { damageAll: 3 }),
       },
+    ],
+  },
+
+  // ── 히든 사건 (열쇠가 있을 때만. data/regions.ts의 hidden.event) ──
+  {
+    id: "whispering_grove",
+    title: "속삭이는 숲",
+    hidden: true,
+    intro: "짐 속의 세계수의 가지가 희미하게 빛나기 시작한다. 숲 저편에서 누군가 부르는 듯한 속삭임이 들려온다.",
+    facts:
+      "세계수의 가지가 숲 깊은 곳의 타락한 정령들에게 반응했다. 속삭임을 따라가면 다음 층이 '타락한 엘프의 숲'이 된다 (위험하지만 보상이 크다). 무시하면 원래 길로 간다. 파티에 엘프가 있으면 그 엘프가 속삭임이 고대 엘프어라는 것을 알아듣고 먼저 반응한다. 엘프가 없으면 아무도 말뜻을 모른다.",
+    choices: [
+      {
+        id: "follow",
+        text: "가지가 가리키는 쪽으로, 속삭임을 따라간다.",
+        approach: "risk",
+        tone: null,
+        unlocks: [{ kind: "hiddenRegion", region: "uf_corrupted_forest" }],
+        outcomes: once("가지의 빛이 점점 짙어진다. 발밑의 풀이 검게 물들기 시작했다. 다음 길은 타락한 숲으로 이어진다."),
+      },
+      {
+        id: "listen",
+        text: "엘프 동료에게 속삭임을 들어 보게 한다.",
+        approach: "person",
+        tone: "respect",
+        requires: { race: "elf" },
+        unlocks: [{ kind: "hiddenRegion", region: "uf_corrupted_forest" }],
+        outcomes: once("{helper}이(가) 눈을 감고 귀를 기울이더니, 숲이 도와 달라고 한다고 말했다. 숲의 축복이 상처를 어루만진다. 다음 길은 타락한 숲으로 이어진다.", { healAll: 5 }),
+      },
+      leave("빛이 천천히 사그라들었다. 속삭임도 더는 들리지 않는다.", "속삭임을 못 들은 척하고 원래 길로 간다."),
+    ],
+  },
+  {
+    id: "crimson_summons",
+    title: "핏빛 부름",
+    hidden: true,
+    intro: "핏빛 초대장의 밀랍이 저절로 녹아내린다. 예배당 제단 뒤로 붉은 융단이 깔린 계단이 나타났다.",
+    facts:
+      "핏빛 초대장이 뱀파이어 성으로 가는 길을 열었다. 계단을 내려가면 다음 층이 '뱀파이어 성'이 된다 (매우 위험하다). 무시하면 계단이 사라진다.",
+    choices: [
+      {
+        id: "descend",
+        text: "초대에 응해 붉은 계단을 내려간다.",
+        approach: "risk",
+        tone: null,
+        unlocks: [{ kind: "hiddenRegion", region: "fm_vampire_castle" }],
+        outcomes: once("계단 아래에서 차가운 바람이 올라온다. 다음 길은 뱀파이어 성으로 이어진다."),
+      },
+      leave("초대장이 다시 굳고, 계단은 그림자 속으로 사라졌다.", "초대를 무시한다."),
     ],
   },
 ];

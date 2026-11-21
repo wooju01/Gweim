@@ -1,13 +1,13 @@
 import { MERCS, getMerc } from "@/data/mercs";
 import { USE_SAMPLE_ROSTER, sampleSeeds } from "@/data/sampleRoster";
 import type { SupplyKind } from "@/data/combat";
-import { BOND, FLEE_TEMPER } from "@/data/bond";
+import { BOND, fleeTemper } from "@/data/bond";
 import { MERC_SLOTS } from "@/game/merc/party";
 import { DEATH } from "@/data/death";
 import { MEMORY_MAX_CHARS } from "@/game/merc/memory";
 import { applyTone, clampStat, getStage } from "@/game/merc/affinity";
 import { createRng, rollInt } from "@/game/random";
-import { PACK_LIMIT, PRICE, START_GOLD, START_PACK, START_STOCK, STOCK_RANGE } from "@/data/economy";
+import { CURRENCY, PACK_LIMIT, PRICE, START_GOLD, START_PACK, START_STOCK, STOCK_RANGE } from "@/data/economy";
 import { getRelic } from "@/data/relics";
 import { addSalvage, getSalvage, salvageCount } from "@/data/loot";
 import { WAGE } from "@/data/wages";
@@ -31,10 +31,13 @@ import {
   leaveRoom,
   markRestTalk,
   moveTo,
+  regionOf,
   rescueBonds,
   startExpedition,
+  xpFor,
   type Expedition,
 } from "@/game/dungeon/expedition";
+import { KEY_ITEMS, type KeyItemId } from "@/data/keyItems";
 import { buildMerc } from "@/game/merc/generate";
 import type { Merc } from "@/game/types";
 import type { Element, EventResponse, HistoryLine, MercRef, MercSeed, SkillBuild, Stage, TalkResponse, TalkState } from "@/lib/schemas";
@@ -113,6 +116,8 @@ export type GameState = {
   explored: string[];
   /** 던전 보스를 한 번이라도 쓰러뜨린 지역 id (지도 기록일 뿐. 보스는 원정마다 다시 나오고, 원정은 언제나 1층부터) */
   conquered: string[];
+  /** 클랜 창고의 히든 열쇠 (종류마다 최대 1개, 원정을 넘어 유지) */
+  keyItems: KeyItemId[];
 };
 
 /** day: 죽은 날 (결산에서 이번 원정의 사망자를 찾는다) */
@@ -146,6 +151,8 @@ export type Report = {
   left: string[];
   /** 경험치·레벨업 (한 줄씩) */
   growth: string[];
+  /** 히든 열쇠: 얻음·소모·잃음 (한 줄씩) */
+  keys?: string[];
 };
 
 /** 마을 안의 화면: 마을(홈), 용병 길드, 상점, 숙소(파티 편성), 던전 입구 */
@@ -217,6 +224,8 @@ export type GameAction =
   | { type: "dismissNotices" }
   /** 죽은 용병의 마지막 말이 도착했다 */
   | { type: "farewell"; mercId: string; words: string }
+  /** 전투 후퇴에 대한 용병의 한마디 (결산에 붙인다) */
+  | { type: "fleeLine"; name: string; words: string }
   /** 저장에서 불러온 상태로 바꾼다 */
   | { type: "load"; state: GameState }
   /** 저장을 지우고 처음부터 */
@@ -444,6 +453,7 @@ export function initialState(): GameState {
     trinkets: [],
     explored: [],
     conquered: [],
+    keyItems: [],
     stock: { ...START_STOCK },
   };
 }
@@ -515,7 +525,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const mercs = partyMercs(state);
       const dungeon = getDungeon(action.dungeon ?? FIRST_DUNGEON);
       if (mercs.length === 0 || !dungeon?.open) return state;
-      const expedition = startExpedition(mercs, action.seed, state.pack, dungeon.id);
+      const expedition = startExpedition(mercs, action.seed, state.pack, dungeon.id, state.keyItems);
       return {
         ...state,
         // 짐을 들고 떠난다 (남은 물자는 돌아올 때 짐으로 돌아온다)
@@ -816,7 +826,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       for (const m of next.expedition!.members.filter((x) => !x.dead)) {
         const entry = next.roster.find((e) => entryId(e) === m.id);
         if (!entry) continue;
-        const temper = mercOf(entry).traitIds?.personalities.reduce((s, id) => s + (FLEE_TEMPER[id] ?? 0), 0) ?? 0;
+        const temper = fleeTemper(mercOf(entry).traitIds?.personalities);
         changes[m.id] = BOND.fleeAffinity + temper;
       }
       const pick = (keep: (n: number) => boolean) => Object.fromEntries(Object.entries(changes).filter(([, n]) => keep(n)));
@@ -827,6 +837,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       next = gameReducer(next, { type: "endExpedition", seed: action.seed });
       return next.report ? { ...next, report: { ...next.report, fled: true, bonds: [...fled.lines, ...next.report.bonds] } } : next;
     }
+
+    case "fleeLine":
+      return state.report ? { ...state, report: { ...state.report, bonds: [...state.report.bonds, `${action.name}: “${action.words}”`] } } : state;
 
     case "farewell": {
       const memorial = state.memorial.map((f) => (f.id === action.mercId ? { ...f, words: action.words } : f));
@@ -876,13 +889,18 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         left: [],
         growth: [],
       };
-      // 경험치: 살아 돌아온 용병. 지나온 칸 수 + 목적지 보너스
-      const xp = expeditionXp(exp);
-      if (xp > 0) {
+      // 경험치: 살아 돌아온 용병. 지나온 칸 수 + 목적지 보너스, 층의 권장 등급보다 높은 용병은 줄어든다
+      if (expeditionXp(exp) > 0) {
         const progress = { ...next.progress };
         for (const m of exp.members.filter((x) => !x.dead)) {
           const p = progress[m.id];
-          if (!p) continue;
+          const entry = next.roster.find((e) => entryId(e) === m.id);
+          if (!p || !entry) continue;
+          const xp = xpFor(exp, mercOf(entry).level);
+          if (xp <= 0) {
+            report.growth.push(`${m.name}: 이 던전에서는 더 배울 것이 없다 (경험치 0)`);
+            continue;
+          }
           const { growth, gained } = gainXp(p, xp, m.job);
           progress[m.id] = { ...p, ...growth };
           report.growth.push(
@@ -892,6 +910,36 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           );
         }
         next = { ...next, progress };
+      }
+      // 히든 열쇠: 쓴 열쇠는 보스를 잡고 나오면 소모, 전멸하면 잃고, 후퇴하면 남는다.
+      // 이번에 얻은 열쇠는 살아 돌아와야 창고에 (이미 있으면 금화로)
+      {
+        let keys = [...next.keyItems];
+        const lines: string[] = [];
+        let bonusGold = 0;
+        if (exp.keyUsed && keys.includes(exp.keyUsed)) {
+          const name = KEY_ITEMS[exp.keyUsed].name;
+          if (defeat) {
+            keys = keys.filter((k) => k !== exp.keyUsed);
+            lines.push(`${name}을(를) 던전에서 잃었다.`);
+          } else if (exp.cleared && regionOf(exp).hidden) {
+            keys = keys.filter((k) => k !== exp.keyUsed);
+            lines.push(`${name}은(는) 제 할 일을 다하고 빛을 잃었다.`);
+          }
+        }
+        if (!defeat) {
+          for (const k of exp.keyFound ?? []) {
+            if (keys.includes(k)) {
+              bonusGold += KEY_ITEMS[k].duplicateGold;
+              lines.push(`${KEY_ITEMS[k].name}은(는) 이미 있어서 ${CURRENCY} ${KEY_ITEMS[k].duplicateGold}에 넘겼다.`);
+            } else {
+              keys.push(k);
+              lines.push(`${KEY_ITEMS[k].name}을(를) 클랜 창고에 넣었다.`);
+            }
+          }
+        }
+        next = { ...next, keyItems: keys, gold: next.gold + bonusGold };
+        if (lines.length) report.keys = lines;
       }
       // 살아 돌아왔으면 얻은 금화·유물과 남은 물자를 챙긴다. 전멸하면 모두 잃는다
       if (!defeat) {

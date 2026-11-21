@@ -4,6 +4,8 @@ import type { Tone } from "@/lib/schemas";
 import {
   SURE_JOIN,
   TALK_LIMIT,
+  NEUTRAL_GAIN,
+  FREE_TEXT_MULTIPLIER,
   usesTalk,
   REFUSAL_PENALTY,
   AFFINITY_STEP as A,
@@ -40,9 +42,17 @@ describe("applyTone: 호감도와 고용 의향은 따로 움직인다", () => {
     expect(applyTone(elke, fresh(), "mockery").delta).toEqual({ affinity: -A, willingness: 0 });
   });
 
-  it("반응표에 없는 태도와 neutral은 변화가 없다", () => {
+  it("반응표에 없는 태도는 변화가 없고, neutral(인사·질문)은 조금 오른다", () => {
     expect(applyTone(varn, fresh(), "mercy").delta).toEqual({ affinity: 0, willingness: 0 });
-    expect(applyTone(varn, fresh(), "neutral").delta).toEqual({ affinity: 0, willingness: 0 });
+    expect(applyTone(varn, fresh(), "neutral").delta).toEqual(NEUTRAL_GAIN);
+    // 반복하면 줄어든다
+    expect(applyTone(varn, fresh(50, 50, ["neutral", "neutral", "neutral"]), "neutral").delta.willingness).toBeLessThan(NEUTRAL_GAIN.willingness);
+  });
+
+  it("직접 쓴 말은 오르는 쪽만 1.5배, 떨어지는 쪽은 그대로", () => {
+    expect(applyTone(varn, fresh(), "mockery", true).delta).toEqual({ affinity: -2 * A, willingness: 2 * W * FREE_TEXT_MULTIPLIER });
+    expect(applyTone(varn, fresh(), "respect", true).delta.affinity).toBe(Math.round(2 * A * FREE_TEXT_MULTIPLIER));
+    expect(applyTone(varn, fresh(), "neutral", true).delta.willingness).toBe(Math.round(NEUTRAL_GAIN.willingness * FREE_TEXT_MULTIPLIER));
   });
 
   it("같은 태도를 반복하면 호감도 증가량이 빠르게 줄어든다 (10 → 5 → 3 → 0)", () => {

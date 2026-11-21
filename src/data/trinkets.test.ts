@@ -29,7 +29,7 @@ describe("재료 구하기", () => {
   it("전수관·대장간이 쓰는 재료는 모두 어느 지역 몬스터에게서 떨어진다", () => {
     const kinds = new Set<string>();
     for (const r of REGIONS)
-      for (const id of [...r.monsters.map((m) => m.id), ...r.floorBosses, ...(r.dungeonBoss ? [r.dungeonBoss] : [])]) {
+      for (const id of [...r.monsters.map((m) => m.id), ...(r.boss?.pool.map((p) => p.monsterId) ?? [])]) {
         kinds.add(id);
         for (const e of getMonster(id)?.escort ?? []) kinds.add(e);
       }

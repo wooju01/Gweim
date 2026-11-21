@@ -435,7 +435,7 @@ function nameUnits(kinds: (EnemyKind | Monster)[]): Unit[] {
  * 적 무리를 뽑는다. 지역이 있으면 그 지역 몬스터 목록(가중치)과 마릿수로, 없으면 기존 적 목록으로.
  * 깊은 층의 난이도는 수치가 아니라 지역의 적 구성으로 올린다
  */
-export function rollEncounter(rng: Rng, region?: Region): Unit[] {
+export function rollEncounter(rng: Rng, region?: Region, elites = 0): Unit[] {
   if (!region) {
     const count = rollInt(rng.next, ENCOUNTER_SIZE[0], ENCOUNTER_SIZE[1]);
     return nameUnits(Array.from({ length: count }, () => pickEnemy(rng)));
@@ -447,12 +447,15 @@ export function rollEncounter(rng: Rng, region?: Region): Unit[] {
     const hit = region.monsters.find((m) => (roll -= m.weight) < 0) ?? region.monsters[region.monsters.length - 1];
     return getMonster(hit.id)!;
   };
-  // 일반 몬스터는 지역의 정예 확률로 정예가 된다 (특성 하나 무작위)
-  return nameUnits(Array.from({ length: count }, pick)).map((u) =>
-    u.rank === "normal" && region.eliteChance > 0 && rng.next() < region.eliteChance
-      ? makeElite(u, ELITE_TRAITS[Math.floor(rng.next() * ELITE_TRAITS.length)])
-      : u,
-  );
+  // 일반 몬스터는 지역의 정예 확률로 정예가 된다 (특성 하나 무작위). 앞에서 elites마리는 반드시 정예 (정예 목적지)
+  let forced = 0;
+  return nameUnits(Array.from({ length: count }, pick)).map((u) => {
+    if (u.rank !== "normal") return u;
+    const must = forced < elites;
+    if (!must && !(region.eliteChance > 0 && rng.next() < region.eliteChance)) return u;
+    if (must) forced++;
+    return makeElite(u, ELITE_TRAITS[Math.floor(rng.next() * ELITE_TRAITS.length)]);
+  });
 }
 
 /** 보스 전투: 보스와 호위 */
@@ -480,10 +483,10 @@ export function startBattleWithUnits(units: Unit[], seed: number, depth = 1): Ba
 export function startBattleFrom(
   mercs: Unit[],
   seed: number,
-  opts: { depth: number; supplies: Record<SupplyKind, number>; walked?: number; enemies?: Unit[]; region?: Region; boss?: string },
+  opts: { depth: number; supplies: Record<SupplyKind, number>; walked?: number; enemies?: Unit[]; region?: Region; boss?: string; elites?: number },
 ): Battle {
   const rng = createRng(seed);
-  const enemies = opts.enemies ?? (opts.boss ? bossEncounter(opts.boss) : rollEncounter(rng, opts.region));
+  const enemies = opts.enemies ?? (opts.boss ? bossEncounter(opts.boss) : rollEncounter(rng, opts.region, opts.elites));
   const b = begin([...mercs, ...enemies], rng, opts.depth, opts.supplies, opts.walked);
   if (opts.region) b.place = opts.region.name;
   return b;
@@ -688,6 +691,9 @@ function leaderBonus(b: Battle, u: Unit): number {
 function monsterTurn(b: Battle, unit: Unit): boolean {
   unit.fx ??= {};
   unit.fx.age = (unit.fx.age ?? 0) + 1;
+  // 재생: 차례마다 체력 회복 (나무 거인 등)
+  const regen = ability(unit, "regen");
+  if (regen && unit.hp < unit.maxHp) heal(b, unit, regen.amount, unit.id);
   const hatch = ability(unit, "hatch");
   if (hatch) {
     if (unit.fx.age >= hatch.turns) {
@@ -772,11 +778,13 @@ export function resistOf(u: Unit, kind: ResistKind): number {
       return -statusValue(u, "bleedVuln");
     case "poison":
       return -statusValue(u, "poisonVuln");
+    case "healReduction":
+      return 0;
   }
 }
 
 function isResistKind(kind: StatusKind): kind is ResistKind {
-  return kind === "stun" || kind === "bleed" || kind === "poison";
+  return kind === "stun" || kind === "bleed" || kind === "poison" || kind === "healReduction";
 }
 
 /** 실제로 걸릴 확률: 거는 확률 - 저항 (강철 심장이면 출혈·중독 절반). 확정이면 그대로 */
@@ -1092,8 +1100,10 @@ function attack(b: Battle, rng: Rng, actor: Unit, target: Unit) {
   });
 }
 
+/** 회복. 치유 감소가 걸려 있으면 받는 양이 준다 */
 function heal(b: Battle, target: Unit, amount: number, by: Actor) {
-  const healed = Math.min(amount, target.maxHp - target.hp);
+  const cut = statusValue(target, "healReduction");
+  const healed = Math.min(Math.round(amount * (1 - cut)), target.maxHp - target.hp);
   target.hp += healed;
   b.log.push({ type: "heal", target: target.id, amount: healed, by });
 }
@@ -1325,7 +1335,7 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
       }
       case "heal": {
         const t = recipients(b, actor, target, e.who)[0];
-        if (t) out.heal = { target: t.id, amount: Math.min(e.amount + (actor.power?.faith ?? 0), t.maxHp - t.hp) };
+        if (t) out.heal = { target: t.id, amount: Math.min(Math.round((e.amount + (actor.power?.faith ?? 0)) * (1 - statusValue(t, "healReduction"))), t.maxHp - t.hp) };
         break;
       }
       case "cure": {

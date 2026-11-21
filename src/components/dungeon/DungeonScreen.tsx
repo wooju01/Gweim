@@ -1,19 +1,22 @@
 import { useState } from "react";
 import { STATUS, SUPPLY, type SupplyKind } from "@/data/combat";
-import { PATH_LENGTH, ROOM_NAME, type RoomKind } from "@/data/dungeon";
+import { ROOM_NAME, type RoomKind } from "@/data/dungeon";
+import { KEY_ITEMS } from "@/data/keyItems";
+import { getMonster } from "@/data/monsters";
+import { RANKS } from "@/data/ranks";
 import { getEvent, type Approach } from "@/data/events";
 import { CURRENCY } from "@/data/economy";
 import { getRelic } from "@/data/relics";
 import { salvageCount } from "@/data/loot";
-import { alive, canDescend, canMove, nextRegions, regionOf, choiceProblem, helperFor, supplyProblem, type Expedition, type Member } from "@/game/dungeon/expedition";
+import { alive, bossWarning, canDescend, canMove, nextRegions, regionOf, choiceProblem, helperFor, supplyProblem, type Expedition, type Member } from "@/game/dungeon/expedition";
 import { getStage } from "@/game/merc/affinity";
 import type { MercProgress, RestTalk } from "@/game/state/state";
-import { byStep, type MapNode } from "@/game/dungeon/map";
+import { byStep, mapLength, type MapNode } from "@/game/dungeon/map";
 import { GUIDE } from "@/game/merc/party";
 import { FREE_TEXT_MAX, type EventResponse, type Stage, type TalkAction } from "@/lib/schemas";
 import { Button } from "@/components/common/parts";
 import { DungeonTree } from "./DungeonTree";
-import { FIRST_DUNGEON } from "@/data/regions";
+import { FIRST_DUNGEON, bossNames, recommendedLabel } from "@/data/regions";
 
 type Props = {
   exp: Expedition;
@@ -33,6 +36,8 @@ type Props = {
   progress: Record<string, MercProgress>;
   onRestTalk: (mercId: string) => void;
   onRestReply: (action: TalkAction) => void;
+  /** 보스 직전 경고에서 용병들이 한 말 (AI. 기다리는 중이면 빈 배열) */
+  omenLines: string[];
 };
 
 const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
@@ -59,12 +64,13 @@ export function DungeonScreen(props: Props) {
             {regionOf(exp).name} · {exp.depth}층
           </p>
           <h1 className="text-2xl font-bold">
-            {Math.max(0, exp.visited.length - 1)} / {PATH_LENGTH} 칸
+            {Math.max(0, exp.visited.length - 1)} / {mapLength(exp.map)} 칸
           </h1>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-ember" title="살아서 돌아와야 내 것이 된다. 전멸하면 잃는다">
             {CURRENCY} {exp.gold} · 유물 {exp.loot.length} · 유실물 {salvageCount(exp.salvage ?? {})}
+            {(exp.keyFound?.length ?? 0) > 0 && ` · 열쇠 ${exp.keyFound!.map((k) => KEY_ITEMS[k].name).join(", ")}`}
           </span>
           {!over && (
             <Button variant="danger" onClick={onEnd} title="지금까지 얻은 것을 들고 돌아간다">
@@ -75,6 +81,8 @@ export function DungeonScreen(props: Props) {
       </header>
 
       <DungeonMap exp={exp} onMove={onMove} />
+
+      {bossWarning(exp) && <OmenPanel exp={exp} lines={props.omenLines} onRetreat={onEnd} />}
 
       {exp.room ? (
         <RoomPanel {...props} />
@@ -174,17 +182,17 @@ function DungeonMap({ exp, onMove }: { exp: Expedition; onMove: (id: string) => 
         const { x, y } = pos(n);
         const here = n.id === exp.at;
         const reachable = canMove(exp, n.id);
-        // 층 보스가 기다리는 칸 (아직 들어가지 않았으면)
-        const strong = exp.floorBoss?.node === n.id && !visited.has(n.id);
-        // 던전 보스가 기다리는 목적지
-        const lair = n.kind === "goal" && !!regionOf(exp).dungeonBoss && !exp.cleared;
+        // 목적지에 무엇이 있나 (보스는 이름을 숨기고 "우두머리", 정예는 "강한 기척")
+        const goal = n.kind === "goal" && !exp.cleared ? exp.goal : undefined;
+        const lair = goal?.kind === "boss";
+        const strong = goal?.kind === "elite";
         return (
           <button
             key={n.id}
             disabled={!reachable}
             onClick={() => onMove(n.id)}
             style={{ left: `${x}%`, top: `${y}%` }}
-            title={strong ? "강한 적의 기척이 느껴진다 (층 보스)" : lair ? "이 지역의 주인이 기다린다 (던전 보스)" : undefined}
+            title={strong ? "강한 적의 기척이 느껴진다 (정예)" : lair ? "이 층의 우두머리가 기다린다" : goal?.kind === "treasure" ? "무언가 숨겨져 있는 것 같다" : undefined}
             className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-sm border bg-panel px-1.5 py-1 text-[11px] transition-all sm:px-2 sm:text-xs ${strong || lair ? "border-blood text-blood font-bold" : KIND_STYLE[n.kind]} ${
               here
                 ? "ring-2 ring-ember"
@@ -257,15 +265,18 @@ function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, on
     case "goal": {
       const branches = nextRegions(exp);
       const ok = canDescend(exp);
+      const boss = exp.cleared && exp.goal?.kind === "boss" ? getMonster(exp.goal.id)?.name : undefined;
       return (
         <div className={`${box} border-ember/50 bg-ember/10`}>
           <p className="text-ember">
-            {exp.cleared
-              ? `${regionOf(exp).name}의 주인을 쓰러뜨렸다. 이 갈래는 여기서 끝이다.`
-              : branches.length
-                ? `${regionOf(exp).name} 끝에 닿았다. 길이 ${branches.length}갈래로 나뉜다.`
-                : `${regionOf(exp).name} 끝에 닿았다. 더 나아갈 길은 없다.`}
+            {boss ? `${josaName(boss)} 쓰러뜨렸다. ` : ""}
+            {branches.length
+              ? exp.hiddenNext
+                ? `${regionOf(exp).name} 끝에 닿았다. 숨겨진 길이 열려 있다.`
+                : `${regionOf(exp).name} 끝에 닿았다. 길이 ${branches.length}갈래로 나뉜다.`
+              : `${regionOf(exp).name} 끝에 닿았다. 이 갈래는 여기서 끝이다.`}
           </p>
+          {room.lines && <Lines lines={room.lines} />}
           <p className="text-sm">
             가진 것: {CURRENCY} {exp.gold}
             {exp.loot.length > 0 && ` · ${exp.loot.map((id) => getRelic(id)?.name ?? id).join(", ")}`}
@@ -299,8 +310,9 @@ function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, on
                   >
                     <span className="text-sm font-bold">
                       {r.depth}층 {r.name}
-                      <span className="ml-2 text-xs font-normal text-ember">{r.difficulty}</span>
-                      {r.dungeonBoss && <span className="ml-2 text-xs font-normal text-blood">우두머리가 있다</span>}
+                      <span className="ml-2 text-xs font-normal text-ember">권장 {recommendedLabel(r)}</span>
+                      {r.hidden && <span className="ml-2 text-xs font-normal text-frost">숨겨진 곳</span>}
+                      {bossNames(r).length > 0 && <span className="ml-2 text-xs font-normal text-blood">우두머리가 있다</span>}
                     </span>
                     <span className="text-bone/70">{r.description}</span>
                   </button>
@@ -511,5 +523,31 @@ function MemberCard({ member, stage, children }: { member: Member; stage?: Stage
       )}
       {children}
     </article>
+  );
+}
+
+/** "나무 거인을" */
+function josaName(name: string): string {
+  const code = name.charCodeAt(name.length - 1);
+  const final = code >= 0xac00 && code <= 0xd7a3 && (code - 0xac00) % 28 !== 0;
+  return `${name}${final ? "을" : "를"}`;
+}
+
+/** 보스 직전 칸: 불길한 기운. 권장 등급과 동료들의 반응, 후퇴할 수 있다 */
+function OmenPanel({ exp, lines, onRetreat }: { exp: Expedition; lines: string[]; onRetreat: () => void }) {
+  const goal = exp.goal?.kind === "boss" ? exp.goal : undefined;
+  const pick = regionOf(exp).boss?.pool.find((p) => p.monsterId === goal?.id);
+  const level = pick?.warnLevel;
+  return (
+    <div className="flex flex-col items-start gap-2 rounded-sm border border-blood/60 bg-blood/10 p-4">
+      <p className="font-bold text-blood">불길한 기운이 느껴진다…</p>
+      <p className="text-sm">
+        다음 칸에서 감당하기 어려운 무언가가 기다린다.{level ? ` (권장 등급: ${RANKS[level].name})` : ""}
+      </p>
+      {lines.length > 0 ? <Lines lines={lines} tone="ember" /> : <p className="text-xs text-ash">동료들이 서로 눈치를 본다…</p>}
+      <Button variant="danger" onClick={onRetreat} title="얻은 것을 들고 돌아간다. 열쇠는 그대로 남는다">
+        지금 후퇴한다
+      </Button>
+    </div>
   );
 }
