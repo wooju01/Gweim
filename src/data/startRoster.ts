@@ -1,5 +1,5 @@
-// 새 게임 시작 용병: 숙소에 고용된 채로 시작하는 동 등급 8명 (2026-11-22, 직접 시험해 보기 쉽게).
-// 직업 8개가 모두 다르고(바드 제외), 종족×직업 조합도 모두 다르다. 호감은 30~80 사이로 고르게.
+// 새 게임 시작 용병: 숙소에 고용된 채로 시작하는 동 등급 11명 (2026-11-22, 직접 시험해 보기 쉽게).
+// 9개 직업이 모두 들어가고(기사·사제는 둘), 종족×직업 조합은 모두 다르다. 호감은 30~80 사이로 고르게.
 // 프로필은 AI 없이 직접 쓴 것이다. 실제 모집(모집 공고)은 그대로 AI로 만든다.
 // (테스트·시뮬레이션용 고정 명단은 data/sampleRoster.ts)
 import { resolveTraits, rollStart, seededRandom } from "@/game/merc/generate";
@@ -127,6 +127,52 @@ const STARTERS: Start[] = [
       secret: "수도원에는 잠깐 바람 쐬러 나간다고만 말했다.",
       speechStyle: "밝고 힘찬 반말.",
       exampleLines: ["괜찮아, 다음엔 잘될 거야!", "주먹이면 다 돼!"],
+    },
+  },
+  // 2026-11-22 추가: 인간 기사, 엘프 사제, 바바리안 바드 (9개 직업이 모두 들어간다)
+  {
+    id: "m-elsa",
+    traits: { race: "human", job: "knight", personalities: ["kind"], background: "guild_apprentice", gender: "female" },
+    passives: ["last_stand"],
+    affinity: 65,
+    profile: {
+      name: "엘사",
+      title: "길드에서 자란 견습 기사",
+      persona: "약한 사람을 그냥 지나치지 못한다. 기사의 맹세를 글자 그대로 믿는다.",
+      background: "길드 마구간에서 자라 견습 기사가 되었다. 첫 원정을 손꼽아 기다려 왔다.",
+      secret: "어릴 적 자신을 길드에 맡기고 떠난 부모가 기사였다는 것만 안다.",
+      speechStyle: "또박또박한 존댓말. 맹세와 의무라는 말을 자주 쓴다.",
+      exampleLines: ["제가 앞에 서겠습니다!", "기사는 약속을 저버리지 않아요."],
+    },
+  },
+  {
+    id: "m-lirien",
+    traits: { race: "elf", job: "priest", personalities: ["easygoing"], background: "plague_survivor", gender: "male" },
+    passives: ["feather_step"],
+    affinity: 50,
+    profile: {
+      name: "리리엔",
+      title: "느긋한 숲의 사제",
+      persona: "서두르는 법이 없다. 다친 사람 곁에서는 누구보다 손이 빠르다.",
+      background: "역병이 숲을 휩쓴 해에 혼자 살아남아 치유의 길을 택했다.",
+      secret: "그해 숲을 떠난 동족들에게 아직 원망을 품고 있다.",
+      speechStyle: "느릿하고 부드러운 반말. 숲의 비유를 즐겨 쓴다.",
+      exampleLines: ["천천히 숨 쉬어. 나무도 하루아침에 자라진 않아.", "상처는 내가 볼게."],
+    },
+  },
+  {
+    id: "m-brokk",
+    traits: { race: "barbarian", job: "minstrel", personalities: ["jovial"], background: "bard", gender: "male" },
+    passives: ["war_cry"],
+    affinity: 40,
+    profile: {
+      name: "브로크",
+      title: "북을 메고 다니는 노래꾼",
+      persona: "싸움터에서도 노래를 멈추지 않는다. 그 노래에 겁먹던 동료도 다시 일어선다.",
+      background: "부족의 전투 노래꾼이었다. 남쪽 술집들을 돌며 노래하다 길드에 흘러들었다.",
+      secret: "부족이 사라진 날 노래를 부르지 못해 아무도 깨우지 못했다고 믿는다.",
+      speechStyle: "우렁찬 반말. 말끝에 콧노래를 붙인다.",
+      exampleLines: ["자, 박자 맞춰서! 하나, 둘!", "노래 한 곡이면 다 괜찮아져."],
     },
   },
 ];

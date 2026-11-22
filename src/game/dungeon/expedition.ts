@@ -29,6 +29,8 @@ import {
   BATTLE_GOLD,
   CURRENCY,
   GOAL_GOLD,
+  FIRST_FLOOR_GOLD,
+  RETREAT_AMBUSH,
   TREASURE_GOLD,
   TREASURE_RELIC_CHANCE,
 } from "@/data/economy";
@@ -174,6 +176,9 @@ export type Expedition = {
   fameDelta?: number;
   recruits?: number;
   discounts?: { facility: "forge" | "shop"; days: number }[];
+  /** 귀환길: 후퇴해서 마을로 가는 중 (습격 판정을 이미 했다) / 습격을 당했다 */
+  returning?: boolean;
+  ambushed?: boolean;
   /** 사건 효과: 상태 쪽에서 바로 반영할 호감 변화 (반영하면 비운다) */
   affinityDeltas?: Record<string, number>;
   /** 받아 둔 구출 의뢰의 사건 (그 지역 사건 칸에 먼저 나온다) / 이미 나온 것 */
@@ -434,7 +439,7 @@ export function expeditionXp(exp: Expedition): number {
 /** 목적지에 닿았다: 금화·경험치 보너스 (exp를 바꾼다) */
 function reachGoal(exp: Expedition, lines: string[] = []) {
   exp.room = { kind: "goal", ...(lines.length ? { lines } : {}) };
-  exp.gold += depthGold(exp.depth, GOAL_GOLD);
+  exp.gold += Math.round(depthGold(exp.depth, GOAL_GOLD) * (exp.depth === 1 ? FIRST_FLOOR_GOLD : 1));
   addXp(exp, XP_GOAL_BONUS * exp.depth);
 }
 
@@ -568,6 +573,25 @@ export function battleFor(
   return b;
 }
 
+/**
+ * 귀환길 습격: 목적지에 닿기 전에 후퇴하면 한 번 판정. 습격이면 그 층 일반 몬스터 2~3마리 (id), 아니면 null.
+ * 목적지를 마쳤거나 전멸했거나 이미 습격을 치렀으면 없다
+ */
+export function retreatAmbush(exp: Expedition, seed: number): string[] | null {
+  if (exp.returning || exp.room?.kind === "goal" || exp.room?.kind === "defeat") return null;
+  const rng = createRng(seed ^ 0xa5b);
+  const chance = RETREAT_AMBUSH.chance[Math.min(RETREAT_AMBUSH.chance.length, exp.depth) - 1] ?? 0;
+  if (rng.next() >= chance) return null;
+  const pool = regionOf(exp).monsters.filter((m) => !m.elite && getMonster(m.id)?.rank === "normal");
+  if (!pool.length) return null;
+  const total = pool.reduce((a, m) => a + m.weight, 0);
+  const n = rollInt(rng.next, RETREAT_AMBUSH.size[0], RETREAT_AMBUSH.size[1]);
+  return Array.from({ length: n }, () => {
+    let roll = rng.next() * total;
+    return (pool.find((m) => (roll -= m.weight) < 0) ?? pool[pool.length - 1]).id;
+  });
+}
+
 /** 전투를 시작했으니 한 번 쓰는 사건 효과를 줄인다 (다음 전투 보정, 저주 남은 전투) */
 export function spendBattleMods(exp: Expedition): Expedition {
   const out = { ...exp, nextBattle: undefined };
@@ -690,7 +714,9 @@ export function battleSpoils(
   // 사건으로 불러낸 보스: 보상 배율 (금화)
   const mul = exp.rewardMul ?? 1;
   next.rewardMul = undefined;
-  const lines = gain(next, Math.round(depthGold(exp.depth, gold) * mul) + bounty, 0, rng);
+  // 1층은 적 금화 ×FIRST_FLOOR_GOLD
+  const floorMul = exp.depth === 1 ? FIRST_FLOOR_GOLD : 1;
+  const lines = gain(next, Math.round(depthGold(exp.depth, gold) * mul * floorMul) + bounty, 0, rng);
   const dropped: Record<string, number> = {};
   const materials: Record<string, number> = {};
   for (const enemy of rewarded) {

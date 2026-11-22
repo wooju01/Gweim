@@ -435,9 +435,14 @@ describe("층과 갈래", () => {
     const { exp } = expeditionWithFirst("battle");
     const b = fight(exp, 3);
     if (b.outcome !== "victory") return;
+    // 1층은 금화 ×FIRST_FLOOR_GOLD (밸런스 2차)
     const g1 = battleSpoils(exp, b, 9).exp.gold;
+    const g2 = battleSpoils({ ...exp, depth: 2 }, b, 9).exp.gold;
     const g3 = battleSpoils({ ...exp, depth: 3 }, b, 9).exp.gold;
-    expect(g3).toBe(Math.round(g1 * 2));
+    expect(g3).toBeGreaterThan(g2);
+    expect(g2).toBeGreaterThan(g1);
+    // 3층은 기본의 2배, 1층은 기본의 1.25배
+    expect(Math.abs(g1 - (g3 / 2) * 1.25)).toBeLessThanOrEqual(1.5);
   });
 });
 
@@ -537,7 +542,8 @@ describe("히든 층", () => {
     const boss = { ...battleFor(exp, mercs, 1, {}, "alpha_wolf"), outcome: "victory" as const };
     const onlyBoss = { ...boss, units: boss.units.filter((u) => u.side === "merc" || u.kind === "alpha_wolf") };
     const asNormal = { ...onlyBoss, units: onlyBoss.units.map((u) => (u.side === "enemy" ? { ...u, rank: "normal" as const } : u)) };
-    expect(battleSpoils(exp, onlyBoss, 5).exp.gold).toBe(battleSpoils(exp, asNormal, 5).exp.gold * 10);
+    const deep = { ...exp, depth: 3 }; // 층 배율이 정수(×2)인 3층으로 비교 (1층 금화 배율의 반올림을 피한다)
+    expect(battleSpoils(deep, onlyBoss, 5).exp.gold).toBe(battleSpoils(deep, asNormal, 5).exp.gold * 10);
   });
 
   it("나무 거인은 세계수의 가지를 반드시 떨어뜨린다", () => {

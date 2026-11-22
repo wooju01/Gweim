@@ -12,16 +12,18 @@ import { FAME } from "@/data/fame";
 import { FAME_BY_KIND, GOLD_L } from "@/data/quests";
 import { getQuest } from "@/data/quests";
 import { examQuest, objectiveDone, questGrade, rollBoard } from "@/game/quests";
-import { battleFor } from "@/game/dungeon/expedition";
+import { battleFor, retreatAmbush } from "@/game/dungeon/expedition";
+import { RETREAT_AMBUSH } from "@/data/economy";
 import { recruitLevel } from "@/game/merc/generate";
 import { tierOpen } from "@/game/merc/skillhall";
 import { fragmentsFor, skillKey } from "@/game/skills";
 import { act, living } from "@/game/combat/engine";
 import { battleSpoils, finishBattle } from "@/game/dungeon/expedition";
-import { entryId, gameReducer, guildPromotionBlocks, initialState as newGame, mercOf, packFor, promotionBlocks, xpBonus, type GameState } from "./state";
+import { entryId, gameReducer, guildPromotionBlocks, initialState as newGame, mercOf, packFor, promotionBlocks, type GameState } from "./state";
 import { PRICE, STORAGE } from "@/data/economy";
 import { sampleSeeds } from "@/data/sampleRoster";
 import { START_PARTY } from "@/data/startRoster";
+import { ROSTER_LIMIT } from "@/data/clan";
 
 /** 테스트는 고용하지 않은 샘플 명단으로 시작한다 */
 const initialState = () => newGame({ seeds: sampleSeeds(), hired: false });
@@ -341,31 +343,98 @@ describe("유실물 (상태)", () => {
   });
 });
 
+describe("귀환길 습격 (상태)", () => {
+  /** 목적지 전에 맵에서 후퇴하는 상태와, 습격이 나오는/안 나오는 시드 */
+  function retreating() {
+    const s = { ...inDungeon(PARTY4), screen: { kind: "dungeon" as const } };
+    const seeds = Array.from({ length: 400 }, (_, i) => i + 1);
+    const hit = seeds.find((x) => retreatAmbush(s.expedition!, x))!;
+    const miss = seeds.find((x) => !retreatAmbush(s.expedition!, x))!;
+    return { s, hit, miss, rate: seeds.filter((x) => retreatAmbush(s.expedition!, x)).length / seeds.length };
+  }
+
+  it("층별 확률 10/20/30/40%, 그 층 일반 몬스터 2~3마리", () => {
+    expect(RETREAT_AMBUSH.chance).toEqual([0.1, 0.2, 0.3, 0.4]);
+    const { s, hit, rate } = retreating();
+    expect(rate).toBeGreaterThan(0.05);
+    expect(rate).toBeLessThan(0.16);
+    const deep = { ...s.expedition!, depth: 4 };
+    const deepRate = Array.from({ length: 400 }, (_, i) => retreatAmbush(deep, i + 1)).filter(Boolean).length / 400;
+    expect(deepRate).toBeGreaterThan(0.32);
+    expect(deepRate).toBeLessThan(0.48);
+    const monsters = retreatAmbush(s.expedition!, hit)!;
+    expect(monsters.length).toBeGreaterThanOrEqual(2);
+    expect(monsters.length).toBeLessThanOrEqual(3);
+  });
+
+  it("목적지를 마쳤으면 습격이 없다", () => {
+    const { s, hit } = retreating();
+    expect(retreatAmbush({ ...s.expedition!, room: { kind: "goal" } }, hit)).toBeNull();
+    const back = gameReducer({ ...s, expedition: { ...s.expedition!, room: { kind: "goal" } } }, { type: "endExpedition", seed: hit });
+    expect(back.screen.kind).toBe("report");
+    expect(back.report!.ambushed).toBeUndefined();
+  });
+
+  it("습격이 아니면 바로 돌아온다", () => {
+    const { s, miss } = retreating();
+    const back = gameReducer(s, { type: "endExpedition", seed: miss });
+    expect(back.screen.kind).toBe("report");
+    expect(back.report).toMatchObject({ outcome: "retreat" });
+  });
+
+  it("습격이면 싸우고, 이기면 그대로 마을로 돌아온다 (판정은 한 번)", () => {
+    const { s, hit } = retreating();
+    const fight = gameReducer(s, { type: "endExpedition", seed: hit });
+    expect(fight.screen.kind).toBe("battle");
+    expect(fight.expedition).toMatchObject({ returning: true, ambushed: true });
+    if (fight.screen.kind !== "battle") return;
+    const enemies = fight.screen.battle.units.filter((u) => u.side === "enemy");
+    expect(enemies.length).toBeGreaterThanOrEqual(2);
+    expect(enemies.every((u) => (u.rank ?? "normal") === "normal")).toBe(true);
+    // 적을 모두 쓰러뜨린 것으로 끝낸다
+    const won = { ...fight.screen.battle, outcome: "victory" as const, units: fight.screen.battle.units.map((u) => (u.side === "enemy" ? { ...u, hp: 0 } : u)) };
+    const back = gameReducer({ ...fight, screen: { kind: "battle", battle: won } }, { type: "battleFinish", seed: 1 });
+    expect(back.screen.kind).toBe("report");
+    expect(back.expedition).toBeNull();
+    expect(back.report).toMatchObject({ outcome: "retreat", ambushed: true });
+  });
+
+  it("습격 전투에서 도망치면 다시 판정하지 않고 돌아온다", () => {
+    const { s, hit } = retreating();
+    const fight = gameReducer(s, { type: "endExpedition", seed: hit });
+    const fled = gameReducer(fight, { type: "fleeBattle", seed: hit });
+    expect(fled.screen.kind).toBe("report");
+    expect(fled.report).toMatchObject({ fled: true, ambushed: true });
+  });
+
+  it("싸움에서 도망친 건 맵 후퇴가 아니라 습격 판정이 없다", () => {
+    const { s, hit } = retreating();
+    const battle = battleFor(s.expedition!, s.roster.map(mercOf), 1);
+    const fled = gameReducer({ ...s, screen: { kind: "battle", battle } }, { type: "fleeBattle", seed: hit });
+    expect(fled.screen.kind).toBe("report");
+    expect(fled.report!.ambushed).toBeUndefined();
+  });
+});
+
 describe("성장 (상태)", () => {
   it("살아 돌아온 용병은 지나온 칸만큼 경험치를 받고, 레벨업이 결산에 남는다", () => {
     let s = inDungeon(PARTY4);
     // xp 칸이 없는 이전 저장: 지나온 칸 수로 계산한다
     // 입구 + (XP_TO_NEXT[0]) 칸
     const visited = Array.from({ length: XP_TO_NEXT[0] + 1 }, (_, i) => `n${i}`);
-    // 1회성 보너스는 이미 받은 용병으로 (보너스는 아래에서 따로)
-    const done = Object.fromEntries(PARTY4.map((id) => [id, { ...s.progress[id], returned: true, deepest: 1 }]));
-    s = { ...s, progress: { ...s.progress, ...done }, expedition: { ...s.expedition!, xp: undefined, visited, room: { kind: "goal" } } };
+    s = { ...s, expedition: { ...s.expedition!, xp: undefined, visited, room: { kind: "goal" } } };
     const back = gameReducer(s, { type: "endExpedition", seed: 1 });
     // 칸 수(레벨업에 딱 맞음) + 목적지 3 → 레벨 1, 3 남음
     expect(back.progress["s-bran"]).toMatchObject({ lv: 1, xp: 3, trainable: 1, stats: { str: 1, defense: 1, hp: 1 } });
     expect(back.report!.growth.some((l) => l.includes("브란") && l.includes("레벨업 → 2단계"))).toBe(true);
   });
 
-  it("1회성 보너스: 첫 귀환 ×2, 처음 간 층마다 +10, 첫 보스 +20 (용병마다 한 번)", () => {
-    expect(xpBonus({}, 10, 1, false).xp).toBe(10 * 2 + 10);
-    expect(xpBonus({ returned: true, deepest: 1 }, 10, 3, true).xp).toBe(10 + 2 * 10 + 20);
-    expect(xpBonus({ returned: true, deepest: 3, slewBoss: true }, 10, 3, true).xp).toBe(10);
-    // 귀환하면 기록이 남는다
+  it("마지막 단계에서도 승급용 경험치가 쌓이고, 결산에 승급용 경험치가 보인다 (1회성 보너스는 없다)", () => {
     let s = inDungeon(PARTY4);
-    s = { ...s, expedition: { ...s.expedition!, xp: 5, xpBy: { bronze: 5 }, room: { kind: "goal" } } };
+    s = { ...s, progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], lv: 2, xp: 0 } }, expedition: { ...s.expedition!, xp: 20, xpBy: { bronze: 20 }, room: { kind: "goal" } } };
     const back = gameReducer(s, { type: "endExpedition", seed: 1 });
-    expect(back.progress["s-bran"]).toMatchObject({ returned: true, deepest: 1 });
-    expect(back.report!.growth.some((l) => l.includes("첫 귀환"))).toBe(true);
+    expect(back.progress["s-bran"]).toMatchObject({ lv: 2, xp: 20 });
+    expect(back.report!.growth.some((l) => l.includes("브란") && l.includes(`승급용 20/${XP_TO_NEXT[2]}`))).toBe(true);
   });
 
   it("전멸하면 경험치를 받지 않는다", () => {
@@ -394,7 +463,7 @@ describe("승급 (상태)", () => {
   it("등급의 1단계(레벨 2)인 용병은 길드 창구에서 금화를 내고 승급한다 (보스 승리 기록 + 길드 등급). 3단계부터 다시, 보수는 올라간다", () => {
     let s = initialState();
     const id = "s-durgan";
-    s = { ...s, gold: 500, guildGrade: "silver", progress: { ...s.progress, [id]: { ...s.progress[id], hired: true, lv: 2, bossWins: ["goblin_king"] } } };
+    s = { ...s, gold: 500, guildGrade: "silver", progress: { ...s.progress, [id]: { ...s.progress[id], hired: true, lv: 2, xp: XP_TO_NEXT[2], bossWins: ["goblin_king"] } } };
     const entry = s.roster.find((e) => entryId(e) === id)!;
     if (entry.kind !== "random") throw new Error();
     const { passives } = promotionChoices(entry.seed);
@@ -408,6 +477,9 @@ describe("승급 (상태)", () => {
     const before = s.progress[id];
     expect(done.progress[id].stats.hp ?? 0).toBe((before.stats.hp ?? 0) + PROMOTE_BONUS.hp);
     expect(done.progress[id].trainable).toBe(before.trainable + PROMOTE_BONUS.trainable);
+    // 승급용 경험치가 모자라면 승급할 수 없다
+    expect(gameReducer({ ...s, progress: { ...s.progress, [id]: { ...s.progress[id], xp: XP_TO_NEXT[2] - 1 } } }, { type: "promote", mercId: id, passive: passives[0] }).gold).toBe(500);
+    expect(promotionBlocks({ ...s, progress: { ...s.progress, [id]: { ...s.progress[id], xp: 3 } } }, id)).toContain(`승급용 경험치 부족 (3 / ${XP_TO_NEXT[2]})`);
     // 단계가 모자라면 승급할 수 없다
     expect(gameReducer({ ...s, progress: { ...s.progress, [id]: { ...s.progress[id], lv: 1 } } }, { type: "promote", mercId: id, passive: passives[0] }).gold).toBe(500);
   });
@@ -422,7 +494,7 @@ describe("승급 (상태)", () => {
     expect(blocks.some((b) => b.startsWith("보스전 승리 기록 필요") && b.includes("고블린 킹"))).toBe(true);
     expect(blocks).toContain("길드 등급 부족 (은 필요)");
     // 조건을 채우면 비어 있다
-    const ok = { ...s, gold: RANKS.silver.promoteCost!, guildGrade: "silver" as const, progress: { ...s.progress, [id]: { ...s.progress[id], lv: 2, bossWins: ["spider_queen"] } } };
+    const ok = { ...s, gold: RANKS.silver.promoteCost!, guildGrade: "silver" as const, progress: { ...s.progress, [id]: { ...s.progress[id], lv: 2, xp: XP_TO_NEXT[2], bossWins: ["spider_queen"] } } };
     expect(promotionBlocks(ok, id)).toEqual([]);
     // 길드 등급이 동이면 승급하지 못한다
     const { passives } = promotionChoices((s.roster.find((e) => entryId(e) === id) as { seed: Parameters<typeof promotionChoices>[0] }).seed);
@@ -431,13 +503,14 @@ describe("승급 (상태)", () => {
 });
 
 describe("새 게임", () => {
-  it("숙소에 고용된 동 등급 8명으로 시작한다. 직업·종족×직업이 모두 다르고 호감은 30~80", () => {
+  it("숙소에 고용된 동 등급 11명으로 시작한다. 9개 직업이 모두 있고, 종족×직업은 모두 다르고, 호감은 30~80", () => {
     const s = newGame();
     const mercs = s.roster.map(mercOf);
-    expect(mercs).toHaveLength(8);
+    expect(mercs).toHaveLength(11);
+    expect(mercs.length).toBeLessThanOrEqual(ROSTER_LIMIT);
     expect(mercs.every((m) => m.level === "bronze" && s.progress[m.id].hired && (s.progress[m.id].wage ?? 0) > 0)).toBe(true);
-    expect(new Set(mercs.map((m) => m.job)).size).toBe(8);
-    expect(new Set(mercs.map((m) => `${m.race}/${m.job}`)).size).toBe(8);
+    expect(new Set(mercs.map((m) => m.job)).size).toBe(9);
+    expect(new Set(mercs.map((m) => `${m.race}/${m.job}`)).size).toBe(11);
     expect(mercs.every((m) => s.progress[m.id].affinity >= 30 && s.progress[m.id].affinity <= 80)).toBe(true);
     expect(s.party).toEqual(START_PARTY);
   });

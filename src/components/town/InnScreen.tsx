@@ -2,7 +2,7 @@ import { getStage } from "@/game/merc/affinity";
 import { GUIDE, MERC_SLOTS } from "@/game/merc/party";
 import type { Merc } from "@/game/types";
 import { wageOf } from "@/game/merc/wages";
-import { xpToNext } from "@/game/merc/growth";
+import { atLastStage, canPromote, xpToNext } from "@/game/merc/growth";
 import { CURRENCY } from "@/data/economy";
 import { CLAN_FOUNDERS, CLAN_JOIN, HOME_TALKS, SETTLEMENT_DAYS } from "@/data/clan";
 import { rankLabel } from "@/data/ranks";
@@ -183,7 +183,7 @@ export function InnScreen(props: Props) {
                   </span>
                   <span className="text-xs text-ash">
                     {member ? "보수 없음" : `보수 ${CURRENCY} ${p.wage ?? wageOf(merc)} / 원정`} · {merc.level ? rankLabel(merc.level, p.lv) : `레벨 ${p.lv}`}
-                    {xpToNext(p.lv) === null ? " (승급 대기 · 길드 창구)" : ` · 경험치 ${p.xp}/${xpToNext(p.lv)}`}
+                    {canPromote(p) ? " (승급 대기 · 길드 창구)" : ` · ${atLastStage(p) ? "승급용 " : ""}경험치 ${p.xp}/${xpToNext(p.lv)}`}
                   </span>
                   {busy(merc.id) && <span className="text-xs text-blood">{p.busyUntilDay}일까지 자리를 비운다 (파견·부상)</span>}
                   <div className="mt-1 flex flex-wrap gap-1.5">

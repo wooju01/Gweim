@@ -11,8 +11,8 @@ import { CURRENCY, GREATER_POTION_GRADE, PACK_LIMIT, PACK_ORDER, PRICE, START_GO
 import { getRelic } from "@/data/relics";
 import { SALVAGE, addSalvage, getSalvage, salvageCount, sellable } from "@/data/loot";
 import { WAGE } from "@/data/wages";
-import { PROMOTE_BONUS, STAT_NAME, TRAINING_COST, XP_BONUS, type StatBlock } from "@/data/growth";
-import { NO_GROWTH, addStats, canPromote, gainXp, statLine, validTraining, type Growth } from "@/game/merc/growth";
+import { PROMOTE_BONUS, STAT_NAME, TRAINING_COST, type StatBlock } from "@/data/growth";
+import { NO_GROWTH, addStats, atLastStage, canPromote, gainXp, statLine, validTraining, xpToNext, type Growth } from "@/game/merc/growth";
 import { promote, promoteCost } from "@/game/merc/promotion";
 import { craft, forgetSkill, knownFragments, paySalvage, swapSkills, unlockBlock, upgradeBlock } from "@/game/merc/skillhall";
 import { CRAFT_COST, getFragment, upgradeCost } from "@/data/fragments";
@@ -37,6 +37,7 @@ import {
   rescueBonds,
   startExpedition,
   battleFor,
+  retreatAmbush,
   spendBattleMods,
   xpFor,
   type Expedition,
@@ -72,10 +73,6 @@ export type MercProgress = TalkState & {
   busyUntilDay?: number;
   /** 마지막으로 클랜 가입을 제안한 날 (거절당하면 다음 귀환까지 다시 못 한다) */
   clanAskedDay?: number;
-  /** 1회성 경험치 보너스 기록 (data/growth.ts의 XP_BONUS): 살아 돌아온 적이 있나, 가장 깊이 간 층, 보스를 잡은 적이 있나 */
-  returned?: boolean;
-  deepest?: number;
-  slewBoss?: boolean;
   /** 살아서 이긴 던전 보스 (monster id). 등급이 바뀌는 승급의 증명 (data/guild.ts의 PROOF_BOSSES) */
   bossWins: string[];
 } & Growth;
@@ -207,6 +204,8 @@ export type Report = {
   outcome: "goal" | "retreat" | "defeat";
   /** 전투 중에 도망쳤다 (후퇴의 한 갈래) */
   fled?: boolean;
+  /** 귀환길에 습격을 받았다 (목적지 전에 후퇴) */
+  ambushed?: boolean;
   /** 원정한 날 */
   day: number;
   /** 가지고 돌아온 금화·유물·남은 물자 (전멸이면 0과 빈 목록) */
@@ -451,28 +450,6 @@ export function isTown(kind: string): kind is TownPlace {
   return kind === "town" || kind === "guild" || kind === "shop" || kind === "inn" || kind === "gate" || kind === "yard" || kind === "hall" || kind === "forge" || kind === "board";
 }
 
-/**
- * 원정 경험치 + 1회성 보너스 (용병마다 한 번): 첫 귀환 ×2, 처음 도달한 층마다 +10, 첫 보스 +20
- */
-export function xpBonus(p: Pick<MercProgress, "returned" | "deepest" | "slewBoss">, base: number, reached: number, bossKilled: boolean): { xp: number; notes: string[] } {
-  let xp = base;
-  const notes: string[] = [];
-  if (!p.returned && base > 0) {
-    xp = base * XP_BONUS.firstReturnMult;
-    notes.push(`첫 귀환 ×${XP_BONUS.firstReturnMult}`);
-  }
-  const newFloors = Math.max(0, reached - (p.deepest ?? 0));
-  if (newFloors > 0) {
-    xp += newFloors * XP_BONUS.newFloor;
-    notes.push(`처음 간 층 +${newFloors * XP_BONUS.newFloor}`);
-  }
-  if (bossKilled && !p.slewBoss) {
-    xp += XP_BONUS.firstBoss;
-    notes.push(`첫 보스 +${XP_BONUS.firstBoss}`);
-  }
-  return { xp, notes };
-}
-
 /** 떠날 때 창고에서 원정 짐을 챙긴다: PACK_LIMIT까지, PACK_ORDER 순서로 */
 export function packFor(stash: Record<SupplyKind, number>): { carried: Record<SupplyKind, number>; left: Record<SupplyKind, number> } {
   const carried = { ...START_PACK };
@@ -487,7 +464,7 @@ export function packFor(stash: Record<SupplyKind, number>): { carried: Record<Su
   return { carried, left };
 }
 
-/** 창고에 물자를 더한다 (넘치면 PACK_ORDER 뒤쪽부터 버리지 않고, 더하는 쪽을 잘라 낸다) */
+/** 창고에 물자를 더한다 (넘치면 더하는 쪽을 PACK_ORDER 순서로 잘라 낸다) */
 function addSupplies(stash: Record<SupplyKind, number>, add: Record<SupplyKind, number>, cap = Infinity): Record<SupplyKind, number> {
   const out = { ...stash };
   let room = cap - Object.values(out).reduce((a, b) => a + b, 0);
@@ -654,7 +631,8 @@ export function promotionBlocks(state: GameState, mercId: string): string[] {
   const next = nextRank(level);
   if (!next) return ["더 오를 등급이 없다"];
   const blocks: string[] = [];
-  if (!canPromote(p)) blocks.push("경험치 부족 (등급의 마지막 단계를 채워야 한다)");
+  if (!atLastStage(p)) blocks.push("경험치 부족 (등급의 마지막 단계를 채워야 한다)");
+  else if (!canPromote(p)) blocks.push(`승급용 경험치 부족 (${p.xp} / ${xpToNext(p.lv)})`);
   const cost = promoteCost(level) ?? 0;
   if (state.gold < cost) blocks.push(`${CURRENCY} 부족 (${cost})`);
   const proof = PROOF_BOSSES[level];
@@ -1513,7 +1491,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       // 보스를 처음 쓰러뜨렸다: 명성 (보스마다 한 번)
       const slain = battle.outcome === "victory" ? [...new Set(battle.units.filter((u) => u.side === "enemy" && (u.rank === "floorBoss" || u.rank === "dungeonBoss") && u.kind && u.hp <= 0).map((u) => u.kind!))] : [];
       const firsts = slain.filter((id) => !state.bossesSlain.includes(id));
-      const next: GameState = {
+      let next: GameState = {
         ...state,
         ...gained,
         fame: state.fame + firsts.length * FAME.bossFirstKill,
@@ -1524,11 +1502,14 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         conquered,
         screen: { kind: "dungeon" },
       };
-      return bury(
+      next = bury(
         next,
         state.screen.battle.units.filter((u) => u.side === "merc" && u.dead).map((u) => u.id),
         state.screen.battle.outcome === "victory",
       );
+      // 귀환길 습격을 치렀다: 이겼든 전멸했든 그대로 마을로 (습격 판정은 다시 하지 않는다)
+      if (next.expedition?.returning) next = gameReducer(next, { type: "endExpedition", seed: action.seed ?? battle.rng });
+      return next;
     }
 
     case "fleeBattle": {
@@ -1536,8 +1517,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       // 쓰러진 용병은 남겨진다 (사망)
       const battle = { ...state.screen.battle, units: state.screen.battle.units.map((u) => (isDowned(u) ? { ...u, dead: true, downedTurnsLeft: undefined, downedFresh: undefined } : u)) };
       // 체력·쓰러짐·죽음을 반영하고, 죽은 용병을 묻는다
+      // 전투에서 도망친 건 맵 후퇴가 아니라 귀환길 습격 판정이 없다 (습격 전투에서 도망쳐도 마찬가지)
       let next: GameState = bury(
-        { ...state, expedition: { ...finishBattle(state.expedition, battle), room: null }, screen: { kind: "dungeon" } },
+        { ...state, expedition: { ...finishBattle(state.expedition, battle), room: null, returning: true }, screen: { kind: "dungeon" } },
         battle.units.filter((u) => u.side === "merc" && u.dead).map((u) => u.id),
         false,
       );
@@ -1572,6 +1554,20 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case "endExpedition": {
+      // 귀환길 습격: 목적지 전에 맵에서 후퇴하면 한 번 판정 (층별 확률). 습격이면 싸운 뒤에 돌아온다
+      if (state.expedition && state.screen.kind === "dungeon" && !state.expedition.returning) {
+        const monsters = retreatAmbush(state.expedition, action.seed);
+        if (monsters) {
+          const returning: Expedition = { ...state.expedition, room: null, returning: true, ambushed: true };
+          const battle = battleFor(returning, partyMercs(state), action.seed ^ 0xa3b, bondsOf(state), undefined, 0, { monsters });
+          return {
+            ...state,
+            expedition: spendBattleMods(returning),
+            reactions: ["돌아가는 길에 습격을 받았다!"],
+            screen: { kind: "battle", battle },
+          };
+        }
+      }
       const exp = state.expedition;
       // 하루가 지난다 (원정 1번 = 하루). 결산 화면을 거쳐 마을로
       let next: GameState = {
@@ -1589,6 +1585,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const report: Report = {
         depth: exp.depth,
         outcome: defeat ? "defeat" : exp.room?.kind === "goal" ? "goal" : "retreat",
+        ...(exp.ambushed ? { ambushed: true } : {}),
         day: state.day,
         gold: defeat ? 0 : exp.gold,
         relics: defeat ? [] : exp.loot,
@@ -1614,24 +1611,18 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       // 전멸하면 금화·전리품처럼 경험치도 없다 (깊이 들어가 전멸하는 게 빨리 크는 길이 되지 않게)
       if (!defeat && expeditionXp(exp) > 0) {
         const progress = { ...next.progress };
-        // 이번 원정에서 간 가장 깊은 층, 보스를 잡았나 (1회성 보너스)
-        const reached = Math.max(1, ...(exp.regions ?? [exp.region ?? ""]).map((r) => getRegion(r)?.depth ?? 1));
-        const bossKilled = (exp.feats ?? []).length > 0;
         for (const m of exp.members.filter((x) => !x.dead)) {
           const p = progress[m.id];
           const entry = next.roster.find((e) => entryId(e) === m.id);
           if (!p || !entry) continue;
-          const bonus = xpBonus(p, xpFor(exp, mercOf(entry).level), reached, bossKilled);
-          const xp = bonus.xp;
-          const marks = { returned: true, deepest: Math.max(p.deepest ?? 0, reached), slewBoss: p.slewBoss || bossKilled };
+          const xp = xpFor(exp, mercOf(entry).level);
           if (xp <= 0) {
-            progress[m.id] = { ...p, ...marks };
             report.growth.push(`${m.name}: 이 던전에서는 더 배울 것이 없다 (경험치 0)`);
             continue;
           }
           const { growth, gained } = gainXp(p, xp, m.job);
-          progress[m.id] = { ...p, ...growth, ...marks };
-          const why = bonus.notes.length ? ` (${bonus.notes.join(", ")})` : "";
+          progress[m.id] = { ...p, ...growth };
+          const why = atLastStage(growth) ? ` (승급용 ${growth.xp}/${xpToNext(growth.lv)})` : "";
           report.growth.push(
             gained.length
               ? `${m.name}: 경험치 +${xp}${why}, 레벨업 → ${stageOf(growth.lv)}단계 (${gained.map((g) => statLine(g, STAT_NAME)).join(" / ")})${canPromote(growth) ? " · 승급할 수 있다" : ""}`

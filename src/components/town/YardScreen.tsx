@@ -81,8 +81,11 @@ export function YardScreen({ day, gold, hired, progress, onTrain, onBack }: Prop
                   </span>
                   <span className="text-xs text-ash">
                     {merc.level ? rankLabel(merc.level, p.lv) : `레벨 ${p.lv}`} ·{" "}
-                    {need === null ? (
-                      <span className="text-ember">등급의 마지막 단계 · 승급은 길드 창구에서</span>
+                    {p.lv >= 2 ? (
+                      <span className="text-ember">
+                        등급의 마지막 단계 · 승급용 경험치 {p.xp} / {need}
+                        {p.xp >= need ? " · 승급은 길드 창구에서" : ""}
+                      </span>
                     ) : (
                       `경험치 ${p.xp} / ${need}`
                     )}

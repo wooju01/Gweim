@@ -9,12 +9,19 @@ describe("성장", () => {
     expect(gained).toEqual([GROWTH.knight]);
   });
 
-  it("한 번에 여러 레벨도 오르고, 등급의 1단계(레벨 2)에서 멈춘다 (승급 전까지 경험치가 쌓이지 않는다)", () => {
+  it("한 번에 여러 레벨도 오르고, 등급의 1단계(레벨 2)에서는 승급용 경험치가 쌓인다 (승급용 경험치 이상은 쌓이지 않는다)", () => {
     const { growth, gained } = gainXp(NO_GROWTH, XP_TO_NEXT[0] + XP_TO_NEXT[1] + 50, "mage");
     expect(gained).toHaveLength(2);
-    expect(growth).toMatchObject({ lv: 2, xp: 0, trainable: 2, stats: { mag: 4, speed: 2 } });
-    expect(canPromote(growth)).toBe(true);
-    expect(xpToNext(2)).toBeNull();
+    expect(growth).toMatchObject({ lv: 2, xp: 50, trainable: 2, stats: { mag: 4, speed: 2 } });
+    expect(canPromote(growth)).toBe(false);
+    expect(xpToNext(2)).toBe(XP_TO_NEXT[2]);
+    const full = gainXp(growth, 1000, "mage").growth;
+    expect(full).toMatchObject({ lv: 2, xp: XP_TO_NEXT[2] });
+    expect(canPromote(full)).toBe(true);
+  });
+
+  it("필요 경험치: 3단계→2단계 15, 2단계→1단계 75, 1단계→승급 170", () => {
+    expect([...XP_TO_NEXT]).toEqual([15, 75, 170]);
   });
 
   it("모자란 경험치는 남는다", () => {

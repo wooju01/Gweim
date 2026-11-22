@@ -21,14 +21,19 @@ export function addStats(a: StatBlock, b: StatBlock): StatBlock {
   return out;
 }
 
-/** 다음 레벨까지 필요한 경험치. 등급의 마지막 레벨이면 null (승급해야 한다) */
-export function xpToNext(lv: number): number | null {
-  return lv < LEVELS_PER_RANK ? XP_TO_NEXT[lv] : null;
+/** 다음 레벨까지 필요한 경험치. 등급의 마지막 레벨(1단계)이면 다음 등급 승급에 필요한 경험치 */
+export function xpToNext(lv: number): number {
+  return XP_TO_NEXT[Math.min(lv, LEVELS_PER_RANK)];
 }
 
-/** 승급할 수 있나 (등급 안의 레벨을 다 채웠다) */
-export function canPromote(g: Growth): boolean {
+/** 등급의 마지막 단계(1단계)인가 */
+export function atLastStage(g: Growth): boolean {
   return g.lv >= LEVELS_PER_RANK;
+}
+
+/** 승급할 수 있을 만큼 경험치를 채웠나 (등급의 마지막 단계 + 승급용 경험치) */
+export function canPromote(g: Growth): boolean {
+  return g.lv >= LEVELS_PER_RANK && g.xp >= xpToNext(g.lv);
 }
 
 /**
@@ -40,14 +45,15 @@ export function gainXp(g: Growth, amount: number, job: string | undefined): { gr
   let { xp, lv, stats, trainable } = g;
   const gained: StatBlock[] = [];
   xp += amount;
-  for (let need = xpToNext(lv); need !== null && xp >= need; need = xpToNext(lv)) {
+  for (let need = xpToNext(lv); lv < LEVELS_PER_RANK && xp >= need; need = xpToNext(lv)) {
     xp -= need;
     lv++;
     stats = addStats(stats, growthTable);
     trainable++;
     gained.push(growthTable);
   }
-  if (xpToNext(lv) === null) xp = 0;
+  // 마지막 단계에서는 승급용 경험치까지만 쌓인다
+  if (lv >= LEVELS_PER_RANK) xp = Math.min(xp, xpToNext(lv));
   return { growth: { xp, lv, stats, trainable }, gained };
 }
 

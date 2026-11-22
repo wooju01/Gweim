@@ -9,8 +9,8 @@ export const START_GOLD = 120;
 /** 처음 짐은 비어 있다 (상점에서 산다) */
 export const START_PACK: Record<SupplyKind, number> = { bandage: 0, antidote: 0, potion: 0, greaterPotion: 0 };
 
-// 2026-11-22 밸런스 1차: 붕대 10→15, 해독제 15→25, 물약 20→35, 중급 물약 70 (은 상점부터)
-export const PRICE: Record<SupplyKind, number> = { bandage: 15, antidote: 25, potion: 35, greaterPotion: 70 };
+// 2026-11-22 밸런스 2차: 붕대 12, 해독제 20, 물약 28, 중급 물약 70 (은 상점부터)
+export const PRICE: Record<SupplyKind, number> = { bandage: 12, antidote: 20, potion: 28, greaterPotion: 70 };
 /** 원정에 들고 갈 수 있는 물자 수 (떠날 때 창고에서 이만큼까지 챙긴다) */
 export const PACK_LIMIT = 10;
 
@@ -44,3 +44,11 @@ export const TREASURE_GOLD = [10, 25] as const;
 export const TREASURE_RELIC_CHANCE = 0.4;
 /** 목적지에 닿으면 받는 금화 */
 export const GOAL_GOLD = 40;
+/** 1층 금화 배율 (목적지 금화, 적 금화): 2026-11-22 밸런스 2차 */
+export const FIRST_FLOOR_GOLD = 1.25;
+
+/**
+ * 귀환길 습격 (밸런스 2차): 목적지에 닿기 전에 맵에서 후퇴하면 마을로 가기 전에 한 번 판정한다.
+ * 후퇴한 층 기준 확률 (1층부터), 그 층 일반 몬스터 [최소, 최대]마리
+ */
+export const RETREAT_AMBUSH = { chance: [0.1, 0.2, 0.3, 0.4], size: [2, 3] as const };

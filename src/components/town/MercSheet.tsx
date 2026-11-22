@@ -7,7 +7,7 @@ import { TRINKET_SLOTS, getTrinket, trinketFits, trinketStats, trinketsBonus, tr
 import { CURRENCY } from "@/data/economy";
 import { mercUnit, resistOf, unitStats } from "@/game/combat/engine";
 import { getStage } from "@/game/merc/affinity";
-import { addStats, statLine, xpToNext } from "@/game/merc/growth";
+import { addStats, atLastStage, canPromote, statLine, xpToNext } from "@/game/merc/growth";
 import { wageOf } from "@/game/merc/wages";
 import type { Merc } from "@/game/types";
 import type { MercProgress } from "@/game/state/state";
@@ -107,7 +107,7 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
 
             <Box title="성장">
               <p className="text-xs">
-                {need === null ? <span className="text-ember">승급 대기 (길드 창구에서 신청)</span> : `경험치 ${p.xp} / ${need}`}
+                {canPromote(p) ? <span className="text-ember">승급 대기 (길드 창구에서 신청)</span> : `${atLastStage(p) ? "승급용 " : ""}경험치 ${p.xp} / ${need}`}
                 {p.trainable > 0 && <span className="ml-2 text-ember">단련 기회 {p.trainable}번</span>}
               </p>
               <p className="text-xs text-bone/80">

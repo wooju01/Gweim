@@ -32,10 +32,6 @@ const MercProgressSave = TalkState.extend({
   pledged: z.boolean().optional(),
   busyUntilDay: z.number().int().optional(),
   clanAskedDay: z.number().int().optional(),
-  // 1회성 경험치 보너스 기록
-  returned: z.boolean().optional(),
-  deepest: z.number().int().min(0).optional(),
-  slewBoss: z.boolean().optional(),
   // 살아서 이긴 던전 보스 (승급 증명)
   bossWins: z.array(z.string().max(40)).max(40).default([]),
 });

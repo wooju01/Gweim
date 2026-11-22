@@ -40,6 +40,7 @@ export function ReportScreen({ report, deaths, day, gold, onDone }: Props) {
         </p>
         <h1 className={`text-3xl font-bold ${outcome.style}`}>{outcome.title}</h1>
         <p className="text-sm text-bone/80">{outcome.line}</p>
+        {report.ambushed && <p className="text-sm text-blood">돌아가는 길에 습격을 받았다.</p>}
       </header>
 
       <Section title="가져온 것">

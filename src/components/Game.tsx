@@ -17,7 +17,7 @@ import { GateScreen } from "@/components/town/GateScreen";
 import { ReportScreen } from "@/components/town/ReportScreen";
 import { YardScreen } from "@/components/town/YardScreen";
 import type { PromotionOffer } from "@/components/guild/Promotion";
-import { canPromote } from "@/game/merc/growth";
+import { atLastStage } from "@/game/merc/growth";
 import { nextRank, promoteCost, promotionChoices } from "@/game/merc/promotion";
 import { getPassive } from "@/data/passives";
 import { RANKS } from "@/data/ranks";
@@ -371,7 +371,8 @@ export function Game() {
     if (e.kind !== "random") continue;
     const p = state.progress[e.seed.id];
     const next = nextRank(e.seed.level);
-    if (!p?.hired || !canPromote(p) || !next) continue;
+    // 등급의 마지막 단계면 길드 창구에 보인다 (승급용 경험치가 모자라면 부족한 조건으로)
+    if (!p?.hired || !atLastStage(p) || !next) continue;
     const choices = promotionChoices(e.seed);
     promotionOffers[e.seed.id] = {
       next: RANKS[next].name,
