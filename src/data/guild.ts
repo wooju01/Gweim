@@ -8,7 +8,7 @@ export const GUILD_START: MercLevel = "bronze";
 
 /** 이 등급으로 오르는 길드 승급: 시험 의뢰(data/quests.ts의 exam)와 금화. 없는 등급은 아직 미정 */
 export const GUILD_PROMOTION: Partial<Record<MercLevel, { exam: string; gold: number }>> = {
-  silver: { exam: "q_exam_silver", gold: 100 },
+  silver: { exam: "q_exam_silver", gold: 400 },
   // gold: 미정 (후보: 안개 늪 4층 던전 보스)
 };
 

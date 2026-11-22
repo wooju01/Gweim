@@ -23,6 +23,8 @@ import {
   PASSIVE,
   JOB_STATS,
   POTION_HEAL,
+  POTION_POWER,
+  isPotion,
   RESIST,
   START_SUPPLIES,
   STATUS,
@@ -38,6 +40,7 @@ import { JOB_STAT, PER_POINT, type PowerStat, type StatKey } from "@/data/growth
 import { DEATH, downedTurns } from "@/data/death";
 import { ELITE_TRAITS, MAX_ENEMIES, getMonster, type Ability, type EliteTrait, type Monster, type MonsterRank, type MonsterTag } from "@/data/monsters";
 import { scaleOf, type Region } from "@/data/regions";
+import type { FloorMod } from "@/data/events";
 import type { MercLevel, Stage } from "@/lib/schemas";
 import { createRng, rollInt, type Rng } from "@/game/random";
 import { basicBuild, getSkill, resolveSkill, skillKey, validateUltimate } from "@/game/skills";
@@ -303,10 +306,10 @@ export function validate(b: Battle, action: BattleAction): string | null {
       const target = unitById(b, action.target);
       if (!target || target.side !== "merc" || target.dead) return "건넬 수 없는 대상";
       // 쓰러진 용병은 물약으로만 일으킨다 (붕대·해독제는 안 된다)
-      if (target.hp <= 0) return isDowned(target) && action.item === "potion" ? null : "건넬 수 없는 대상";
+      if (target.hp <= 0) return isDowned(target) && isPotion(action.item) ? null : "건넬 수 없는 대상";
       if (action.item === "bandage" && !hasStatus(target, "bleed")) return "출혈이 없다";
       if (action.item === "antidote" && !hasStatus(target, "poison")) return "중독이 없다";
-      if (action.item === "potion" && target.hp >= target.maxHp) return "체력이 가득하다";
+      if (isPotion(action.item) && target.hp >= target.maxHp) return "체력이 가득하다";
       return null;
     }
   }
@@ -496,17 +499,30 @@ export function regionScale(region?: Region): { hp: number; atk: number } | unde
  * 적 무리를 뽑는다. 지역이 있으면 그 지역 몬스터 목록(가중치)과 마릿수로, 없으면 기존 적 목록으로.
  * 깊은 층의 난이도는 수치가 아니라 지역의 적 구성으로 올린다
  */
-export function rollEncounter(rng: Rng, region?: Region, elites = 0): Unit[] {
+/** 이번 층 몬스터 변화가 이 몬스터에 해당하나 */
+const modHits = (m: FloorMod, kind: string | undefined, tags: readonly string[] | undefined) => (m.monster ? m.monster === kind : !!m.tag && !!tags?.includes(m.tag));
+
+export function rollEncounter(rng: Rng, region?: Region, elites = 0, mods: FloorMod[] = []): Unit[] {
   if (!region) {
     const count = rollInt(rng.next, ENCOUNTER_SIZE[0], ENCOUNTER_SIZE[1]);
     return nameUnits(Array.from({ length: count }, () => pickEnemy(rng)));
   }
-  const count = rollInt(rng.next, region.size[0], region.size[1]);
-  const total = region.monsters.reduce((s, m) => s + m.weight, 0);
-  const picks = Array.from({ length: count }, () => {
+  // 사건으로 이번 층에 나오지 않게 된 몬스터는 뺀다 (모두 빠지면 원래대로)
+  const off = mods.filter((m) => m.mode === "disable");
+  const allowed = region.monsters.filter((x) => !off.some((m) => modHits(m, x.id, getMonster(x.id)?.tags)));
+  const pool = allowed.length ? allowed : region.monsters;
+  let count = rollInt(rng.next, region.size[0], region.size[1]);
+  const total = pool.reduce((s, m) => s + m.weight, 0);
+  let picks = Array.from({ length: count }, () => {
     let roll = rng.next() * total;
-    return region.monsters.find((m) => (roll -= m.weight) < 0) ?? region.monsters[region.monsters.length - 1];
+    return pool.find((m) => (roll -= m.weight) < 0) ?? pool[pool.length - 1];
   });
+  // 사건으로 줄어든 몬스터: 전투마다 하나씩 빠진다 (적이 하나는 남는다)
+  for (const m of mods.filter((x) => x.mode === "reduce")) {
+    const i = picks.findIndex((p) => modHits(m, p.id, getMonster(p.id)?.tags));
+    if (i >= 0 && picks.length > 1) picks = picks.filter((_, k) => k !== i);
+  }
+  count = picks.length;
   // 일반 몬스터는 지역의 정예 확률로 정예가 된다 (특성 하나 무작위). 지역에서 elite로 정한 몬스터는 늘 정예.
   // 앞에서 elites마리는 반드시 정예 (정예 목적지)
   let forced = 0;
@@ -520,6 +536,29 @@ export function rollEncounter(rng: Rng, region?: Region, elites = 0): Unit[] {
     // 구역 배율이 있으면 정예 등급 배율도 (일반 → 정예)
     return scale ? scaleUnit(elite, { hp: RANK_SCALE.elite.hp, atk: RANK_SCALE.elite.atk, def: 1 }) : elite;
   });
+}
+
+/** 사건 전투: 정해진 몬스터들 (앞에서 elites마리는 정예) */
+export function eventEncounter(ids: string[], region: Region | undefined, elites: number, rng: Rng): Unit[] {
+  const scale = regionScale(region);
+  return nameUnits(ids.flatMap((id) => getMonster(id) ?? []), scale).map((u, i) => {
+    if (i >= elites || u.rank !== "normal") return u;
+    const elite = makeElite(u, ELITE_TRAITS[Math.floor(rng.next() * ELITE_TRAITS.length)]);
+    return scale ? scaleUnit(elite, { hp: RANK_SCALE.elite.hp, atk: RANK_SCALE.elite.atk, def: 1 }) : elite;
+  });
+}
+
+/** 이번 층 몬스터 변화: 회복·강화 스킬을 못 쓰게 한다 */
+function applyFloorMods(units: Unit[], mods: FloorMod[]) {
+  for (const u of units) {
+    if (u.side !== "enemy") continue;
+    for (const m of mods) {
+      if (!modHits(m, u.kind, u.tags)) continue;
+      if (m.mode === "noHeal") u.skills = u.skills.filter((id) => !getSkill(id)?.effects.some((e) => e.kind === "heal"));
+      if (m.mode === "noBuff")
+        u.skills = u.skills.filter((id) => !getSkill(id)?.effects.some((e) => e.kind === "applyStatus" && (e.status === "attackUp" || e.status === "awaken")));
+    }
+  }
 }
 
 /** 보스 전투: 보스와 호위 */
@@ -547,11 +586,14 @@ export function startBattleWithUnits(units: Unit[], seed: number, depth = 1): Ba
 export function startBattleFrom(
   mercs: Unit[],
   seed: number,
-  opts: { depth: number; supplies: Record<SupplyKind, number>; walked?: number; enemies?: Unit[]; region?: Region; boss?: string; elites?: number },
+  opts: { depth: number; supplies: Record<SupplyKind, number>; walked?: number; enemies?: Unit[]; region?: Region; boss?: string; elites?: number; floorMods?: FloorMod[]; ambush?: Side },
 ): Battle {
   const rng = createRng(seed);
   const scale = regionScale(opts.region);
-  const enemies = opts.enemies ?? (opts.boss ? bossEncounter(opts.boss, scale) : rollEncounter(rng, opts.region, opts.elites));
+  const enemies = opts.enemies ?? (opts.boss ? bossEncounter(opts.boss, scale) : rollEncounter(rng, opts.region, opts.elites, opts.floorMods));
+  if (opts.floorMods?.length) applyFloorMods(enemies, opts.floorMods);
+  // 기습당한 쪽은 첫 차례를 쉰다
+  if (opts.ambush) for (const u of [...mercs, ...enemies]) if (u.side === opts.ambush) u.statuses = [...u.statuses, { kind: "bind", turns: 1 }];
   const b = begin([...mercs, ...enemies], rng, opts.depth, opts.supplies, opts.walked);
   if (opts.region) b.place = opts.region.name;
   if (scale) b.scale = scale;
@@ -626,15 +668,15 @@ export function act(battle: Battle, action: BattleAction): Battle {
       b.guideUsed = true;
       if (target.hp <= 0) {
         // 쓰러진 용병: 물약의 회복량으로 일어난다
-        revive(b, target, Math.round(POTION_HEAL * potionMultiplier(target)), "guide", "potion");
+        revive(b, target, Math.round(POTION_HEAL * (POTION_POWER[action.item] ?? 1) * potionMultiplier(target)), "guide", "potion");
         break;
       }
       if (action.item === "bandage") cure(b, target, "bleed", "guide", "bandage");
       if (action.item === "antidote") cure(b, target, "poison", "guide", "antidote");
-      if (action.item === "potion") {
+      if (isPotion(action.item)) {
         // 손발이 맞는다: 길안내자가 건넨 물약 효과 +50%
-        // 호의 이상이면 +25%
-        const amount = Math.round(POTION_HEAL * potionMultiplier(target));
+        // 호의 이상이면 +25%. 중급 물약은 2배
+        const amount = Math.round(POTION_HEAL * (POTION_POWER[action.item] ?? 1) * potionMultiplier(target));
         heal(b, target, amount, "guide");
       }
       break;

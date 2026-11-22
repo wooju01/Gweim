@@ -6,7 +6,8 @@ import { layoutDungeon } from "@/game/dungeon/atlas";
 import { DungeonTree } from "@/components/dungeon/DungeonTree";
 import { WorldMap } from "./WorldMap";
 import { SUPPLY, type SupplyKind } from "@/data/combat";
-import { CURRENCY } from "@/data/economy";
+import { CURRENCY, PACK_LIMIT } from "@/data/economy";
+import { packFor } from "@/game/state/state";
 import { getStage } from "@/game/merc/affinity";
 import { GUIDE, MERC_SLOTS } from "@/game/merc/party";
 import type { Merc } from "@/game/types";
@@ -29,7 +30,7 @@ type Props = {
   onGo: (place: TownPlace) => void;
 };
 
-const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
+const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion", "greaterPotion"];
 
 /** 던전 입구: 파티와 짐을 확인하고 출발한다 */
 export function GateScreen({ day, gold, party, progress, pack, explored, conquered, keyItems, onDepart, onGo }: Props) {
@@ -45,6 +46,7 @@ export function GateScreen({ day, gold, party, progress, pack, explored, conquer
   const region = regionId ? getRegion(regionId) : undefined;
   const regionKnown = !!region && explored.includes(region.id);
   const packed = Object.values(pack).reduce((a, b) => a + b, 0);
+  const carried = packFor(pack).carried;
   const wages = party.reduce((s, m) => s + (progress[m.id]?.wage ?? wageOf(m)), 0);
   const hostile = party.filter((m) => getStage(progress[m.id]?.affinity ?? 50) === "hostile");
 
@@ -143,7 +145,11 @@ export function GateScreen({ day, gold, party, progress, pack, explored, conquer
             상점에 들르기
           </button>
         </div>
-        <p className="text-sm">{SUPPLY_ORDER.map((k) => `${SUPPLY[k].name} ${pack[k]}`).join(" · ")}</p>
+        {/* 창고에서 PACK_LIMIT개까지 챙긴다 (물약부터) */}
+        <p className="text-sm">
+          {SUPPLY_ORDER.filter((k) => carried[k] > 0 || k !== "greaterPotion").map((k) => `${SUPPLY[k].name} ${carried[k]}`).join(" · ")}
+        </p>
+        {packed > PACK_LIMIT && <p className="text-xs text-ash">창고에 {packed - PACK_LIMIT}개가 남는다 (원정엔 {PACK_LIMIT}개까지, 물약부터 챙긴다)</p>}
       </section>
 
       <div className="flex flex-col items-start gap-2">

@@ -128,7 +128,7 @@ export const MAX_SUB_LEVEL = 3;
 export const SUB_CAPS = { power: 0.25, pierce: 0.25, crit: 0.3, flat: 15 } as const;
 
 /** 조립 비용 (금화) */
-export const CRAFT_COST = 10;
+export const CRAFT_COST = 20;
 
 /**
  * 해금 단계: 동 조각은 처음부터, 은 조각은 길드 등급이 은 이상이어야 뚫을 수 있다 (state.guildGrade, data/guild.ts).
@@ -141,12 +141,13 @@ export type UnlockTier = "bronze" | "silver";
  * material: 그 조각의 계열 재료 (FRAGMENT_UNLOCK), relic: 그 종족의 유물 (RACE_RELIC)
  */
 export const UNLOCK_COST = {
-  bronzeMain: { gold: 20, shard: 3, book: 0, material: 2, relic: 0 },
-  bronzeSub: { gold: 15, shard: 2, book: 0, material: 2, relic: 0 },
-  silverMain: { gold: 50, shard: 0, book: 1, material: 3, relic: 0 },
-  silverSub: { gold: 40, shard: 4, book: 0, material: 3, relic: 0 },
-  raceMain: { gold: 60, shard: 0, book: 1, material: 0, relic: 1 },
-  raceSub: { gold: 50, shard: 3, book: 0, material: 0, relic: 1 },
+  // 금화는 2026-11-22 밸런스 1차 (20/15/50/40/60/50 → 80/60/200/160/240/200)
+  bronzeMain: { gold: 80, shard: 3, book: 0, material: 2, relic: 0 },
+  bronzeSub: { gold: 60, shard: 2, book: 0, material: 2, relic: 0 },
+  silverMain: { gold: 200, shard: 0, book: 1, material: 3, relic: 0 },
+  silverSub: { gold: 160, shard: 4, book: 0, material: 3, relic: 0 },
+  raceMain: { gold: 240, shard: 0, book: 1, material: 0, relic: 1 },
+  raceSub: { gold: 200, shard: 3, book: 0, material: 0, relic: 1 },
 } as const;
 
 /**
@@ -154,8 +155,8 @@ export const UNLOCK_COST = {
  * Lv3는 보스 증표가 든다 (던전 보스만 떨어뜨린다)
  */
 export const UPGRADE_COST: Record<2 | 3, { gold: number; shard: number; material: number; bossToken: number }> = {
-  2: { gold: 12, shard: 2, material: 1, bossToken: 0 },
-  3: { gold: 25, shard: 4, material: 2, bossToken: 1 },
+  2: { gold: 50, shard: 2, material: 1, bossToken: 0 },
+  3: { gold: 100, shard: 4, material: 2, bossToken: 1 },
 };
 
 /** 종족 전용 조각의 재료 (종족 유물) */

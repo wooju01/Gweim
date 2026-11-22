@@ -7,11 +7,11 @@ import { DEATH } from "@/data/death";
 import { MEMORY_MAX_CHARS } from "@/game/merc/memory";
 import { applyTone, clampStat, getStage } from "@/game/merc/affinity";
 import { createRng, rollInt, type Rng } from "@/game/random";
-import { CURRENCY, PACK_LIMIT, PRICE, START_GOLD, START_PACK, START_STOCK, STOCK_RANGE } from "@/data/economy";
+import { CURRENCY, GREATER_POTION_GRADE, PACK_LIMIT, PACK_ORDER, PRICE, START_GOLD, START_PACK, START_STOCK, STOCK_RANGE, storageCaps, storageCost } from "@/data/economy";
 import { getRelic } from "@/data/relics";
 import { SALVAGE, addSalvage, getSalvage, salvageCount, sellable } from "@/data/loot";
 import { WAGE } from "@/data/wages";
-import { PROMOTE_BONUS, STAT_NAME, TRAINING_COST, type StatBlock } from "@/data/growth";
+import { PROMOTE_BONUS, STAT_NAME, TRAINING_COST, XP_BONUS, type StatBlock } from "@/data/growth";
 import { NO_GROWTH, addStats, canPromote, gainXp, statLine, validTraining, type Growth } from "@/game/merc/growth";
 import { promote, promoteCost } from "@/game/merc/promotion";
 import { craft, forgetSkill, knownFragments, paySalvage, swapSkills, unlockBlock, upgradeBlock } from "@/game/merc/skillhall";
@@ -36,6 +36,8 @@ import {
   regionOf,
   rescueBonds,
   startExpedition,
+  battleFor,
+  spendBattleMods,
   xpFor,
   type Expedition,
 } from "@/game/dungeon/expedition";
@@ -70,6 +72,10 @@ export type MercProgress = TalkState & {
   busyUntilDay?: number;
   /** 마지막으로 클랜 가입을 제안한 날 (거절당하면 다음 귀환까지 다시 못 한다) */
   clanAskedDay?: number;
+  /** 1회성 경험치 보너스 기록 (data/growth.ts의 XP_BONUS): 살아 돌아온 적이 있나, 가장 깊이 간 층, 보스를 잡은 적이 있나 */
+  returned?: boolean;
+  deepest?: number;
+  slewBoss?: boolean;
   /** 살아서 이긴 던전 보스 (monster id). 등급이 바뀌는 승급의 증명 (data/guild.ts의 PROOF_BOSSES) */
   bossWins: string[];
 } & Growth;
@@ -168,11 +174,15 @@ export type GameState = {
   /** 의뢰 보상으로 알아낸 정보 (data/quests.ts의 QUEST_INFO) */
   infos: string[];
   /** 시설 이용료 할인 (이 날까지) */
-  discounts: { facility: "forge"; untilDay: number }[];
+  discounts: { facility: "forge" | "shop"; untilDay: number }[];
+  /** 한 번이라도 본 사건 (처음 보는 사건이 조금 잘 나온다) */
+  eventsSeen: string[];
   /** 의뢰 보상으로 합류할 용병 수 (모집 API로 만든다) */
   pendingJoins: number;
   /** 한 번이라도 쓰러뜨린 보스 (처음 쓰러뜨리면 명성) */
   bossesSlain: string[];
+  /** 창고 확장 횟수 (data/economy.ts의 STORAGE) */
+  storageLevel: number;
   /** 길드 등급 (큰 등급만). 승급 시험 의뢰 + 금화로만 오른다 (data/guild.ts) */
   guildGrade: MercLevel;
   /** 통과한 길드 승급 시험 (그 등급으로 오를 수 있다) */
@@ -273,6 +283,8 @@ export type GameAction =
   | { type: "promote"; mercId: string; passive?: string; branch?: string; elements?: Element[] }
   /** 길드 승급 (시험 통과 + 금화) */
   | { type: "promoteGuild" }
+  /** 창고 확장 (재료 종류별 +10칸, 물자 +20개) */
+  | { type: "expandStorage" }
   /** 납품 의뢰: 창고의 재료를 낸다 */
   | { type: "deliverQuest"; questId: string; seed: number }
   /** 마친 의뢰의 보상 고르기 (choices의 0 또는 1) */
@@ -426,15 +438,84 @@ function canPay(state: GameState, cost: { gold: number; salvage: Record<string, 
   return state.gold >= cost.gold && Object.entries(cost.salvage).every(([id, n]) => (state.salvage[id] ?? 0) >= n);
 }
 
-function restock(seed: number): Record<SupplyKind, number> {
+/** 상점 재고를 새로 들인다. 중급 물약은 길드가 은 이상일 때만 */
+function restock(seed: number, guildGrade: MercLevel): Record<SupplyKind, number> {
   const rng = createRng(seed ^ 0x5eed);
+  const open = RANK_ORDER.indexOf(guildGrade) >= RANK_ORDER.indexOf(GREATER_POTION_GRADE);
   return Object.fromEntries(
-    (Object.keys(STOCK_RANGE) as SupplyKind[]).map((k) => [k, rollInt(rng.next, STOCK_RANGE[k][0], STOCK_RANGE[k][1])]),
+    (Object.keys(STOCK_RANGE) as SupplyKind[]).map((k) => [k, k === "greaterPotion" && !open ? 0 : rollInt(rng.next, STOCK_RANGE[k][0], STOCK_RANGE[k][1])]),
   ) as Record<SupplyKind, number>;
 }
 
 export function isTown(kind: string): kind is TownPlace {
   return kind === "town" || kind === "guild" || kind === "shop" || kind === "inn" || kind === "gate" || kind === "yard" || kind === "hall" || kind === "forge" || kind === "board";
+}
+
+/**
+ * 원정 경험치 + 1회성 보너스 (용병마다 한 번): 첫 귀환 ×2, 처음 도달한 층마다 +10, 첫 보스 +20
+ */
+export function xpBonus(p: Pick<MercProgress, "returned" | "deepest" | "slewBoss">, base: number, reached: number, bossKilled: boolean): { xp: number; notes: string[] } {
+  let xp = base;
+  const notes: string[] = [];
+  if (!p.returned && base > 0) {
+    xp = base * XP_BONUS.firstReturnMult;
+    notes.push(`첫 귀환 ×${XP_BONUS.firstReturnMult}`);
+  }
+  const newFloors = Math.max(0, reached - (p.deepest ?? 0));
+  if (newFloors > 0) {
+    xp += newFloors * XP_BONUS.newFloor;
+    notes.push(`처음 간 층 +${newFloors * XP_BONUS.newFloor}`);
+  }
+  if (bossKilled && !p.slewBoss) {
+    xp += XP_BONUS.firstBoss;
+    notes.push(`첫 보스 +${XP_BONUS.firstBoss}`);
+  }
+  return { xp, notes };
+}
+
+/** 떠날 때 창고에서 원정 짐을 챙긴다: PACK_LIMIT까지, PACK_ORDER 순서로 */
+export function packFor(stash: Record<SupplyKind, number>): { carried: Record<SupplyKind, number>; left: Record<SupplyKind, number> } {
+  const carried = { ...START_PACK };
+  const left = { ...stash };
+  let room = PACK_LIMIT;
+  for (const k of PACK_ORDER) {
+    const n = Math.min(room, left[k] ?? 0);
+    carried[k] = n;
+    left[k] = (left[k] ?? 0) - n;
+    room -= n;
+  }
+  return { carried, left };
+}
+
+/** 창고에 물자를 더한다 (넘치면 PACK_ORDER 뒤쪽부터 버리지 않고, 더하는 쪽을 잘라 낸다) */
+function addSupplies(stash: Record<SupplyKind, number>, add: Record<SupplyKind, number>, cap = Infinity): Record<SupplyKind, number> {
+  const out = { ...stash };
+  let room = cap - Object.values(out).reduce((a, b) => a + b, 0);
+  for (const k of PACK_ORDER) {
+    const n = Math.max(0, Math.min(room, add[k] ?? 0));
+    out[k] = (out[k] ?? 0) + n;
+    room -= n;
+  }
+  return out;
+}
+
+/** 창고 한도: 재료·유실물 종류별, 물자 합계. 넘친 것은 버리고 알린다 */
+function capStorage(state: GameState): { state: GameState; lines: string[] } {
+  const caps = storageCaps(state.storageLevel);
+  const lines: string[] = [];
+  const salvage = { ...state.salvage };
+  for (const [id, n] of Object.entries(salvage))
+    if (n > caps.item) {
+      salvage[id] = caps.item;
+      lines.push(`창고가 가득 차 ${getSalvage(id)?.name ?? id} ${n - caps.item}개를 버렸다 (종류별 ${caps.item}개)`);
+    }
+  const total = Object.values(state.pack).reduce((a, b) => a + b, 0);
+  let pack = state.pack;
+  if (total > caps.supply) {
+    pack = addSupplies({ ...START_PACK }, state.pack, caps.supply);
+    lines.push(`창고가 가득 차 물자 ${total - caps.supply}개를 버렸다 (물자 ${caps.supply}개까지)`);
+  }
+  return { state: { ...state, salvage, pack }, lines };
 }
 
 /** 게시판 조건을 볼 때 쓰는 길드 상태 */
@@ -467,6 +548,13 @@ export function sellRate(state: GameState): number {
 function forgePrice(state: GameState, cost: { gold: number; salvage: Record<string, number> }) {
   return forgeDiscounted(state) ? { ...cost, gold: Math.round(cost.gold * (1 - FORGE_DISCOUNT)) } : cost;
 }
+
+/** 상점 가격 (사건 할인 중이면 20% 싸다) */
+export function shopPrice(state: GameState, item: SupplyKind): number {
+  const off = state.discounts.some((d) => d.facility === "shop" && d.untilDay >= state.day);
+  return off ? Math.round(PRICE[item] * (1 - SHOP_DISCOUNT)) : PRICE[item];
+}
+export const SHOP_DISCOUNT = 0.2;
 
 /** 지금 대장간 할인 중인가 */
 export const forgeDiscounted = (state: GameState) => state.discounts.some((d) => d.facility === "forge" && d.untilDay >= state.day);
@@ -704,6 +792,8 @@ export function initialState(opts: { seeds?: MercSeed[]; hired?: boolean; party?
     discounts: [],
     pendingJoins: 0,
     bossesSlain: [],
+    storageLevel: 0,
+    eventsSeen: [],
     reputation: 0,
     booted: false,
     memorial: [],
@@ -959,13 +1049,15 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         const q = getQuest(id);
         return isDirect(q) && q.objective.type === "rescue" ? [{ eventId: q.objective.eventId, regionId: q.objective.regionId }] : [];
       });
-      const expedition = startExpedition(mercs, action.seed, state.pack, dungeon.id, state.keyItems, questEvents);
+      // 창고에서 원정 짐을 챙긴다 (PACK_LIMIT까지, 물약부터). 나머지는 창고에 남는다
+      const { carried, left } = packFor(state.pack);
+      const expedition = startExpedition(mercs, action.seed, carried, dungeon.id, state.keyItems, questEvents, state.eventsSeen);
       return {
         ...state,
         // 짐을 들고 떠난다 (남은 물자는 돌아올 때 짐으로 돌아온다)
         expedition,
         explored: addOnce(state.explored, expedition.region!),
-        pack: { ...START_PACK },
+        pack: left,
         narration: null,
         reactions: [],
         screen: { kind: "dungeon" },
@@ -993,10 +1085,23 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case "chooseEvent": {
       if (!state.expedition) return state;
-      const exp = chooseEvent(state.expedition, action.choiceId, action.seed, bondsOf(state));
+      let exp = chooseEvent(state.expedition, action.choiceId, action.seed, bondsOf(state));
       if (exp === state.expedition || exp.room?.kind !== "event" || !exp.room.result) return state;
       const { progress, reactions } = reactToTone(state, exp, exp.room.result.tone);
-      return { ...state, expedition: exp, progress, reactions };
+      let next: GameState = { ...state, progress, reactions };
+      // 사건이 준 호감 변화
+      if (exp.affinityDeltas && Object.keys(exp.affinityDeltas).length) {
+        const bumped = bumpAffinity(next, exp.affinityDeltas, "사건");
+        next = { ...next, progress: bumped.progress, reactions: [...next.reactions, ...bumped.lines] };
+        exp = { ...exp, affinityDeltas: undefined };
+      }
+      // 사건 전투: 바로 싸운다 (끝나면 사건 결과 화면으로 돌아온다)
+      if (exp.pendingBattle) {
+        const battle = battleFor(exp, partyMercs(next), action.seed ^ 0xba7, bondsOf(next), undefined, 0, exp.pendingBattle);
+        exp = spendBattleMods({ ...exp, pendingBattle: undefined });
+        return { ...next, expedition: exp, screen: { kind: "battle", battle } };
+      }
+      return { ...next, expedition: exp };
     }
 
     case "descend": {
@@ -1045,9 +1150,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, restTalk: { ...state.restTalk, pending: false, error: action.error } };
 
     case "buy": {
-      const price = PRICE[action.item];
+      const price = shopPrice(state, action.item);
       const packed = Object.values(state.pack).reduce((a, b) => a + b, 0);
-      if (state.expedition || state.gold < price || state.stock[action.item] <= 0 || packed >= PACK_LIMIT) return state;
+      if (state.expedition || state.gold < price || state.stock[action.item] <= 0 || packed >= storageCaps(state.storageLevel).supply) return state;
       return {
         ...state,
         gold: state.gold - price,
@@ -1099,6 +1204,12 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           },
         },
       };
+    }
+
+    case "expandStorage": {
+      const cost = storageCost(state.storageLevel);
+      if (state.expedition || state.gold < cost) return state;
+      return { ...state, gold: state.gold - cost, storageLevel: state.storageLevel + 1 };
     }
 
     case "promoteGuild": {
@@ -1189,7 +1300,12 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       if (state.expedition || !isDirect(q) || !state.pendingRewards.includes(q.id) || !q.rewards.choices) return state;
       const got = giveQuestReward(state, q.rewards.choices[action.choice], createRng(action.seed));
       if (!got) return state;
-      return { ...got.state, pendingRewards: state.pendingRewards.filter((id) => id !== q.id), notices: [...got.state.notices, `「${q.title}」 보상: ${got.line}`] };
+      const capped = capStorage(got.state);
+      return {
+        ...capped.state,
+        pendingRewards: state.pendingRewards.filter((id) => id !== q.id),
+        notices: [...got.state.notices, `「${q.title}」 보상: ${got.line}`, ...capped.lines],
+      };
     }
 
     case "joinedFree": {
@@ -1498,21 +1614,28 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       // 전멸하면 금화·전리품처럼 경험치도 없다 (깊이 들어가 전멸하는 게 빨리 크는 길이 되지 않게)
       if (!defeat && expeditionXp(exp) > 0) {
         const progress = { ...next.progress };
+        // 이번 원정에서 간 가장 깊은 층, 보스를 잡았나 (1회성 보너스)
+        const reached = Math.max(1, ...(exp.regions ?? [exp.region ?? ""]).map((r) => getRegion(r)?.depth ?? 1));
+        const bossKilled = (exp.feats ?? []).length > 0;
         for (const m of exp.members.filter((x) => !x.dead)) {
           const p = progress[m.id];
           const entry = next.roster.find((e) => entryId(e) === m.id);
           if (!p || !entry) continue;
-          const xp = xpFor(exp, mercOf(entry).level);
+          const bonus = xpBonus(p, xpFor(exp, mercOf(entry).level), reached, bossKilled);
+          const xp = bonus.xp;
+          const marks = { returned: true, deepest: Math.max(p.deepest ?? 0, reached), slewBoss: p.slewBoss || bossKilled };
           if (xp <= 0) {
+            progress[m.id] = { ...p, ...marks };
             report.growth.push(`${m.name}: 이 던전에서는 더 배울 것이 없다 (경험치 0)`);
             continue;
           }
           const { growth, gained } = gainXp(p, xp, m.job);
-          progress[m.id] = { ...p, ...growth };
+          progress[m.id] = { ...p, ...growth, ...marks };
+          const why = bonus.notes.length ? ` (${bonus.notes.join(", ")})` : "";
           report.growth.push(
             gained.length
-              ? `${m.name}: 경험치 +${xp}, 레벨업 → ${stageOf(growth.lv)}단계 (${gained.map((g) => statLine(g, STAT_NAME)).join(" / ")})${canPromote(growth) ? " · 승급할 수 있다" : ""}`
-              : `${m.name}: 경험치 +${xp}`,
+              ? `${m.name}: 경험치 +${xp}${why}, 레벨업 → ${stageOf(growth.lv)}단계 (${gained.map((g) => statLine(g, STAT_NAME)).join(" / ")})${canPromote(growth) ? " · 승급할 수 있다" : ""}`
+              : `${m.name}: 경험치 +${xp}${why}`,
           );
         }
         next = { ...next, progress };
@@ -1555,10 +1678,20 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           relics: [...next.relics, ...exp.loot],
           salvage: addSalvage(next.salvage, exp.salvage ?? {}),
           trinkets: [...next.trinkets, ...(exp.trinkets ?? []).map((id) => ({ id, lv: 1 }))],
-          pack: { ...exp.supplies },
+          // 남은 물자는 창고로 (창고 한도를 넘으면 버린다)
+          pack: addSupplies(next.pack, exp.supplies),
+          // 사건이 준 것: 정보, 합류할 용병, 시설 할인
+          infos: [...new Set([...next.infos, ...(exp.infos ?? [])])],
+          pendingJoins: next.pendingJoins + (exp.recruits ?? 0),
+          discounts: [
+            ...next.discounts.filter((d) => !(exp.discounts ?? []).some((x) => x.facility === d.facility)),
+            ...(exp.discounts ?? []).map((d) => ({ facility: d.facility, untilDay: next.day + d.days })),
+          ],
         };
       }
-      next = { ...next, stock: restock(action.seed) };
+      // 본 사건 기록과 사건 명성은 전멸해도 남는다
+      next = addFame({ ...next, eventsSeen: [...new Set([...next.eventsSeen, ...(exp.seenEvents ?? [])])] }, exp.fameDelta ?? 0);
+      next = { ...next, stock: restock(action.seed, next.guildGrade) };
       // 보수: 살아 있는 동행 용병에게 원정마다 준다. 모자라면 체불 (호감이 떨어진다)
       const payroll = payWages(next, exp.members.filter((m) => !m.dead).map((m) => m.id));
       next = payroll.state;
@@ -1589,7 +1722,10 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         };
       }
       next = returnToVillage(next, exp, report, action.seed);
-      return { ...next, report };
+      // 창고 한도 (넘친 재료·물자는 버린다)
+      const capped = capStorage(next);
+      if (capped.lines.length) report.quests = [...(report.quests ?? []), ...capped.lines];
+      return { ...capped.state, report };
     }
 
     case "dismiss": {

@@ -97,7 +97,7 @@ export function getTrinket(id: string): Trinket | undefined {
 
 /** 단계 lv로 만들거나(1) 강화하는(2·3) 비용 */
 export function forgeCost(t: Trinket, lv: number): { gold: number; salvage: Record<string, number> } {
-  const gold = [0, 15, 20, 30][lv] ?? 0;
+  const gold = [0, 60, 80, 120][lv] ?? 0;
   return { gold, salvage: { [t.material.id]: t.material.n * (lv >= TRINKET_MAX_LV ? 2 : 1) } };
 }
 

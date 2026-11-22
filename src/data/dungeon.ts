@@ -49,8 +49,8 @@ export const ROOM_NAME: Record<RoomKind, string> = {
 /** 휴식: 살아 있는 용병이 최대 체력의 이 비율만큼 회복하고, 출혈·중독이 낫는다 */
 export const REST_HEAL_RATIO = 0.3;
 
-/** 보물 칸에서 찾는 물자 수 [최소, 최대]와 종류 가중치 */
-export const TREASURE_COUNT = [1, 2] as const;
+/** 보물 칸에서 물자를 찾을 확률 (찾으면 1개)과 종류 가중치 (2026-11-22 밸런스 1차: 1~2개 → 50% 확률로 1개) */
+export const TREASURE_SUPPLY_CHANCE = 0.5;
 export const TREASURE_WEIGHTS = { bandage: 4, potion: 3, antidote: 3 } as const;
 
 // ── 층 ──────────────────────────────────────────────────
@@ -66,7 +66,7 @@ export const GOAL_FALLBACK = { treasure: 1, elite: 1 } as const;
 /** 정예 목적지 전투에서 반드시 정예가 되는 적 수 */
 export const GOAL_ELITES = 1;
 /** 보물 목적지에서 찾는 물자 수 [최소, 최대]와 유물 수 */
-export const GOAL_TREASURE = { supplies: [2, 3] as const, relics: 1 };
+export const GOAL_TREASURE = { supplies: [1, 2] as const, relics: 1 };
 
 // ── 경험치 ─────────────────────────────────────────────
 /**

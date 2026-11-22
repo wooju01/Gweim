@@ -1,5 +1,5 @@
 import { SUPPLY, type SupplyKind } from "@/data/combat";
-import { CURRENCY, PACK_LIMIT, PRICE } from "@/data/economy";
+import { CURRENCY, PACK_LIMIT, PRICE, storageCaps, storageCost } from "@/data/economy";
 import { getRelic } from "@/data/relics";
 import { getSalvage, sellable } from "@/data/loot";
 import { Button } from "@/components/common/parts";
@@ -15,13 +15,20 @@ type Props = {
   onBuy: (item: SupplyKind) => void;
   onSell: (index: number) => void;
   onSellSalvage: (id: string, all: boolean) => void;
+  /** 창고 확장 횟수와 확장하기 */
+  storageLevel: number;
+  onExpand: () => void;
+  /** 물자별 지금 가격 (할인 반영) */
+  prices: Record<SupplyKind, number>;
   onBack: () => void;
 };
 
-const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
+const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion", "greaterPotion"];
 
 /** 상점: 원정 물자를 사서 짐에 넣고, 던전에서 가져온 유물을 판다 */
-export function ShopScreen({ day, gold, pack, stock, relics, salvage, onBuy, onSell, onSellSalvage, onBack }: Props) {
+export function ShopScreen({ day, gold, pack, stock, relics, salvage, onBuy, onSell, onSellSalvage, storageLevel, onExpand, prices, onBack }: Props) {
+  const caps = storageCaps(storageLevel);
+  const expandCost = storageCost(storageLevel);
   // 전수관 재료(기술 파편·계열 재료 등)는 팔지 않는다
   const salvageItems = Object.entries(salvage).filter(([id, n]) => n > 0 && sellable(id));
   const packed = Object.values(pack).reduce((a, b) => a + b, 0);
@@ -32,25 +39,33 @@ export function ShopScreen({ day, gold, pack, stock, relics, salvage, onBuy, onS
       <TownBar place="상점" day={day} gold={gold} onBack={onBack} />
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold">상점</h1>
-        <p className="text-sm text-ash">재고는 원정에서 돌아올 때마다 새로 들어온다. 남은 물자는 짐에 그대로 남는다.</p>
+        <p className="text-sm text-ash">
+          재고는 원정에서 돌아올 때마다 새로 들어온다. 산 물자는 창고(물자 {caps.supply}개까지)에 두고, 떠날 때 {PACK_LIMIT}개까지 챙긴다 (물약부터).
+          재료·유실물은 종류별 {caps.item}개까지.
+        </p>
       </header>
 
       <section aria-label="물자" className="flex flex-col gap-2 rounded-sm border border-edge bg-panel p-4">
         <div className="flex items-baseline justify-between">
           <h2 className="font-bold">원정 물자</h2>
-          <span className={`text-sm ${packed >= PACK_LIMIT ? "text-blood" : "text-ash"}`}>
-            원정 짐 {packed} / {PACK_LIMIT}
+          <span className="flex items-center gap-2">
+            <span className={`text-sm ${packed >= caps.supply ? "text-blood" : "text-ash"}`}>
+              창고 물자 {packed} / {caps.supply}
+            </span>
+            <Button className="!px-2 !py-0.5 text-[11px]" disabled={gold < expandCost} onClick={onExpand} title={`종류별 +10칸, 물자 +20개`}>
+              창고 확장 · {CURRENCY} {expandCost}
+            </Button>
           </span>
         </div>
-        {SUPPLY_ORDER.map((k) => {
-          const why = stock[k] <= 0 ? "재고 없음" : gold < PRICE[k] ? "금화 부족" : packed >= PACK_LIMIT ? "짐이 가득" : null;
+        {SUPPLY_ORDER.filter((k) => k !== "greaterPotion" || stock[k] > 0 || pack[k] > 0).map((k) => {
+          const why = stock[k] <= 0 ? "재고 없음" : gold < prices[k] ? "금화 부족" : packed >= caps.supply ? "창고가 가득" : null;
           return (
             <div key={k} className="flex items-center justify-between gap-3 border-t border-edge/60 pt-2">
               <div className="flex flex-col">
                 <span className="font-bold">
                   {SUPPLY[k].name}
                   <span className="ml-2 text-xs font-normal text-ash">
-                    짐 {pack[k]} · 재고 {stock[k]}
+                    창고 {pack[k]} · 재고 {stock[k]}
                   </span>
                 </span>
                 <span className="text-xs text-bone/70">{SUPPLY[k].description}</span>
@@ -58,7 +73,8 @@ export function ShopScreen({ day, gold, pack, stock, relics, salvage, onBuy, onS
               <div className="flex items-center gap-2">
                 {why && <span className="text-[11px] text-ash">{why}</span>}
                 <Button className="!px-3 !py-1 text-xs" disabled={!!why} onClick={() => onBuy(k)}>
-                  {CURRENCY} {PRICE[k]} · 사기
+                  {CURRENCY} {prices[k]}
+                  {prices[k] < PRICE[k] ? " (할인)" : ""} · 사기
                 </Button>
               </div>
             </div>

@@ -50,6 +50,11 @@ const RAW_SALVAGE: Salvage[] = [
 
   // ── 미지의 숲 유실물 ──
   { id: "soft_pelt", name: "부드러운 털가죽", description: "숲 짐승의 보드라운 털가죽. 덧대기 좋다.", value: 3 },
+  // 사건에서 얻는 유실물 (2026-11-22)
+  { id: "old_map", name: "낡은 지도 조각", description: "누군가 그린 숲의 지도 한 귀퉁이. 수집가가 산다.", value: 8 },
+  { id: "trap_parts", name: "덫 부품", description: "녹슨 용수철과 이빨. 대장간에서 쓸 데가 있다.", value: 4 },
+  { id: "owlbear_egg", name: "오울베어 알", description: "주먹만 한 얼룩 알. 귀족들이 비싸게 산다.", value: 15 },
+  { id: "wild_mushroom", name: "숲 버섯", description: "약재상이 반기는 버섯.", value: 3 },
   { id: "slime_jelly", name: "슬라임 젤리", description: "말랑하고 차가운 젤리. 약재상이 반긴다.", value: 2 },
   { id: "crude_iron", name: "조잡한 쇠붙이", description: "고블린이 두들겨 만든 쇳조각. 녹이면 쓸 만하다.", value: 3 },
   { id: "spider_silk", name: "거미줄 실타래", description: "질기고 가벼운 실. 재봉사들이 탐낸다.", value: 3 },

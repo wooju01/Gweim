@@ -3,8 +3,10 @@ import { getStage } from "@/game/merc/affinity";
 import { wageOf } from "@/game/merc/wages";
 import { promotionChoices } from "@/game/merc/promotion";
 import { knownFragments, ownerOf } from "@/game/merc/skillhall";
-import { getFragment } from "@/data/fragments";
-import { PROMOTE_BONUS, XP_TO_NEXT } from "@/data/growth";
+import { CRAFT_COST, UPGRADE_COST, getFragment } from "@/data/fragments";
+import { forgeCost, getTrinket } from "@/data/trinkets";
+import { RANKS } from "@/data/ranks";
+import { PROMOTE_BONUS, TRAINING_COST, XP_TO_NEXT } from "@/data/growth";
 import { GUILD_PROMOTION } from "@/data/guild";
 import { FAME } from "@/data/fame";
 import { FAME_BY_KIND, GOLD_L } from "@/data/quests";
@@ -16,7 +18,8 @@ import { tierOpen } from "@/game/merc/skillhall";
 import { fragmentsFor, skillKey } from "@/game/skills";
 import { act, living } from "@/game/combat/engine";
 import { battleSpoils, finishBattle } from "@/game/dungeon/expedition";
-import { entryId, gameReducer, guildPromotionBlocks, initialState as newGame, mercOf, promotionBlocks, type GameState } from "./state";
+import { entryId, gameReducer, guildPromotionBlocks, initialState as newGame, mercOf, packFor, promotionBlocks, xpBonus, type GameState } from "./state";
+import { PRICE, STORAGE } from "@/data/economy";
 import { sampleSeeds } from "@/data/sampleRoster";
 import { START_PARTY } from "@/data/startRoster";
 
@@ -29,7 +32,7 @@ function inDungeon(ids: string[], seed = 1): GameState {
   s = {
     ...s,
     party: ids,
-    pack: { bandage: 4, antidote: 2, potion: 2 },
+    pack: { bandage: 4, antidote: 2, potion: 2, greaterPotion: 0 },
     progress: { ...s.progress, ...Object.fromEntries(ids.map((id) => [id, { ...s.progress[id], hired: true }])) },
   };
   return gameReducer(s, { type: "enterDungeon", seed });
@@ -110,35 +113,51 @@ describe("금화와 상점 (상태)", () => {
     expect(s.gold).toBe(120);
     expect(Object.values(s.pack).every((n) => n === 0)).toBe(true);
     s = gameReducer(s, { type: "buy", item: "potion" });
-    expect(s.gold).toBe(100);
+    expect(s.gold).toBe(120 - PRICE.potion);
     expect(s.pack.potion).toBe(1);
     expect(s.stock.potion).toBe(2);
   });
 
-  it("짐 한도(10)·금화·재고가 모자라면 살 수 없다", () => {
-    let s = { ...initialState(), gold: 1000, stock: { bandage: 99, antidote: 99, potion: 99 } };
-    for (let i = 0; i < 15; i++) s = gameReducer(s, { type: "buy", item: "bandage" });
-    expect(s.pack.bandage).toBe(10);
+  it("창고 물자 한도(20)·금화·재고가 모자라면 살 수 없다. 창고를 넓히면 더 산다", () => {
+    let s: GameState = { ...initialState(), gold: 5000, stock: { bandage: 99, antidote: 99, potion: 99, greaterPotion: 0 } };
+    for (let i = 0; i < 25; i++) s = gameReducer(s, { type: "buy", item: "bandage" });
+    expect(s.pack.bandage).toBe(STORAGE.supplyCap);
+    const gold = s.gold;
+    s = gameReducer(s, { type: "expandStorage" });
+    expect(s.gold).toBe(gold - STORAGE.baseCost);
+    expect(s.storageLevel).toBe(1);
+    for (let i = 0; i < 25; i++) s = gameReducer(s, { type: "buy", item: "bandage" });
+    expect(s.pack.bandage).toBe(STORAGE.supplyCap + STORAGE.supplyPerLevel);
+    // 두 번째 확장은 더 비싸다
+    expect(gameReducer(s, { type: "expandStorage" }).gold).toBe(s.gold - STORAGE.baseCost - STORAGE.costStep);
     const poor = gameReducer({ ...initialState(), gold: 5 }, { type: "buy", item: "bandage" });
     expect(poor.pack.bandage).toBe(0);
-    const empty = gameReducer({ ...initialState(), stock: { bandage: 0, antidote: 0, potion: 0 } }, { type: "buy", item: "bandage" });
+    const empty = gameReducer({ ...initialState(), stock: { bandage: 0, antidote: 0, potion: 0, greaterPotion: 0 } }, { type: "buy", item: "bandage" });
     expect(empty.pack.bandage).toBe(0);
   });
 
   it("짐을 들고 떠나고, 살아 돌아오면 금화·유물·남은 물자를 챙긴다", () => {
     let s = inDungeon(["s-bran", "s-mirel", "s-tob", "s-durgan"]);
-    expect(s.expedition!.supplies).toEqual({ bandage: 4, antidote: 2, potion: 2 });
+    // 원정 짐은 10개까지 (물약 → 해독제 → 붕대 순으로 챙긴다)
+    expect(s.expedition!.supplies).toEqual({ bandage: 4, antidote: 2, potion: 2, greaterPotion: 0 });
     expect(Object.values(s.pack).every((n) => n === 0)).toBe(true);
     s = { ...s, expedition: { ...s.expedition!, gold: 55, loot: ["crystal_eye"] } };
+    s = { ...s, expedition: { ...s.expedition!, supplies: { ...s.expedition!.supplies } } };
     const back = gameReducer(s, { type: "endExpedition", seed: 1 });
     // 들고 온 금화를 더하고, 보수를 나눠 준다
     expect(back.gold).toBe(120 + 55 - wages(s, PARTY4));
     expect(back.relics).toEqual(["crystal_eye"]);
-    expect(back.pack).toEqual({ bandage: 4, antidote: 2, potion: 2 });
+    expect(back.pack).toEqual({ bandage: 4, antidote: 2, potion: 2, greaterPotion: 0 });
 
     const sold = gameReducer(back, { type: "sell", index: 0 });
     expect(sold.gold).toBe(back.gold + 50);
     expect(sold.relics).toEqual([]);
+  });
+
+  it("떠날 때 창고에서 10개까지만 챙기고 나머지는 창고에 남는다 (물약부터)", () => {
+    const { carried, left } = packFor({ bandage: 8, antidote: 3, potion: 4, greaterPotion: 1 });
+    expect(carried).toEqual({ greaterPotion: 1, potion: 4, antidote: 3, bandage: 2 });
+    expect(left).toEqual({ greaterPotion: 0, potion: 0, antidote: 0, bandage: 6 });
   });
 
   it("전멸하면 그 원정에서 얻은 금화·유물·물자를 잃는다", () => {
@@ -328,11 +347,25 @@ describe("성장 (상태)", () => {
     // xp 칸이 없는 이전 저장: 지나온 칸 수로 계산한다
     // 입구 + (XP_TO_NEXT[0]) 칸
     const visited = Array.from({ length: XP_TO_NEXT[0] + 1 }, (_, i) => `n${i}`);
-    s = { ...s, expedition: { ...s.expedition!, xp: undefined, visited, room: { kind: "goal" } } };
+    // 1회성 보너스는 이미 받은 용병으로 (보너스는 아래에서 따로)
+    const done = Object.fromEntries(PARTY4.map((id) => [id, { ...s.progress[id], returned: true, deepest: 1 }]));
+    s = { ...s, progress: { ...s.progress, ...done }, expedition: { ...s.expedition!, xp: undefined, visited, room: { kind: "goal" } } };
     const back = gameReducer(s, { type: "endExpedition", seed: 1 });
     // 칸 수(레벨업에 딱 맞음) + 목적지 3 → 레벨 1, 3 남음
     expect(back.progress["s-bran"]).toMatchObject({ lv: 1, xp: 3, trainable: 1, stats: { str: 1, defense: 1, hp: 1 } });
     expect(back.report!.growth.some((l) => l.includes("브란") && l.includes("레벨업 → 2단계"))).toBe(true);
+  });
+
+  it("1회성 보너스: 첫 귀환 ×2, 처음 간 층마다 +10, 첫 보스 +20 (용병마다 한 번)", () => {
+    expect(xpBonus({}, 10, 1, false).xp).toBe(10 * 2 + 10);
+    expect(xpBonus({ returned: true, deepest: 1 }, 10, 3, true).xp).toBe(10 + 2 * 10 + 20);
+    expect(xpBonus({ returned: true, deepest: 3, slewBoss: true }, 10, 3, true).xp).toBe(10);
+    // 귀환하면 기록이 남는다
+    let s = inDungeon(PARTY4);
+    s = { ...s, expedition: { ...s.expedition!, xp: 5, xpBy: { bronze: 5 }, room: { kind: "goal" } } };
+    const back = gameReducer(s, { type: "endExpedition", seed: 1 });
+    expect(back.progress["s-bran"]).toMatchObject({ returned: true, deepest: 1 });
+    expect(back.report!.growth.some((l) => l.includes("첫 귀환"))).toBe(true);
   });
 
   it("전멸하면 경험치를 받지 않는다", () => {
@@ -344,14 +377,14 @@ describe("성장 (상태)", () => {
     expect(back.report!.growth).toEqual([]);
   });
 
-  it("단련장: 금화 10을 내고 3점을 배분한다. 기회·금화가 없거나 배분이 틀리면 안 된다", () => {
+  it("단련장: 금화를 내고 3점을 배분한다. 기회·금화가 없거나 배분이 틀리면 안 된다", () => {
     let s = initialState();
     const id = "s-bran";
     s = { ...s, progress: { ...s.progress, [id]: { ...s.progress[id], hired: true, trainable: 1 } } };
     const bad = gameReducer(s, { type: "train", mercId: id, alloc: { str: 2 } });
     expect(bad).toBe(s);
     const ok = gameReducer(s, { type: "train", mercId: id, alloc: { crit: 2, faith: 1 } });
-    expect(ok.gold).toBe(s.gold - 10);
+    expect(ok.gold).toBe(s.gold - TRAINING_COST);
     expect(ok.progress[id]).toMatchObject({ trainable: 0, stats: { crit: 2, faith: 1 } });
     expect(gameReducer(ok, { type: "train", mercId: id, alloc: { hp: 3 } })).toBe(ok);
   });
@@ -361,12 +394,12 @@ describe("승급 (상태)", () => {
   it("등급의 1단계(레벨 2)인 용병은 길드 창구에서 금화를 내고 승급한다 (보스 승리 기록 + 길드 등급). 3단계부터 다시, 보수는 올라간다", () => {
     let s = initialState();
     const id = "s-durgan";
-    s = { ...s, gold: 100, guildGrade: "silver", progress: { ...s.progress, [id]: { ...s.progress[id], hired: true, lv: 2, bossWins: ["goblin_king"] } } };
+    s = { ...s, gold: 500, guildGrade: "silver", progress: { ...s.progress, [id]: { ...s.progress[id], hired: true, lv: 2, bossWins: ["goblin_king"] } } };
     const entry = s.roster.find((e) => entryId(e) === id)!;
     if (entry.kind !== "random") throw new Error();
     const { passives } = promotionChoices(entry.seed);
     const done = gameReducer(s, { type: "promote", mercId: id, passive: passives[0] });
-    expect(done.gold).toBe(80);
+    expect(done.gold).toBe(500 - RANKS.silver.promoteCost!);
     const after = done.roster.find((e) => entryId(e) === id)!;
     expect(after.kind === "random" && after.seed.level).toBe("silver");
     expect(done.progress[id]).toMatchObject({ lv: 0, xp: 0, wage: wageOf(mercOf(after)) });
@@ -376,7 +409,7 @@ describe("승급 (상태)", () => {
     expect(done.progress[id].stats.hp ?? 0).toBe((before.stats.hp ?? 0) + PROMOTE_BONUS.hp);
     expect(done.progress[id].trainable).toBe(before.trainable + PROMOTE_BONUS.trainable);
     // 단계가 모자라면 승급할 수 없다
-    expect(gameReducer({ ...s, progress: { ...s.progress, [id]: { ...s.progress[id], lv: 1 } } }, { type: "promote", mercId: id, passive: passives[0] }).gold).toBe(100);
+    expect(gameReducer({ ...s, progress: { ...s.progress, [id]: { ...s.progress[id], lv: 1 } } }, { type: "promote", mercId: id, passive: passives[0] }).gold).toBe(500);
   });
 
   it("부족한 조건을 알려 준다: 경험치, 금화, 보스전 승리 기록, 길드 등급", () => {
@@ -385,11 +418,11 @@ describe("승급 (상태)", () => {
     s = { ...s, gold: 0, progress: { ...s.progress, [id]: { ...s.progress[id], hired: true, lv: 1 } } };
     const blocks = promotionBlocks(s, id);
     expect(blocks.some((b) => b.startsWith("경험치 부족"))).toBe(true);
-    expect(blocks.some((b) => b.includes("부족 (20)"))).toBe(true);
+    expect(blocks.some((b) => b.includes(`부족 (${RANKS.silver.promoteCost})`))).toBe(true);
     expect(blocks.some((b) => b.startsWith("보스전 승리 기록 필요") && b.includes("고블린 킹"))).toBe(true);
     expect(blocks).toContain("길드 등급 부족 (은 필요)");
     // 조건을 채우면 비어 있다
-    const ok = { ...s, gold: 20, guildGrade: "silver" as const, progress: { ...s.progress, [id]: { ...s.progress[id], lv: 2, bossWins: ["spider_queen"] } } };
+    const ok = { ...s, gold: RANKS.silver.promoteCost!, guildGrade: "silver" as const, progress: { ...s.progress, [id]: { ...s.progress[id], lv: 2, bossWins: ["spider_queen"] } } };
     expect(promotionBlocks(ok, id)).toEqual([]);
     // 길드 등급이 동이면 승급하지 못한다
     const { passives } = promotionChoices((s.roster.find((e) => entryId(e) === id) as { seed: Parameters<typeof promotionChoices>[0] }).seed);
@@ -464,6 +497,36 @@ describe("게시판 개선 (상태)", () => {
     if (q.kind === "dispatch") throw new Error();
     expect(q.rewards.choices).toBeUndefined();
     expect(q.rewards.fixed?.[0]).toEqual({ type: "accessory", accessoryId: "t_silver_crest" });
+  });
+});
+
+describe("사건 확장 (상태)", () => {
+  it("사건 전투는 바로 전투 화면으로 가고, 돌아오면 정보·명성·합류·본 사건이 남는다", () => {
+    let s = inDungeon(["s-bran", "s-mirel", "s-tob", "s-durgan"]);
+    s = { ...s, expedition: { ...s.expedition!, room: { kind: "event", eventId: "vine_trial", result: null } } };
+    const fought = gameReducer(s, { type: "chooseEvent", choiceId: "fight", seed: 1 });
+    expect(fought.screen.kind).toBe("battle");
+    if (fought.screen.kind === "battle") expect(fought.screen.battle.units.filter((u) => u.side === "enemy").every((u) => u.kind === "vine_spirit")).toBe(true);
+    // 정보·명성·합류·본 사건을 들고 귀환
+    const back = gameReducer(
+      { ...s, fame: 10, expedition: { ...s.expedition!, room: { kind: "goal" }, infos: ["info_goblin_king"], fameDelta: 3, recruits: 1, seenEvents: ["vine_trial"] } },
+      { type: "endExpedition", seed: 1 },
+    );
+    expect(back.infos).toContain("info_goblin_king");
+    expect(back.fame).toBeGreaterThanOrEqual(13);
+    expect(back.pendingJoins).toBe(1);
+    expect(back.eventsSeen).toContain("vine_trial");
+  });
+
+  it("사건 호감 변화는 바로 반영된다", () => {
+    let s = inDungeon(["s-bran", "s-mirel", "s-tob", "s-durgan"]);
+    s = { ...s, expedition: { ...s.expedition!, room: { kind: "event", eventId: "nameless_grave", result: null } } };
+    const before = s.progress["s-bran"].affinity;
+    const prayed = gameReducer(s, { type: "chooseEvent", choiceId: "pray", seed: 1 });
+    // 태도(존중) 반응과 별개로 사건 호감 +2가 들어간다
+    expect(prayed.progress["s-bran"].affinity).toBeGreaterThanOrEqual(before + 2);
+    expect(prayed.reactions.some((l) => l.includes("사건"))).toBe(true);
+    expect(prayed.expedition!.affinityDeltas).toBeUndefined();
   });
 });
 
@@ -556,12 +619,12 @@ describe("전수관 (상태)", () => {
     const material = sub.material!;
     s = {
       ...s,
-      gold: 100,
+      gold: 1000,
       salvage: { [material]: 10, tech_shard: 10 },
       progress: { ...s.progress, [id]: { ...s.progress[id], hired: true }, [other]: { ...s.progress[other], hired: true } },
     };
     const taught = gameReducer(s, { type: "unlockPiece", mercId: id, piece: sub.id });
-    expect(taught.gold).toBe(100 - cost.gold);
+    expect(taught.gold).toBe(1000 - cost.gold);
     expect(taught.salvage[material]).toBe(10 - cost.salvage[material]);
     expect(taught.progress[id].pieces).toEqual([sub.id]);
     expect(taught.progress[other].pieces).toEqual([]);
@@ -571,13 +634,13 @@ describe("전수관 (상태)", () => {
     // 강화: Lv2
     const up = gameReducer(taught, { type: "upgradePiece", mercId: id, piece: sub.id });
     expect(up.progress[id].levels[sub.id]).toBe(2);
-    expect(up.gold).toBe(taught.gold - 12);
+    expect(up.gold).toBe(taught.gold - UPGRADE_COST[2].gold);
 
     // 조립: 장착 칸에 자리가 있으면 바로 장착 (동 등급은 부 조각 1개까지)
     const main = known.find((f) => getFragment(f)!.kind === "main")!;
     const build = { main, subs: [sub.id] };
     const made = gameReducer(up, { type: "craftSkill", mercId: id, build });
-    expect(made.gold).toBe(up.gold - 10);
+    expect(made.gold).toBe(up.gold - CRAFT_COST);
     const crafted = made.roster.find((e) => entryId(e) === id)!;
     if (crafted.kind !== "random") throw new Error();
     expect(crafted.seed.skills.map(skillKey)).toContain(skillKey(build));
@@ -596,7 +659,7 @@ describe("대장간 (상태)", () => {
     const s = initialState();
     return {
       ...s,
-      gold: 200,
+      gold: 1000,
       salvage: { chief_token: 5, wolf_fang: 5 },
       progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], hired: true }, "s-durgan": { ...s.progress["s-durgan"], hired: true } },
     };
@@ -604,7 +667,7 @@ describe("대장간 (상태)", () => {
 
   it("만들기 → 강화(무조건 성공, 3단계까지) → 같은 직업에게만 끼기 → 빼기", () => {
     let s = gameReducer(hiredState(), { type: "forgeTrinket", trinket: "t_warden_badge" }); // 기사 전용
-    expect(s.gold).toBe(185);
+    expect(s.gold).toBe(1000 - forgeCost(getTrinket("t_warden_badge")!, 1).gold);
     expect(s.salvage.chief_token).toBe(4);
     expect(s.trinkets).toEqual([{ id: "t_warden_badge", lv: 1 }]);
     s = gameReducer(s, { type: "upgradeTrinket", index: 0 });

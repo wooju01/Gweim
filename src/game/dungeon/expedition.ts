@@ -6,7 +6,10 @@ import {
   DOT,
   isDot,
   POTION_HEAL,
+  POTION_POWER,
+  isPotion,
   START_SUPPLIES,
+  type StatusKind,
   type SupplyKind,
 } from "@/data/combat";
 import {
@@ -16,7 +19,7 @@ import {
   GOAL_FALLBACK,
   GOAL_TREASURE,
   REST_HEAL_RATIO,
-  TREASURE_COUNT,
+  TREASURE_SUPPLY_CHANCE,
   TREASURE_WEIGHTS,
   XP_RATE_BY_GAP,
   type GoalContent,
@@ -29,7 +32,7 @@ import {
   TREASURE_GOLD,
   TREASURE_RELIC_CHANCE,
 } from "@/data/economy";
-import { rollRelic } from "@/data/relics";
+import { getRelic, rollRelic } from "@/data/relics";
 import { XP_GOAL_BONUS, XP_PER_SQUARE } from "@/data/growth";
 import { FIRST_DUNGEON, getDungeon, getRegion, hiddenFrom, recommendedGrade, type Region } from "@/data/regions";
 import type { BossFeat } from "@/game/quests";
@@ -46,11 +49,15 @@ import {
   type EventOutcome,
   type EventRequirement,
   type EventUnlock,
+  type FloorMod,
+  type NextBattle,
 } from "@/data/events";
-import type { ChoiceTone, MercLevel, Stage } from "@/lib/schemas";
+import type { ChoiceTone, Element, MercLevel, Stage } from "@/lib/schemas";
+import { getFragment } from "@/data/fragments";
 import { BOND } from "@/data/bond";
 import { JOBS } from "@/data/traits";
 import {
+  eventEncounter,
   mercUnit,
   startBattleFrom,
   type Battle,
@@ -60,7 +67,7 @@ import {
 import { josa } from "@/game/combat/text";
 import { createRng, rollInt, type Rng } from "@/game/random";
 import type { Merc } from "@/game/types";
-import { generateMap, nodeById, type DungeonMap } from "./map";
+import { generateMap, insertAfter, nodeById, revealTreasureCell, skipAfter, type DungeonMap } from "./map";
 
 export type Member = {
   id: string;
@@ -76,6 +83,9 @@ export type Member = {
   fell?: boolean;
   /** 죽었다 (생존 판정 실패). 탐험에서 영영 빠진다 */
   dead?: boolean;
+  /** 사건 조건용: 낀 원소 조각(마법사), 속도 */
+  elements?: Element[];
+  speed?: number;
 };
 
 /** 지금 들어와 있는 칸에서 벌어진 일. null이면 맵에서 다음 칸을 고르는 중 */
@@ -150,6 +160,22 @@ export type Expedition = {
   goals?: string[];
   feats?: BossFeat[];
   rescued?: string[];
+  /** 사건: 이번 원정에서 본 사건 (다시 나오지 않는다) / 전에 본 적 있는 사건 (처음 보는 사건이 조금 잘 나온다) */
+  seenEvents?: string[];
+  seenEver?: string[];
+  /** 사건 효과: 다음 전투 보정, 이번 층 몬스터 변화, 저주, 바로 시작할 사건 전투, 다음 전투 보상 배율 */
+  nextBattle?: NextBattle;
+  floorMods?: FloorMod[];
+  curse?: { status: StatusKind; battles: number };
+  pendingBattle?: { monsters: string[]; elites?: number };
+  rewardMul?: number;
+  /** 사건 효과: 돌아가면 반영할 것 (정보, 명성, 합류 용병, 할인) */
+  infos?: string[];
+  fameDelta?: number;
+  recruits?: number;
+  discounts?: { facility: "forge" | "shop"; days: number }[];
+  /** 사건 효과: 상태 쪽에서 바로 반영할 호감 변화 (반영하면 비운다) */
+  affinityDeltas?: Record<string, number>;
   /** 받아 둔 구출 의뢰의 사건 (그 지역 사건 칸에 먼저 나온다) / 이미 나온 것 */
   questEvents?: { eventId: string; regionId: string }[];
   questOffered?: string[];
@@ -165,10 +191,12 @@ export function startExpedition(
   dungeonId: string = FIRST_DUNGEON,
   keys: KeyItemId[] = [],
   questEvents: { eventId: string; regionId: string }[] = [],
+  seenEver: string[] = [],
 ): Expedition {
   const dungeon = getDungeon(dungeonId) ?? getDungeon(FIRST_DUNGEON)!;
   const region = getRegion(dungeon.entry)!;
-  const map = generateMap(seed, cellsOf(region));
+  // 1층 첫 칸에는 휴식이 나오지 않는다 (2층부터는 그대로)
+  const map = generateMap(seed, cellsOf(region), { noRestFirst: region.depth === 1 });
   return {
     map,
     at: map.startId,
@@ -184,6 +212,8 @@ export function startExpedition(
         maxHp: unit.maxHp,
         statuses: [],
         down: false,
+        elements: elementsOf(m),
+        speed: unit.speed,
       };
     }),
     supplies: { ...pack },
@@ -207,7 +237,18 @@ export function startExpedition(
     rescued: [],
     questEvents,
     questOffered: [],
+    seenEvents: [],
+    seenEver: [...seenEver],
   };
+}
+
+/** 용병이 낀 원소 (스킬의 원소 부 조각 + 원소술사의 원소) */
+function elementsOf(m: Merc): Element[] {
+  const fromSkills = (m.skills ?? []).flatMap((b) => b.subs.flatMap((id) => {
+    const f = getFragment(id);
+    return f?.kind === "sub" && f.element ? [f.element] : [];
+  }));
+  return [...new Set([...fromSkills, ...(m.elements ?? [])])];
 }
 
 /** 층 칸 수 범위: 지역에 정해져 있으면 그것, 아니면 층 기본값 */
@@ -264,12 +305,29 @@ export function canMove(exp: Expedition, nodeId: string): boolean {
   return nodeById(exp.map, exp.at)?.next.includes(nodeId) ?? false;
 }
 
-/** 이벤트 칸에 들어갈 때 어떤 사건이 나올지. 같은 시드면 같은 사건 (히든 사건·의뢰 사건은 빼고) */
-export function pickEvent(seed: number): string {
+/**
+ * 사건 칸에 어떤 사건이 나올지 (히든·의뢰 사건은 빼고). 같은 시드면 같은 사건.
+ * 지역 전용 풀 EVENT_REGION_SHARE / 공용 풀 나머지. 이번 원정에서 본 사건은 다시 나오지 않고,
+ * 한 번도 본 적 없는 사건은 가중치가 EVENT_NEW_WEIGHT배
+ */
+export function pickEvent(seed: number, region?: string, seenRun: string[] = [], seenEver: string[] = []): string {
   const rng = createRng(seed);
-  const pool = EVENTS.filter((e) => !e.hidden && !e.quest);
-  return pool[Math.floor(rng.next() * pool.length)].id;
+  const usable = EVENTS.filter((e) => !e.hidden && !e.quest);
+  const fresh = usable.filter((e) => !seenRun.includes(e.id));
+  const local = fresh.filter((e) => e.region && e.region === region);
+  const common = fresh.filter((e) => !e.region);
+  let pool = rng.next() < EVENT_REGION_SHARE ? local : common;
+  if (pool.length === 0) pool = local.length ? local : common;
+  // 다 봤으면 공용 사건에서 다시 (지역 사건도 다 봤을 때)
+  if (pool.length === 0) pool = usable.filter((e) => !e.region);
+  const w = (id: string) => (seenEver.includes(id) ? 1 : EVENT_NEW_WEIGHT);
+  let roll = rng.next() * pool.reduce((a, e) => a + w(e.id), 0);
+  return (pool.find((e) => (roll -= w(e.id)) < 0) ?? pool[pool.length - 1]).id;
 }
+
+/** 사건 칸에서 지역 전용 사건이 나올 몫, 처음 보는 사건 가중치 */
+export const EVENT_REGION_SHARE = 0.6;
+export const EVENT_NEW_WEIGHT = 1.5;
 
 /**
  * 이 층에서 나올 수 있는 히든 사건: 이 지역에서 열리는 히든 지역이 있고, 그 열쇠가 창고에 있고,
@@ -322,12 +380,12 @@ export function moveTo(
   const rng = createRng(seed);
 
   switch (node.kind) {
-    case "battle":
-      return {
-        exp: next,
-        battle: battleFor(next, mercs, seed, bonds),
-        kind: node.kind,
-      };
+    case "battle": {
+      // 사건으로 끼어든 칸: 정해진 보스 (보상 배율)
+      const battle = battleFor(next, mercs, seed, bonds, node.boss);
+      if (node.rewardMul) next.rewardMul = node.rewardMul;
+      return { exp: spendBattleMods(next), battle, kind: node.kind };
+    }
     case "rest":
       next.room = { kind: "rest", lines: rest(next), talked: false };
       break;
@@ -346,7 +404,9 @@ export function moveTo(
         next.hiddenOffered = true;
         next.room = { kind: "event", eventId: hidden.hidden!.event, result: null };
       } else {
-        next.room = { kind: "event", eventId: pickEvent(seed), result: null };
+        const id = pickEvent(seed, next.region, next.seenEvents, next.seenEver);
+        next.seenEvents = [...(next.seenEvents ?? []), id];
+        next.room = { kind: "event", eventId: id, result: null };
       }
       break;
     }
@@ -413,6 +473,8 @@ export function descend(exp: Expedition, seed: number, regionId: string): Expedi
     depth: region.depth,
     region: region.id,
     regions: [...(exp.regions ?? []), region.id],
+    // 이번 층 몬스터 변화는 층이 바뀌면 사라진다
+    floorMods: [],
     room: null,
     cleared: false,
     goal: planGoal(region, seed),
@@ -468,6 +530,7 @@ export function battleFor(
   bonds: Record<string, Stage> = {},
   boss?: string,
   elites = 0,
+  event?: { monsters: string[]; elites?: number },
 ): Battle {
   const units: Unit[] = alive(exp).flatMap((m) => {
     const merc = mercs.find((x) => x.id === m.id);
@@ -482,7 +545,13 @@ export function battleFor(
       },
     ];
   });
-  return startBattleFrom(units, seed, {
+  // 사건 효과: 저주 (전투를 시작할 때 걸린다), 다음 전투 보정 (용병 쪽)
+  if (exp.curse && exp.curse.battles > 0) for (const u of units) u.statuses.push({ kind: exp.curse.status, turns: 99 });
+  if (exp.nextBattle === "buff") for (const u of units) u.statuses.push({ kind: "attackUp", turns: 1, value: 2 });
+  if (exp.nextBattle === "debuff") for (const u of units) u.statuses.push({ kind: "evadeDown", turns: 2, value: 0.1 });
+  const mods = exp.floorMods ?? [];
+  const extraElite = exp.nextBattle === "elite" ? 1 : 0;
+  const b = startBattleFrom(units, seed, {
     depth: exp.depth,
     supplies: exp.supplies,
     // 지나온 칸 수 (앞 층들을 포함)
@@ -490,8 +559,20 @@ export function battleFor(
     region: regionOf(exp),
     // 목적지 보스
     boss,
-    elites,
+    elites: elites + extraElite,
+    floorMods: mods,
+    ...(event ? { enemies: eventEncounter(event.monsters, regionOf(exp), event.elites ?? 0, createRng(seed ^ 0xe7e)) } : {}),
+    // 기습: 기습당한 쪽이 첫 차례를 쉰다 (전투를 시작하기 전에 건다)
+    ambush: exp.nextBattle === "ambush" ? "enemy" : exp.nextBattle === "enemyAmbush" && !mods.some((m) => m.mode === "noAmbush") ? "merc" : undefined,
   });
+  return b;
+}
+
+/** 전투를 시작했으니 한 번 쓰는 사건 효과를 줄인다 (다음 전투 보정, 저주 남은 전투) */
+export function spendBattleMods(exp: Expedition): Expedition {
+  const out = { ...exp, nextBattle: undefined };
+  if (exp.curse) out.curse = exp.curse.battles > 1 ? { ...exp.curse, battles: exp.curse.battles - 1 } : undefined;
+  return out;
 }
 
 /**
@@ -606,7 +687,10 @@ export function battleSpoils(
     const b = getMonster(enemy.kind ?? "")?.bounty;
     if (b) bounty += rollInt(rng.next, b[0], b[1]);
   }
-  const lines = gain(next, depthGold(exp.depth, gold) + bounty, 0, rng);
+  // 사건으로 불러낸 보스: 보상 배율 (금화)
+  const mul = exp.rewardMul ?? 1;
+  next.rewardMul = undefined;
+  const lines = gain(next, Math.round(depthGold(exp.depth, gold) * mul) + bounty, 0, rng);
   const dropped: Record<string, number> = {};
   const materials: Record<string, number> = {};
   for (const enemy of rewarded) {
@@ -637,7 +721,7 @@ export function battleSpoils(
 }
 
 function treasure(exp: Expedition, rng: Rng): string[] {
-  const count = rollInt(rng.next, TREASURE_COUNT[0], TREASURE_COUNT[1]);
+  const count = rng.next() < TREASURE_SUPPLY_CHANCE ? 1 : 0;
   const kinds = Object.keys(
     TREASURE_WEIGHTS,
   ) as (keyof typeof TREASURE_WEIGHTS)[];
@@ -664,6 +748,7 @@ const SUPPLY_NAME: Record<SupplyKind, string> = {
   bandage: "붕대",
   antidote: "해독제",
   potion: "물약",
+  greaterPotion: "중급 물약",
 };
 
 function supplyLines(
@@ -696,7 +781,7 @@ export function supplyProblem(
     return "출혈이 없다";
   if (item === "antidote" && !m.statuses.some((s) => s.kind === "poison"))
     return "중독이 없다";
-  if (item === "potion" && m.hp >= m.maxHp) return "체력이 가득하다";
+  if (isPotion(item) && m.hp >= m.maxHp) return "체력이 가득하다";
   return null;
 }
 
@@ -717,8 +802,8 @@ export function giveSupply(
     m.statuses = m.statuses.filter((s) => s.kind !== "poison");
   const multiplier =
     bond === "warm" || bond === "trusted" ? BOND.supplyMultiplier : 1;
-  if (item === "potion")
-    m.hp = Math.min(m.maxHp, m.hp + Math.round(POTION_HEAL * multiplier));
+  if (isPotion(item))
+    m.hp = Math.min(m.maxHp, m.hp + Math.round(POTION_HEAL * (POTION_POWER[item] ?? 1) * multiplier));
   return next;
 }
 
@@ -748,15 +833,37 @@ export function helperFor(
   req: EventRequirement | undefined,
   bonds: Record<string, Stage> = {},
 ): Member | undefined {
-  if (!req || (!req.job && !req.race && !req.bond)) return undefined;
+  if (!req) return undefined;
+  // 이 중 하나 (사제 또는 엘프 등): 맞는 첫 동료
+  if (req.any) {
+    for (const r of req.any) {
+      const m = helperFor(exp, r, bonds);
+      if (m) return m;
+    }
+    return undefined;
+  }
+  if (!req.job && !req.race && !req.bond && !req.element) return undefined;
   return alive(exp).find(
     (m) =>
       (!req.job || m.job === req.job) &&
       (!req.race || m.race === req.race) &&
+      (!req.element || (m.job === "mage" && !!m.elements?.includes(req.element))) &&
       (!req.bond ||
         STAGE_ORDER.indexOf(bonds[m.id] ?? "neutral") >=
           STAGE_ORDER.indexOf(req.bond)),
   );
+}
+
+const ELEMENT_NAME: Record<Element, string> = { fire: "불", water: "물", wind: "바람", earth: "흙" };
+
+/** 조건 하나를 글로 ("사제", "엘프 동료", "물 원소 마법사") */
+function reqText(req: EventRequirement): string {
+  if (req.any) return req.any.map(reqText).join(" 또는 ");
+  if (req.element) return `${ELEMENT_NAME[req.element]} 원소 마법사`;
+  if (req.job) return JOB_NAME[req.job] ?? req.job;
+  if (req.race) return `${RACE_NAME[req.race] ?? req.race} 동료`;
+  if (req.bond) return `${STAGE_NAME[req.bond]} 단계인 동료`;
+  return "";
 }
 
 /** 이 선택지를 지금 고를 수 없는 이유. 고를 수 있으면 null */
@@ -775,12 +882,15 @@ export function choiceProblem(
   for (const [k, n] of Object.entries(need) as [SupplyKind, number][]) {
     if (exp.supplies[k] < n) return `${SUPPLY_NAME[k]} ${n} 필요`;
   }
-  if (req && (req.job || req.race || req.bond) && !helperFor(exp, req, bonds)) {
-    if (req.job) return `${JOB_NAME[req.job] ?? req.job}이(가) 있어야 한다`;
-    if (req.race)
-      return `${RACE_NAME[req.race] ?? req.race} 동료가 있어야 한다`;
-    return `${STAGE_NAME[req.bond!]} 단계인 동료가 있어야 한다`;
+  if (req && (req.job || req.race || req.bond || req.element || req.any) && !helperFor(exp, req, bonds)) return `${josa(reqText(req), "이", "가")} 있어야 한다`;
+  if (req?.speedSum) {
+    const sum = alive(exp).reduce((a, m) => a + (m.speed ?? 0), 0);
+    if (sum < req.speedSum) return `동료 속도 합 ${req.speedSum} 필요 (지금 ${sum})`;
   }
+  if (choice.costGold && exp.gold < choice.costGold) return `금화 ${choice.costGold} 필요`;
+  if (choice.costRelic && exp.loot.length < choice.costRelic) return `유물 ${choice.costRelic}개 필요`;
+  for (const [id, n] of Object.entries(choice.costItems ?? {}))
+    if ((exp.salvage?.[id] ?? 0) < n) return `${getSalvage(id)?.name ?? id} ${n}개 필요`;
   return null;
 }
 
@@ -826,6 +936,7 @@ function applyEffect(
   exp: Expedition,
   effect: EventEffect,
   rng: Rng,
+  helper?: Member,
 ): { lines: string[]; who?: string } {
   const lines: string[] = [];
   const living = alive(exp);
@@ -859,8 +970,109 @@ function applyEffect(
   }
   if (effect.supply) lines.push(...supplyLines(exp, effect.supply));
   lines.push(...gain(exp, effect.gold ?? 0, effect.relics ?? 0, rng));
+  lines.push(...applyEventExtras(exp, effect, rng, helper ?? target));
   return { lines, who: target?.name };
 }
+
+/** 사건 확장 효과 (2026-11-22): 유실물, 맵 변화, 다음 전투, 이번 층 몬스터, 정보·명성·호감·합류·할인·저주, 사건 전투, 즉석 판매 */
+function applyEventExtras(exp: Expedition, effect: EventEffect, rng: Rng, chooser: Member | undefined): string[] {
+  const lines: string[] = [];
+  if (effect.items) {
+    exp.salvage = addSalvage(exp.salvage ?? {}, effect.items);
+    for (const [id, n] of Object.entries(effect.items)) lines.push(`${getSalvage(id)?.name ?? id} ${n}개`);
+  }
+  if (effect.relic) {
+    exp.loot.push(effect.relic);
+    lines.push(`유물: ${getRelic(effect.relic)?.name ?? effect.relic}`);
+  }
+  if (effect.extraCell) {
+    exp.map = insertAfter(exp.map, exp.at, "battle");
+    lines.push("길이 한 칸 늘어났다");
+  }
+  if (effect.treasureNext) {
+    exp.map = insertAfter(exp.map, exp.at, "treasure");
+    lines.push("다음 칸에 숨은 보물이 있다");
+  }
+  if (effect.skipNext) {
+    exp.map = skipAfter(exp.map, exp.at);
+    lines.push("한 칸을 건너뛰는 길을 찾았다");
+  }
+  if (effect.forceBoss) {
+    exp.map = insertAfter(exp.map, exp.at, "battle", { boss: effect.forceBoss.monsterId, rewardMul: effect.forceBoss.rewardMul });
+    lines.push(`다음 칸에 ${getMonster(effect.forceBoss.monsterId)?.name ?? "무언가"}이(가) 기다린다`);
+  }
+  if (effect.revealTreasure) {
+    exp.map = revealTreasureCell(exp.map, exp.visited, rng);
+    lines.push("이 층의 숨은 보물 칸이 드러났다");
+  }
+  if (effect.nextBattle) {
+    exp.nextBattle = effect.nextBattle;
+    lines.push(NEXT_BATTLE_TEXT[effect.nextBattle]);
+  }
+  if (effect.floorMod) {
+    exp.floorMods = [...(exp.floorMods ?? []), effect.floorMod];
+    lines.push(FLOOR_MOD_TEXT[effect.floorMod.mode]);
+  }
+  if (effect.info) {
+    exp.infos = [...new Set([...(exp.infos ?? []), effect.info])];
+    lines.push("새로운 정보를 알아냈다 (게시판 \"알아낸 것\")");
+  }
+  if (effect.fame) {
+    exp.fameDelta = (exp.fameDelta ?? 0) + effect.fame;
+    lines.push(`명성 ${effect.fame > 0 ? "+" : ""}${effect.fame}`);
+  }
+  if (effect.affinity) {
+    const living = alive(exp);
+    const targets =
+      effect.affinity.target === "all" ? living : effect.affinity.target === "chooser" && chooser ? [chooser] : living.length ? [living[Math.floor(rng.next() * living.length)]] : [];
+    const d = { ...exp.affinityDeltas };
+    for (const m of targets) d[m.id] = (d[m.id] ?? 0) + effect.affinity.delta;
+    exp.affinityDeltas = d;
+  }
+  if (effect.recruit) {
+    exp.recruits = (exp.recruits ?? 0) + effect.recruit;
+    lines.push("돌아가면 합류하겠다는 사람이 있다");
+  }
+  if (effect.discount) {
+    exp.discounts = [...(exp.discounts ?? []), effect.discount];
+    lines.push(`돌아가면 ${effect.discount.facility === "forge" ? "대장간" : "상점"} 할인 ${effect.discount.days}일`);
+  }
+  if (effect.curse) {
+    exp.curse = { ...effect.curse };
+    lines.push(`저주: 앞으로 ${effect.curse.battles}번의 전투 동안 몸이 무겁다`);
+  }
+  if (effect.sellLoot) {
+    let got = 0;
+    for (const [id, n] of Object.entries(exp.salvage ?? {})) {
+      const item = getSalvage(id);
+      if (!item || (item.kind ?? "loot") !== "loot" || n <= 0) continue;
+      got += Math.round(item.value * n * effect.sellLoot.priceMul);
+      delete exp.salvage![id];
+    }
+    exp.gold += got;
+    lines.push(got ? `유실물을 팔았다: 금화 +${got}` : "팔 유실물이 없다");
+  }
+  if (effect.battle) {
+    exp.pendingBattle = effect.battle;
+    lines.push("싸움이 벌어진다!");
+  }
+  return lines;
+}
+
+const NEXT_BATTLE_TEXT: Record<NextBattle, string> = {
+  buff: "다음 전투 첫 라운드에 공격 +2",
+  debuff: "다음 전투에서 몸놀림이 둔하다 (회피 -10%)",
+  ambush: "다음 전투는 우리가 먼저 덮친다 (적이 첫 차례를 쉰다)",
+  enemyAmbush: "다음 전투에서 기습을 당할 것 같다 (우리가 첫 차례를 쉰다)",
+  elite: "다음 전투에 정예가 하나 더 나온다",
+};
+const FLOOR_MOD_TEXT: Record<FloorMod["mode"], string> = {
+  disable: "이번 층에서는 그 적이 나오지 않는다",
+  reduce: "이번 층에서는 그 적이 전투마다 하나 줄어든다",
+  noHeal: "이번 층에서는 그 적이 회복하지 못한다",
+  noBuff: "이번 층에서는 그 적이 기세를 올리지 못한다",
+  noAmbush: "이번 층에서는 기습을 당하지 않는다",
+};
 
 /**
  * 사건 선택지를 고른다. 파티에 맞는 직업·종족이 있으면 그 결과 표를 쓴다.
@@ -893,10 +1105,24 @@ export function chooseEvent(
       ),
     );
   }
+  // 원정에서 번 금화·유물·유실물을 낸다
+  if (choice.costGold) {
+    next.gold -= choice.costGold;
+    lines.push(`금화 -${choice.costGold}`);
+  }
+  if (choice.costRelic) {
+    const gave = next.loot.splice(next.loot.length - choice.costRelic, choice.costRelic);
+    lines.push(`유물을 내주었다 (${gave.length}개)`);
+  }
+  for (const [id, n] of Object.entries(choice.costItems ?? {})) {
+    next.salvage = { ...next.salvage, [id]: (next.salvage?.[id] ?? 0) - n };
+    if (next.salvage[id] <= 0) delete next.salvage[id];
+    lines.push(`${getSalvage(id)?.name ?? id} -${n}`);
+  }
   if (choice.rewards)
-    lines.push(...applyEffect(next, choice.rewards, rng).lines);
+    lines.push(...applyEffect(next, choice.rewards, rng, helper).lines);
   const outcome = pickOutcome(choice.outcomes, rng);
-  const applied = applyEffect(next, outcome.effect, rng);
+  const applied = applyEffect(next, outcome.effect, rng, helper);
   lines.push(...applied.lines);
   // 히든 지역으로 가는 길이 열렸다: 이 층의 다음 갈래가 그 지역이 된다
   for (const u of choice.unlocks ?? []) if (u.kind === "hiddenRegion" && getRegion(u.region)) next.hiddenNext = u.region;

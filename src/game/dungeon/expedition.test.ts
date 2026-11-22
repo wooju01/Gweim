@@ -6,6 +6,7 @@ import { act, currentActor, enemyUnit, living, rollEncounter } from "@/game/comb
 import { MONSTER_MATERIAL } from "@/data/drops";
 import { createRng } from "@/game/random";
 import { PLANNED_BOSSES, REGIONS, getDungeon, getRegion } from "@/data/regions";
+import { QUEST_INFO } from "@/data/quests";
 import { getMonster } from "@/data/monsters";
 import { getSalvage } from "@/data/loot";
 import type { Merc } from "@/game/types";
@@ -34,8 +35,9 @@ import {
   hiddenEventFor,
   bossWarning,
   pickEvent,
+  spendBattleMods,
 } from "./expedition";
-import { nodeById } from "./map";
+import { generateMap, nodeById } from "./map";
 
 const [varn, kass, elke] = TEST_MERCS;
 const mercs: Merc[] = [
@@ -48,7 +50,10 @@ const mercs: Merc[] = [
 /** 원하는 종류의 칸이 입구 바로 다음에 있는 맵을 찾는다 */
 function expeditionWithFirst(kind: string): { exp: Expedition; target: string } {
   for (let seed = 0; seed < 500; seed++) {
-    const exp = startExpedition(mercs, seed);
+    // 1층 첫 칸에는 휴식이 없으니, 휴식을 찾을 때는 제한 없는 맵으로 바꿔 끼운다
+    const base = startExpedition(mercs, seed);
+    const map = kind === "rest" ? generateMap(seed, 7) : base.map;
+    const exp = { ...base, map, at: map.startId, visited: [map.startId] };
     const first = nodeById(exp.map, exp.at)!.next.find((id) => nodeById(exp.map, id)!.kind === kind);
     if (first) return { exp, target: first };
   }
@@ -118,7 +123,7 @@ describe("탐험", () => {
     expect(finishBattle(exp, wiped).room).toEqual({ kind: "defeat" });
   });
 
-  it("휴식: 체력 30% 회복과 상처 치료, 보물: 물자 1~2개", () => {
+  it("휴식: 체력 30% 회복과 상처 치료, 보물: 물자 0~1개 (50%)", () => {
     const { exp, target } = expeditionWithFirst("rest");
     exp.members[0].hp = 5;
     exp.members[0].statuses = [{ kind: "bleed", turns: 2 }];
@@ -131,8 +136,16 @@ describe("탐험", () => {
     const t = expeditionWithFirst("treasure");
     const found = moveTo(t.exp, mercs, t.target, 1)!.exp;
     const gained = Object.values(found.supplies).reduce((a, b) => a + b, 0) - Object.values(START_SUPPLIES).reduce((a, b) => a + b, 0);
-    expect(gained).toBeGreaterThanOrEqual(1);
-    expect(gained).toBeLessThanOrEqual(2);
+    expect(gained).toBeGreaterThanOrEqual(0);
+    expect(gained).toBeLessThanOrEqual(1);
+    // 여러 시드로 보면 절반쯤 물자를 찾는다
+    let hits = 0;
+    for (let seed = 0; seed < 200; seed++) {
+      const f = moveTo(t.exp, mercs, t.target, seed)!.exp;
+      if (Object.values(f.supplies).reduce((a, b) => a + b, 0) > Object.values(START_SUPPLIES).reduce((a, b) => a + b, 0)) hits++;
+    }
+    expect(hits / 200).toBeGreaterThan(0.35);
+    expect(hits / 200).toBeLessThan(0.65);
   });
 
   it("맵 위에서 물자를 건넬 수 있다", () => {
@@ -196,14 +209,29 @@ describe("탐험", () => {
   });
 
   it("모든 사건에 아이템·사람·위험 세 갈래가 있다 (히든 사건은 빼고)", () => {
+    // 사건 50개: 공용 12, 지역 전용 34, 의뢰 2, 히든 2
+    expect(EVENTS).toHaveLength(50);
+    expect(EVENTS.filter((e) => e.region && !e.hidden && !e.quest)).toHaveLength(34);
     for (const event of EVENTS.filter((e) => !e.hidden)) {
+      // 조건 있는 선택(동료)과 운에 맡기는 선택(위험)이 있다 (2026-11-22: 세 갈래 규칙 완화)
       const approaches = new Set(event.choices.map((c) => c.approach));
-      for (const a of ["item", "person", "risk"] as const) expect(approaches.has(a), `${event.id} ${a}`).toBe(true);
+      expect(approaches.has("person") || approaches.has("risk"), event.id).toBe(true);
       for (const c of event.choices) {
         if (c.approach === "item") expect(c.requires?.items ?? c.consumes, `${event.id}/${c.id}`).toBeDefined();
-        if (c.approach === "person") expect(c.requires?.job ?? c.requires?.race ?? c.requires?.bond, `${event.id}/${c.id}`).toBeDefined();
+        if (c.approach === "person") {
+          const r = c.requires;
+          expect(r?.job ?? r?.race ?? r?.bond ?? r?.element ?? r?.any ?? r?.speedSum, `${event.id}/${c.id}`).toBeDefined();
+        }
+        // 효과가 가리키는 것이 모두 있다
+        for (const o of c.outcomes) {
+          for (const id of Object.keys(o.effect.items ?? {})) expect(getSalvage(id), `${event.id}/${c.id} ${id}`).toBeDefined();
+          for (const id of o.effect.battle?.monsters ?? []) expect(getMonster(id), `${event.id}/${c.id} ${id}`).toBeDefined();
+          if (o.effect.forceBoss) expect(getMonster(o.effect.forceBoss.monsterId)).toBeDefined();
+          if (o.effect.info) expect(QUEST_INFO[o.effect.info], `${event.id} ${o.effect.info}`).toBeDefined();
+        }
       }
-      expect(event.choices.length).toBeLessThanOrEqual(5);
+      if (event.region) expect(getRegion(event.region), event.id).toBeDefined();
+      expect(event.choices.length).toBeLessThanOrEqual(6);
     }
   });
 
@@ -555,5 +583,111 @@ describe("구출 의뢰 사건", () => {
     expect(saved.rescued).toContain("rescue_herbalist");
     const left = chooseEvent(moved, "leave", 3);
     expect(left.rescued ?? []).not.toContain("rescue_herbalist");
+  });
+});
+
+describe("사건 확장 (50개)", () => {
+  const regionExp = (region: string, seed = 1): Expedition => ({ ...startExpedition(mercs, seed), region });
+
+  it("한 원정 안에서 같은 사건이 다시 나오지 않고, 지역 사건 약 60% / 공용 약 40%", () => {
+    let local = 0, total = 0;
+    for (let seed = 0; seed < 300; seed++) {
+      const seen: string[] = [];
+      for (let i = 0; i < 4; i++) {
+        const id = pickEvent(seed * 10 + i, "uf_cave", seen);
+        expect(seen).not.toContain(id);
+        seen.push(id);
+        if (i === 0) {
+          total++;
+          if (getEvent(id)!.region === "uf_cave") local++;
+        }
+      }
+    }
+    expect(local / total).toBeGreaterThan(0.5);
+    expect(local / total).toBeLessThan(0.7);
+    // 다른 지역 전용 사건은 나오지 않는다
+    for (let seed = 0; seed < 200; seed++) {
+      const r = getEvent(pickEvent(seed, "uf_cave"))!.region;
+      expect(r === undefined || r === "uf_cave").toBe(true);
+    }
+  });
+
+  it("조건부 선택지: 종족·직업·원소·호감·속도 합이 맞아야 고를 수 있다", () => {
+    const exp = regionExp("uf_cave");
+    // 물 원소 마법사가 없으면 지하 호수의 물 가르기는 못 고른다
+    const room = { ...exp, room: { kind: "event" as const, eventId: "underground_lake", result: null } };
+    expect(choiceProblem(room, "underground_lake", "water")).toContain("물 원소 마법사");
+    const withMage = { ...room, members: room.members.map((m, i) => (i === 0 ? { ...m, job: "mage", elements: ["water" as const] } : m)) };
+    expect(choiceProblem(withMage, "underground_lake", "water")).toBeNull();
+    // 사제 또는 엘프
+    const mush = { ...exp, members: exp.members.map((m) => ({ ...m, job: "knight", race: "human" })) };
+    expect(choiceProblem(mush, "mushroom_patch", "sort")).toContain("사제 또는 엘프 동료");
+    // 호감 단계
+    expect(choiceProblem(exp, "comrade_worry", "pass", {})).toContain("호의");
+    expect(choiceProblem(exp, "comrade_worry", "pass", { [exp.members[0].id]: "trusted" })).toBeNull();
+    // 몰래 통과: 속도 합
+    const slow = { ...exp, members: exp.members.map((m) => ({ ...m, speed: 1 })) };
+    expect(choiceProblem(slow, "orc_scout_camp", "sneak")).toContain("속도 합");
+    // 금화가 모자라면 상인에게 못 산다
+    expect(choiceProblem({ ...exp, gold: 10 }, "wandering_merchant", "potion")).toContain("금화");
+  });
+
+  it("칸 +1, 다음 칸 보물, 보스 확정 출현 (보상 배율)", () => {
+    const { exp, target } = expeditionWithFirst("event");
+    const at = moveTo(exp, mercs, target, 1)!.exp;
+    const len = at.map.length;
+    const ev = (eventId: string, choiceId: string, seed = 1) => chooseEvent({ ...at, room: { kind: "event", eventId, result: null } }, choiceId, seed);
+    const longer = ev("trap_field", "around");
+    expect(longer.map.length).toBe((len ?? 0) + 1);
+    expect(nodeById(longer.map, longer.at)!.next).toHaveLength(1);
+    const treasure = ev("firefly_path", "follow", 0);
+    const nextKinds = nodeById(treasure.map, treasure.at)!.next.map((id) => nodeById(treasure.map, id)!.kind);
+    expect(nextKinds.length === 1).toBe(true);
+    const boss = ev("echo_cave", "shout");
+    const bossNode = nodeById(boss.map, nodeById(boss.map, boss.at)!.next[0])!;
+    expect(bossNode).toMatchObject({ kind: "battle", boss: "giant_cave_bat", rewardMul: 2 });
+    const moved = moveTo(leaveRoom(boss), mercs, bossNode.id, 2)!;
+    expect(moved.battle!.units.some((u) => u.kind === "giant_cave_bat")).toBe(true);
+    expect(moved.exp.rewardMul).toBe(2);
+  });
+
+  it("이번 층 몬스터 비활성·감소, 다음 전투 기습", () => {
+    const exp = { ...startExpedition(mercs, 3), region: "uf_goblin_village", depth: 3 };
+    // 폭탄병 비활성
+    const off = { ...exp, floorMods: [{ monster: "goblin_bomber", mode: "disable" as const }] };
+    for (let seed = 0; seed < 60; seed++) expect(battleFor(off, mercs, seed).units.some((u) => u.kind === "goblin_bomber")).toBe(false);
+    // 주술사 회복 불가
+    const noHeal = { ...exp, floorMods: [{ monster: "goblin_shaman", mode: "noHeal" as const }] };
+    for (let seed = 0; seed < 60; seed++)
+      for (const u of battleFor(noHeal, mercs, seed).units.filter((x) => x.kind === "goblin_shaman")) expect(u.skills.some((id) => id.includes("mend"))).toBe(false);
+    // 우리가 기습 / 적이 기습
+    const ambush = battleFor({ ...exp, nextBattle: "ambush" }, mercs, 1);
+    for (const u of ambush.units.filter((x) => x.side === "enemy"))
+      expect(u.statuses.some((s) => s.kind === "bind") || ambush.log.some((e) => e.type === "bound" && e.target === u.id)).toBe(true);
+    // 적은 아직 아무도 공격하지 못했다
+    expect(ambush.log.some((e) => e.type === "attack")).toBe(false);
+    const caught = battleFor({ ...exp, nextBattle: "enemyAmbush" }, mercs, 1);
+    expect(caught.log.some((e) => e.type === "bound" && caught.units.find((u) => u.id === e.target)?.side === "merc")).toBe(true);
+    // 전투를 시작하면 한 번 쓰는 보정은 사라진다
+    expect(spendBattleMods({ ...exp, nextBattle: "buff", curse: { status: "healReduction", battles: 1 } })).toMatchObject({ nextBattle: undefined, curse: undefined });
+    // 층이 바뀌면 이번 층 변화는 사라진다
+    expect(descend({ ...off, room: { kind: "goal" } }, 1, "uf_deeper_forest")?.floorMods ?? []).toEqual([]);
+  });
+});
+
+describe("1층 첫 칸", () => {
+  it("1층 첫 칸(입구 다음)에는 휴식이 나오지 않는다. 2층부터는 그대로", () => {
+    for (let seed = 0; seed < 300; seed++) {
+      const exp = startExpedition(mercs, seed);
+      const first = nodeById(exp.map, exp.map.startId)!.next.map((id) => nodeById(exp.map, id)!.kind);
+      expect(first, `seed ${seed}`).not.toContain("rest");
+    }
+    // 2층: 첫 칸 휴식이 나올 수 있다
+    let rest = 0;
+    for (let seed = 0; seed < 300; seed++) {
+      const down = descend({ ...startExpedition(mercs, 1), room: { kind: "goal" } }, seed, "uf_deep_forest")!;
+      if (nodeById(down.map, down.map.startId)!.next.some((id) => nodeById(down.map, id)!.kind === "rest")) rest++;
+    }
+    expect(rest).toBeGreaterThan(0);
   });
 });

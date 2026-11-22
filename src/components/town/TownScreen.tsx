@@ -57,7 +57,7 @@ export function TownScreen(props: Props) {
       place: "shop",
       name: "상점",
       description: "원정 물자를 사서 짐에 넣고, 던전에서 가져온 유물을 판다.",
-      status: `짐 ${packed} / ${PACK_LIMIT}${relics + salvage ? ` · 팔 것 ${relics + salvage}개` : ""}`,
+      status: `창고 물자 ${packed} · 원정엔 ${PACK_LIMIT}개까지${relics + salvage ? ` · 팔 것 ${relics + salvage}개` : ""}`,
     },
     {
       key: "inn",

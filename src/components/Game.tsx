@@ -1,4 +1,5 @@
 "use client";
+import type { SupplyKind } from "@/data/combat";
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { TalkAction } from "@/lib/schemas";
@@ -11,7 +12,7 @@ import { nodeById } from "@/game/dungeon/map";
 import { getStage } from "@/game/merc/affinity";
 import { DialogueScreen } from "@/components/dialogue/DialogueScreen";
 import { GuildScreen } from "@/components/guild/GuildScreen";
-import { entryId, forgeDiscounted, gameReducer, questSlots, guildPromotionBlocks, hiredCount, promotionBlocks, initialState, mercOf, type TownPlace } from "@/game/state/state";
+import { entryId, forgeDiscounted, gameReducer, questSlots, shopPrice, guildPromotionBlocks, hiredCount, promotionBlocks, initialState, mercOf, type TownPlace } from "@/game/state/state";
 import { GateScreen } from "@/components/town/GateScreen";
 import { ReportScreen } from "@/components/town/ReportScreen";
 import { YardScreen } from "@/components/town/YardScreen";
@@ -447,6 +448,9 @@ export function Game() {
           onSellSalvage={(id, all) => dispatch({ type: "sellSalvage", id, all })}
           onBuy={(item) => dispatch({ type: "buy", item })}
           onSell={(index) => dispatch({ type: "sell", index })}
+          storageLevel={state.storageLevel}
+          prices={Object.fromEntries((["bandage", "antidote", "potion", "greaterPotion"] as const).map((k) => [k, shopPrice(state, k)])) as Record<SupplyKind, number>}
+          onExpand={() => dispatch({ type: "expandStorage" })}
           onBack={toTown}
         />
       );

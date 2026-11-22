@@ -8,7 +8,8 @@ export const WAGE = {
   /**
    * 등급별 원정 1회 보수. 낮게 둔다: 나중에 스킬·단련장·대장간에서 금화가 많이 나가기 때문 (2026-11-19)
    */
-  base: { bronze: 3, silver: 5, gold: 8, mithril: 12, diamond: 17, radiant: 24 } as Record<MercLevel, number>,
+  // 2026-11-22 밸런스 1차: 3/5/8/12/17/24 → 8/13/20/30/42/60
+  base: { bronze: 8, silver: 13, gold: 20, mithril: 30, diamond: 42, radiant: 60 } as Record<MercLevel, number>,
   /** 특성별 보수 추가 (탐욕스러우면 더 달라고 한다) */
   extra: { greedy: 1, debtor: 1 } as Record<string, number>,
   /** 선금 = 보수 × 이 배수 */

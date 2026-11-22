@@ -12,12 +12,12 @@ const merc = (personalities: string[], background = "wanderer", level: Merc["lev
 
 describe("보수", () => {
   it("등급이 높을수록, 탐욕스럽거나 빚이 있으면 더 달라고 한다", () => {
-    expect(wageOf(merc(["kind"]))).toBe(3);
-    expect(wageOf(merc(["greedy"]))).toBe(4);
-    expect(wageOf(merc(["greedy"], "debtor"))).toBe(5);
-    expect(wageOf(merc(["kind"], "wanderer", "gold"))).toBe(8);
-    expect(wageOf(merc(["kind"]), true)).toBe(5);
-    expect(advanceCost(merc(["kind"]))).toBe(6);
+    expect(wageOf(merc(["kind"]))).toBe(8);
+    expect(wageOf(merc(["greedy"]))).toBe(9);
+    expect(wageOf(merc(["greedy"], "debtor"))).toBe(10);
+    expect(wageOf(merc(["kind"], "wanderer", "gold"))).toBe(20);
+    expect(wageOf(merc(["kind"]), true)).toBe(12);
+    expect(advanceCost(merc(["kind"]))).toBe(16);
   });
 });
 

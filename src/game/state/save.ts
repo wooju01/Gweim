@@ -1,7 +1,7 @@
 // 자동 저장. 브라우저(localStorage)에 한 칸만 두고, 상태가 바뀔 때마다 덮어쓴다 (되돌리기 없음).
 // 저장 데이터는 Zod 스키마로 검사하고 버전 번호를 붙인다. 버전이 다르면 읽지 않고 새 게임으로 시작한다
 // (형식이 크게 바뀔 때 변환하지 않고 초기화하기로 했다. 2026-11-20: 직업·등급·스킬 조각 개편 → 버전 3,
-// 2026-11-21: 시간·클랜·의뢰 → 버전 4, 2026-11-22: 길드 등급·용병 승급 증명 → 버전 5, 게시판 개선(명성·기한·보상 선택)·시작 용병 8명 → 버전 6).
+// 2026-11-21: 시간·클랜·의뢰 → 버전 4, 2026-11-22: 길드 등급·용병 승급 증명 → 버전 5, 게시판 개선(명성·기한·보상 선택)·시작 용병 8명 → 버전 6, 밸런스 1차(창고·중급 물약)는 기본값으로 읽어서 버전 6 그대로).
 // 대화 화면·AI 응답 대기처럼 잠깐 거치는 상태는 저장하지 않는다.
 // 전투 중이면 전투 그대로 저장한다 (새로고침으로 도망칠 수 없게).
 import { z } from "zod";
@@ -32,10 +32,19 @@ const MercProgressSave = TalkState.extend({
   pledged: z.boolean().optional(),
   busyUntilDay: z.number().int().optional(),
   clanAskedDay: z.number().int().optional(),
+  // 1회성 경험치 보너스 기록
+  returned: z.boolean().optional(),
+  deepest: z.number().int().min(0).optional(),
+  slewBoss: z.boolean().optional(),
   // 살아서 이긴 던전 보스 (승급 증명)
   bossWins: z.array(z.string().max(40)).max(40).default([]),
 });
-const Supplies = z.object({ bandage: z.number().int().min(0), antidote: z.number().int().min(0), potion: z.number().int().min(0) });
+const Supplies = z.object({
+  bandage: z.number().int().min(0),
+  antidote: z.number().int().min(0),
+  potion: z.number().int().min(0),
+  greaterPotion: z.number().int().min(0).default(0),
+});
 
 // 탐험·전투는 엔진이 만든 큰 구조라 핵심 칸만 검사하고 나머지는 그대로 둔다
 const ExpeditionSave = z.looseObject({
@@ -47,7 +56,7 @@ const ExpeditionSave = z.looseObject({
   at: z.string(),
   visited: z.array(z.string()),
   members: z.array(z.looseObject({ id: z.string(), hp: z.number(), maxHp: z.number(), down: z.boolean() })),
-  supplies: z.looseObject({ bandage: z.number(), antidote: z.number(), potion: z.number() }),
+  supplies: z.looseObject({ bandage: z.number(), antidote: z.number(), potion: z.number(), greaterPotion: z.number().default(0) }),
   depth: z.number(),
 });
 
@@ -124,9 +133,11 @@ export const SaveFile = z.object({
     pendingRewards: z.array(z.string().max(40)).default([]),
     weeklyRewards: z.object({ book: z.boolean(), relic: z.boolean() }).default({ book: false, relic: false }),
     infos: z.array(z.string().max(40)).default([]),
-    discounts: z.array(z.object({ facility: z.literal("forge"), untilDay: z.number().int() })).default([]),
+    discounts: z.array(z.object({ facility: z.enum(["forge", "shop"]), untilDay: z.number().int() })).default([]),
+    eventsSeen: z.array(z.string().max(40)).max(200).default([]),
     pendingJoins: z.number().int().min(0).max(5).default(0),
     bossesSlain: z.array(z.string().max(40)).default([]),
+    storageLevel: z.number().int().min(0).default(0),
   }),
 });
 export type SaveFile = z.infer<typeof SaveFile>;
@@ -184,6 +195,8 @@ export function toSave(state: GameState, now = new Date()): SaveFile {
       discounts: state.discounts,
       pendingJoins: state.pendingJoins,
       bossesSlain: state.bossesSlain,
+      storageLevel: state.storageLevel,
+      eventsSeen: state.eventsSeen,
     } as SaveFile["state"],
   };
 }
@@ -264,6 +277,8 @@ export function fromSave(raw: unknown): { state: GameState } | { error: string }
       discounts: s.discounts,
       pendingJoins: s.pendingJoins,
       bossesSlain: s.bossesSlain,
+      storageLevel: s.storageLevel,
+      eventsSeen: s.eventsSeen,
       // 사건 칸에서 멈췄으면 AI 묘사 없이 기본 문장으로 이어 간다
       narration: room?.kind === "event" && !room.result ? { eventId: room.eventId, pending: false, data: null } : null,
     },

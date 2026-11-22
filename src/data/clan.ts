@@ -17,7 +17,7 @@ export const SETTLEMENT_DAYS = 7;
  */
 export const UPKEEP = {
   inn: { base: 0, perMember: 0, facility: 0 },
-  clanHall: { base: 20, perMember: 2, facility: 0 },
+  clanHall: { base: 100, perMember: 10, facility: 0 },
 } as const;
 
 /** 연체: 1주 연체면 클랜원 전원 호감 하락, 2주 이상이면 정산마다 호감이 가장 낮은 클랜원 한 명이 떠난다 */

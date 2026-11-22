@@ -78,7 +78,14 @@ export const LEVELS_PER_RANK = 2;
  * 레벨 n → n+1에 필요한 경험치. 원정 3번에 한 단계가 목표 (2026-11-21 시뮬레이션):
  * 동3은 1층 목적지 귀환(평균 약 12) × 3, 동2는 2층 목적지 귀환(평균 약 38) × 3
  */
-export const XP_TO_NEXT = [34, 110] as const;
+export const XP_TO_NEXT = [20, 110] as const;
+
+/**
+ * 1회성 경험치 보너스 (용병마다 한 번, 2026-11-22 밸런스 1차):
+ * 처음 살아 돌아온 원정은 경험치 ×2, 처음 도달한 층마다 +10, 처음 보스(층·던전)를 잡은 원정 +20.
+ * 전멸하면 받지 못한다 (다음에 받을 수 있다)
+ */
+export const XP_BONUS = { firstReturnMult: 2, newFloor: 10, firstBoss: 20 } as const;
 
 /** 경험치: 지나온 칸 1칸당, 목적지에 닿으면 추가 (살아 돌아온 용병만) */
 export const XP_PER_SQUARE = 1;
@@ -95,4 +102,4 @@ export const PROMOTE_BONUS = { hp: 5, trainable: 1 } as const;
 
 /** 단련장: 레벨업 1번마다 기회 1번. 금화를 내고 스탯을 직접 배분한다 */
 export const TRAINING_POINTS = 3;
-export const TRAINING_COST = 10;
+export const TRAINING_COST = 40;

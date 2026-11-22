@@ -21,14 +21,14 @@ export type Rank = {
 
 export const RANKS: Record<MercLevel, Rank> = {
   bronze: { name: "동", maxPassives: 1, subLimit: 1, tier: 1, ultimate: false, promoteCost: null },
-  silver: { name: "은", maxPassives: 2, subLimit: 2, tier: 1, ultimate: false, promoteCost: 20 },
+  silver: { name: "은", maxPassives: 2, subLimit: 2, tier: 1, ultimate: false, promoteCost: 150 },
   // 금: 2차 전직(두 갈래 중 선택) + 궁극기 칸
-  gold: { name: "금", maxPassives: 3, subLimit: 2, tier: 2, ultimate: true, promoteCost: 40 },
+  gold: { name: "금", maxPassives: 3, subLimit: 2, tier: 2, ultimate: true, promoteCost: 400 },
   // 미스릴: 새 궁극기 (목록 미정)
-  mithril: { name: "미스릴", maxPassives: 3, subLimit: 2, tier: 2, ultimate: true, promoteCost: 70 },
-  diamond: { name: "다이아", maxPassives: 4, subLimit: 2, tier: 3, ultimate: true, promoteCost: 110 },
+  mithril: { name: "미스릴", maxPassives: 3, subLimit: 2, tier: 2, ultimate: true, promoteCost: 700 },
+  diamond: { name: "다이아", maxPassives: 4, subLimit: 2, tier: 3, ultimate: true, promoteCost: 1100 },
   // 성휘: 4차 최종 직업 (+ AI 이명, 나중에)
-  radiant: { name: "성휘", maxPassives: 5, subLimit: 2, tier: 4, ultimate: true, promoteCost: 160 },
+  radiant: { name: "성휘", maxPassives: 5, subLimit: 2, tier: 4, ultimate: true, promoteCost: 1600 },
 };
 
 /** 한 등급의 단계 수 (3 → 2 → 1) */

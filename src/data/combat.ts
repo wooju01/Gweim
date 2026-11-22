@@ -48,7 +48,8 @@ export type StatusKind =
   | "riposte"
   | "evadeCounter"
   | "evadeCharge";
-export type SupplyKind = "bandage" | "antidote" | "potion";
+/** 물자. greaterPotion: 중급 물약 (회복량 2배, 길드가 은이면 상점에 나온다) */
+export type SupplyKind = "bandage" | "antidote" | "potion" | "greaterPotion";
 
 /** 공격이 상태이상을 걸 확률 */
 export type OnHit = { status: StatusKind; chance: number };
@@ -290,14 +291,19 @@ export const START_SUPPLIES: Record<SupplyKind, number> = {
   bandage: 4,
   antidote: 2,
   potion: 2,
+  greaterPotion: 0,
 };
 
 export const SUPPLY: Record<SupplyKind, { name: string; description: string }> = {
   bandage: { name: "붕대", description: "출혈을 멈춘다" },
   antidote: { name: "해독제", description: "중독을 푼다" },
   potion: { name: "물약", description: "체력을 12 회복한다" },
+  greaterPotion: { name: "중급 물약", description: "체력을 24 회복한다" },
 };
 export const POTION_HEAL = 12;
+/** 물약 종류별 회복량 배율 (중급 물약은 2배) */
+export const POTION_POWER: Partial<Record<SupplyKind, number>> = { potion: 1, greaterPotion: 2 };
+export const isPotion = (k: SupplyKind) => k === "potion" || k === "greaterPotion";
 
 export type EnemyKind = UnitStats & { id: string; name: string; rarity: number; /** 적 정보에 보이는 특징 한 줄 */ note: string };
 
