@@ -2274,3 +2274,25 @@ describe("스탯 곡선 (방어·회피·치명)", () => {
     expect(strikeFactors(b, v, e, { pierce: 3 }).pierce).toBe(1);
   });
 });
+
+describe("회복 횟수 (타격 수 부 조각)", () => {
+  it("회복을 횟수만큼 하고, 쓰러진 아군은 첫 회복으로 일으킨 뒤 나머지를 더한다. 미리보기도 합계", () => {
+    const twice: Skill = { id: "twin_heal", name: "연속 치유", cooldown: 0, target: "ally", description: "", effects: [{ kind: "heal", amount: 3, hits: 2 }] };
+    const setup = (hp: number, downed = false) =>
+      edit(start([{ ...elke, job: "priest" }, varn], 1, [dummy("e0", 999)]), (c) => {
+        const e = unitById(c, elke.id)!;
+        e.skills = ["twin_heal"];
+        e.book = { twin_heal: twice };
+        const v = unitById(c, varn.id)!;
+        v.hp = hp;
+        if (downed) v.downedTurnsLeft = 1;
+      });
+    const b = setup(5);
+    expect(previewAction(b, { type: "skill", skill: "twin_heal", target: varn.id })!.heal!.amount).toBe(6);
+    const after = act(b, { type: "skill", skill: "twin_heal", target: varn.id });
+    expect(after.log.filter((e) => e.type === "heal" && e.target === varn.id)).toHaveLength(2);
+    expect(unitById(after, varn.id)!.hp).toBe(11);
+    const up = act(setup(0, true), { type: "skill", skill: "twin_heal", target: varn.id });
+    expect(unitById(up, varn.id)!.hp).toBe(6);
+  });
+});

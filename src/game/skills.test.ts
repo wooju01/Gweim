@@ -263,3 +263,15 @@ describe("조각 규칙", () => {
     expect(resolveSkill({ main: "guardian_vow", subs: [] })!.description).toContain("도발");
   });
 });
+
+describe("타격 수 부 조각 + 회복", () => {
+  it("연격·연발을 회복 스킬에 붙이면 회복 횟수 +1, 한 번의 양은 그 배율만큼 (인간 기사: 응급 처치 + 연격)", () => {
+    const owner = { job: "knight", race: "human", level: "bronze" as const };
+    const build = { main: "rc_human_aid", subs: ["knight_combo"] };
+    expect(validateSkill(owner, build)).toBeNull();
+    const sk = resolveSkill(build)!;
+    // 5 × 0.6 = 3, 2번
+    expect(sk.effects).toContainEqual({ kind: "heal", amount: 3, hits: 2 });
+    expect(sk.description).toContain("× 2번");
+  });
+});

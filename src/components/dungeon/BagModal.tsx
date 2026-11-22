@@ -5,7 +5,7 @@ import { CURRENCY } from "@/data/economy";
 import { KEY_ITEMS, type KeyItemId } from "@/data/keyItems";
 import { getRelic } from "@/data/relics";
 import { carriedValue, getSalvage } from "@/data/loot";
-import { STACK } from "@/data/facilities";
+import { BAG_BASE, STACK } from "@/data/facilities";
 import { bagItems, bagUsed, cheapestSlot, type BagItem, type Expedition } from "@/game/dungeon/expedition";
 import { Button } from "@/components/common/parts";
 
@@ -32,7 +32,7 @@ export function BagModal({ exp, onDiscard, onClose }: Props) {
   const [confirmKey, setConfirmKey] = useState<string | null>(null);
   const items = bagItems(exp);
   const used = bagUsed(exp);
-  const cap = exp.bag ?? 8;
+  const cap = exp.bag ?? BAG_BASE;
   const over = used > cap;
   const { value } = carriedValue(exp.gold, exp.loot.map((id) => getRelic(id)?.value ?? 0), exp.salvage ?? {});
   const cheapest = cheapestSlot(exp);

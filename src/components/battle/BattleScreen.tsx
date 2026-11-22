@@ -202,8 +202,30 @@ function motionFor(unitId: string, e: BattleEvent | null): string {
   }
 }
 
+/** 연출 속도 기억 (브라우저 저장소. 막혀 있으면 1배속) */
+const SPEED_KEY = "ashen-battle-speed";
+function loadSpeed(): number {
+  try {
+    return typeof window !== "undefined" && window.localStorage.getItem(SPEED_KEY) === "2" ? 2 : 1;
+  } catch {
+    return 1;
+  }
+}
+function saveSpeed(v: number) {
+  try {
+    window.localStorage.setItem(SPEED_KEY, String(v));
+  } catch {
+    // 저장할 수 없으면 이번 전투에서만
+  }
+}
+
 export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee, spoils, warRoom = 0, bossesMet = [] }: Props) {
-  const [speed, setSpeed] = useState(1);
+  // 연출 속도는 한 번 바꾸면 다음 전투에도 이어진다 (브라우저에 기억)
+  const [speed, setSpeedState] = useState(loadSpeed);
+  const setSpeed = (v: number) => {
+    setSpeedState(v);
+    saveSpeed(v);
+  };
   const play = usePlayback(battle, speed);
   const hp = displayedHp(battle, play.shown);
   // 연출이 끝나기 전에는 입력을 받지 않는다

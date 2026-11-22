@@ -720,12 +720,12 @@ describe("장신구: 마지막 숨결 (원정 동안 이어진다)", () => {
 describe("가방 (2026-11-22)", () => {
   it("겹치기: 물자 한 칸 3개, 재료·유실물 한 칸 10개, 유물·열쇠는 한 칸에 하나. 넘치면 움직일 수 없다", () => {
     const base = startExpedition(mercs, 1, { bandage: 4, antidote: 0, potion: 3, greaterPotion: 0 }, undefined, ["world_tree_branch"]);
-    expect(base.bag).toBe(8);
+    expect(base.bag).toBe(10);
     // 붕대 4 = 2칸, 물약 3 = 1칸, 열쇠 1칸
     expect(bagUsed(base)).toBe(4);
-    const full = { ...base, salvage: { soft_pelt: 15, mat_fang: 10 }, loot: ["crystal_eye"] };
-    // + 털가죽 15 = 2칸, 송곳니 10 = 1칸, 유물 1칸
-    expect(bagUsed(full)).toBe(8);
+    const full = { ...base, salvage: { soft_pelt: 15, mat_fang: 10, mat_venom: 20 }, loot: ["crystal_eye"] };
+    // + 털가죽 15 = 2칸, 송곳니 10 = 1칸, 독샘 20 = 2칸, 유물 1칸
+    expect(bagUsed(full)).toBe(10);
     expect(bagOver(full)).toBe(false);
     const over = { ...full, salvage: { ...full.salvage, rat_fang: 1 } };
     expect(bagOver(over)).toBe(true);
@@ -740,7 +740,7 @@ describe("가방 (2026-11-22)", () => {
 
   it("자동 정리는 가치가 낮은 칸부터 버리고, 열쇠는 남긴다", () => {
     const base = startExpedition(mercs, 1, { bandage: 0, antidote: 0, potion: 0, greaterPotion: 0 }, undefined, ["world_tree_branch"]);
-    const over = { ...base, salvage: { rat_fang: 5, owlbear_egg: 5, boss_token: 1, soft_pelt: 60 } };
+    const over = { ...base, salvage: { rat_fang: 5, owlbear_egg: 5, boss_token: 1, soft_pelt: 80 } };
     const out = autoDiscard(over);
     expect(bagOver(out)).toBe(false);
     expect(out.keys).toEqual(["world_tree_branch"]);

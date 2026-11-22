@@ -15,6 +15,7 @@ import { objectiveProgress } from "@/game/quests";
 import { objectiveText } from "@/components/town/BoardScreen";
 import { alive, bagOver, bagUsed, bossWarning, canDescend, canMove, nextRegions, regionOf, choiceProblem, helperFor, supplyProblem, type BagItem, type Expedition, type Member } from "@/game/dungeon/expedition";
 import { BagModal } from "./BagModal";
+import { BAG_BASE } from "@/data/facilities";
 import { getStage } from "@/game/merc/affinity";
 import type { MercProgress, RestTalk } from "@/game/state/state";
 import { byStep, mapLength, type MapNode } from "@/game/dungeon/map";
@@ -86,7 +87,7 @@ export function DungeonScreen(props: Props) {
         <div className="flex items-center gap-3">
           <CarriedLoot exp={exp} />
           <Button className={`!px-3 !py-1 text-xs ${overflow ? "!border-blood text-blood" : ""}`} onClick={() => setBagOpen(true)} title="가방에 든 것을 보고 버린다">
-            가방 {bagUsed(exp)} / {exp.bag ?? 8}
+            가방 {bagUsed(exp)} / {exp.bag ?? BAG_BASE}
           </Button>
           {!over && (
             <Button variant="danger" onClick={onEnd} title="지금까지 얻은 것을 들고 돌아간다">

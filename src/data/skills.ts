@@ -81,7 +81,8 @@ export type SkillEffect =
    */
   | ({ kind: "applyStatus"; area?: "one" | "all"; who?: "self" | "allies" } & StatusRoll)
   /** 회복. 회복량에는 쓰는 용병의 신성이 더해진다 */
-  | { kind: "heal"; amount: number; who?: "self" | "allies" }
+  /** hits: 회복 횟수 (연발·연격 같은 타격 수 부 조각이 붙으면 늘고, 한 번의 회복량은 그 배율만큼 준다) */
+  | { kind: "heal"; amount: number; who?: "self" | "allies"; hits?: number }
   /** 쓰러진 아군 하나를 최대 체력의 pct로 일으킨다. 일으켰으면 이 스킬의 아군 전체 회복은 건너뛴다 (사제 궁극기 "기적") */
   | { kind: "revive"; pct: number }
   /** 해제. kinds가 없으면 출혈·중독. count가 있으면 약화를 그 수만큼 */
@@ -198,7 +199,9 @@ export function describeSkill(def: SkillDef): string {
       case "applyStatus":
         return [`${e.area === "all" ? "모든 적" : to(e)}에게 ${statusText(e)}${e.chancePerPower ? ` (스탯 1당 확률 +${pct(e.chancePerPower)})` : ""}`];
       case "heal":
-        return [`${to(e)}의 체력 ${e.amount} 회복${!e.who && def.target === "ally" ? " (쓰러진 아군이면 그만큼으로 일으킨다)" : ""}`];
+        return [
+          `${to(e)}의 체력 ${e.amount} 회복${(e.hits ?? 1) > 1 ? ` × ${e.hits}번` : ""}${!e.who && def.target === "ally" ? ` (쓰러진 아군이면 ${(e.hits ?? 1) > 1 ? "첫 회복량으로 일으키고 나머지를 더한다" : "그만큼으로 일으킨다"})` : ""}`,
+        ];
       case "revive":
         return [`쓰러진 아군 하나를 체력 ${pct(e.pct)}로 일으킨다 (쓰러진 아군이 없을 때만 아래 회복)`];
       case "cure": {

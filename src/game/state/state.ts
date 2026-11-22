@@ -46,7 +46,7 @@ import {
 } from "@/game/dungeon/expedition";
 import { KEY_ITEMS, type KeyItemId } from "@/data/keyItems";
 import { ARREARS, CLAN_FOUNDERS, CLAN_MEMBER_LIMIT, DAILY_SCENE_CHANCE, GUEST_DAYS, GUEST_ROOMS, HOME_TALKS, INN_LIMIT, SETTLEMENT_DAYS } from "@/data/clan";
-import { FACILITY_SLOTS, INFIRMARY, MEMORIAL, NEW_HIRE_DAYS, SCOUT_CHANCE, STACK, TRAINING_XP, bagSlots, getFacility, type FacilityId, type FacilityLevels } from "@/data/facilities";
+import { BAG_BASE, FACILITY_SLOTS, INFIRMARY, MEMORIAL, NEW_HIRE_DAYS, SCOUT_CHANCE, STACK, TRAINING_XP, bagSlots, getFacility, type FacilityId, type FacilityLevels } from "@/data/facilities";
 import { DISPATCH, FAME_BY_KIND, QUEST_INFO, getQuest, type DirectQuest, type QuestReward } from "@/data/quests";
 import { FAME, FAME_EFFECT, QUEST_SLOTS, fameRank, fameTier } from "@/data/fame";
 import { clanJoinChance, fixedQuests, isDirect, objectiveDone, questOverdue, resolveDispatch, rewardBlocked, rollBoard, settlementsDue, upkeepCost, type DispatchOutcome, type Tally } from "@/game/quests";
@@ -510,7 +510,7 @@ export function isTown(kind: string): kind is TownPlace {
 }
 
 /** 떠날 때 창고에서 가방에 물자를 챙긴다 (자동: 가방 칸의 절반까지, PACK_ORDER 순서로) */
-export function packFor(stash: Record<SupplyKind, number>, slots = 8): { carried: Record<SupplyKind, number>; left: Record<SupplyKind, number> } {
+export function packFor(stash: Record<SupplyKind, number>, slots = BAG_BASE): { carried: Record<SupplyKind, number>; left: Record<SupplyKind, number> } {
   const carried = autoCarry(stash, slots);
   const left = { ...stash };
   for (const k of PACK_ORDER) left[k] = (left[k] ?? 0) - carried[k];

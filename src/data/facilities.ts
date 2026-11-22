@@ -30,8 +30,8 @@ export const INFIRMARY: Partial<Record<SupplyKind, number>>[] = [{ bandage: 1 },
 export const TRAINING_XP = [0.2, 0.35, 0.5] as const;
 export const NEW_HIRE_DAYS = 20;
 /** 가방: 기본 칸 수, 시설 레벨별 칸 수 */
-export const BAG_BASE = 8;
-export const BAG_SLOTS = [10, 13, 16] as const;
+export const BAG_BASE = 10;
+export const BAG_SLOTS = [12, 14, 16] as const;
 /** 주점 확장: 모집 때 더 오는 용병, 좋은 성격이 잘 나온다(2레벨~), 높은 등급이 잘 나온다(3레벨) */
 export const TAVERN = [
   { extra: 1, goodTemper: false, topBonus: 0 },
@@ -46,7 +46,7 @@ export const FORGE_TIER: MercLevel[] = ["bronze", "silver", "gold", "mithril", "
 export const FACILITIES: Facility[] = [
   { id: "infirmary", name: "의무실", levels: ["원정 출발 때 무료 붕대 1", "붕대 1 + 물약 1", "붕대 2 + 물약 1"], cost: [...FACILITY_COST], grade: FACILITY_GRADE },
   { id: "training", name: "훈련장", levels: ["새로 고용한 용병 경험치 +20%", "+35%", "+50%"], cost: [...FACILITY_COST], grade: FACILITY_GRADE },
-  { id: "bag", name: "가방", levels: ["가방 10칸 (기본 8칸)", "13칸", "16칸"], cost: [...FACILITY_COST], grade: FACILITY_GRADE },
+  { id: "bag", name: "가방", levels: ["가방 12칸 (기본 10칸)", "14칸", "16칸"], cost: [...FACILITY_COST], grade: FACILITY_GRADE },
   { id: "warRoom", name: "전술실", levels: ["만난 보스의 예고 패턴 미리 보기", "+ 보스 약점 정보", "+ 사건 선택지 성공 확률 표시"], cost: [...FACILITY_COST], grade: FACILITY_GRADE },
   { id: "tavern", name: "주점 확장", levels: ["고용 시장 용병 +1명", "+2명, 좋은 성격이 잘 나온다", "+3명, 높은 등급이 잘 나온다"], cost: [...FACILITY_COST], grade: FACILITY_GRADE },
   {

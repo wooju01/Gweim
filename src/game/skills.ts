@@ -198,7 +198,14 @@ function combine(main: MainFragment, subs: SubFragment[], levels: SubLevels, id:
       target = "none";
     }
     if (m.kind === "hits") {
-      effects = effects.map((e) => (e.kind === "damage" && !e.fixed ? { ...scaleDamage(e, m.mult), hits: (e.hits ?? 1) + m.add } : e));
+      // 타격 수 부 조각: 피해는 타격 +, 회복은 횟수 + (한 번의 양은 배율만큼)
+      effects = effects.map((e) =>
+        e.kind === "damage" && !e.fixed
+          ? { ...scaleDamage(e, m.mult), hits: (e.hits ?? 1) + m.add }
+          : e.kind === "heal"
+            ? { ...e, amount: Math.max(1, Math.round(e.amount * m.mult)), hits: (e.hits ?? 1) + m.add }
+            : e,
+      );
     }
   }
 
@@ -481,7 +488,7 @@ export function describeFragment(f: Fragment, lv = 1): string {
         case "area":
           return `적 하나 공격을 모든 적에게 (위력 ×${m.mult})`;
         case "hits":
-          return `타격 +${m.add} (타격마다 위력 ×${m.mult})`;
+          return `타격·회복 횟수 +${m.add} (한 번마다 위력·회복량 ×${m.mult})`;
         case "duration":
           return `거는 효과 지속 +${m.turns}턴`;
         case "effect":

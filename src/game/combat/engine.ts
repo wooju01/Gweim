@@ -1651,16 +1651,20 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
         applyStatus(b, actor, "bind", { self: true });
         break;
       }
-      case "heal":
-        // 한 명 대상 회복을 쓰러진 아군에게: 그 회복량으로 일어난다
+      case "heal": {
+        // 회복 횟수 (연발·연격 같은 부 조각): 한 번의 양은 이미 배율만큼 줄어 있다
+        const times = Math.max(1, e.hits ?? 1);
+        let rest = times;
+        // 한 명 대상 회복을 쓰러진 아군에게: 첫 회복량으로 일어나고, 나머지 횟수는 이어서 회복
         if (!e.who && target && isDowned(target) && target.side === actor.side) {
           revive(b, target, Math.round((e.amount + healPower) * (healMul + (actor.gear?.reviveHeal ?? 0)) * (1 - statusValue(target, "healReduction"))), actor.id, "skill");
-          break;
+          rest -= 1;
         }
         // 기적으로 일으켰으면 아군 전체 회복은 건너뛴다
         if (e.who === "allies" && revived) break;
-        for (const t of recipients(b, actor, target, e.who)) heal(b, t, Math.round((e.amount + healPower) * healMul), actor.id);
+        for (let h = 0; h < rest; h++) for (const t of recipients(b, actor, target, e.who)) heal(b, t, Math.round((e.amount + healPower) * healMul), actor.id);
         break;
+      }
       case "revive": {
         const down = b.units.filter((u) => u.side === actor.side && isDowned(u)).sort((x, y) => (x.downedTurnsLeft ?? 0) - (y.downedTurnsLeft ?? 0))[0];
         if (down) {
@@ -1838,7 +1842,8 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
       }
       case "heal": {
         const t = recipients(b, actor, target, e.who)[0];
-        if (t) out.heal = { target: t.id, amount: Math.min(Math.round(Math.round((e.amount + (actor.power?.faith ?? 0)) * (1 + (actor.gear?.healPower ?? 0))) * (1 - statusValue(t, "healReduction"))), t.maxHp - t.hp) };
+        // 회복 횟수만큼 (모자란 체력까지)
+        if (t) out.heal = { target: t.id, amount: Math.min(Math.round(Math.round((e.amount + (actor.power?.faith ?? 0)) * (1 + (actor.gear?.healPower ?? 0))) * (1 - statusValue(t, "healReduction"))) * Math.max(1, e.hits ?? 1), t.maxHp - t.hp) };
         break;
       }
       case "cure": {

@@ -158,9 +158,9 @@ describe("금화와 상점 (상태)", () => {
 
   it("떠날 때 가방 칸의 절반까지 물자를 챙기고 (한 칸 3개, 물약부터) 나머지는 창고에 남는다", () => {
     const { carried, left } = packFor({ bandage: 8, antidote: 3, potion: 4, greaterPotion: 1 });
-    // 8칸 → 4칸: 중급 물약 1(1칸) + 물약 4(2칸) + 해독제 3(1칸)
-    expect(carried).toEqual({ greaterPotion: 1, potion: 4, antidote: 3, bandage: 0 });
-    expect(left).toEqual({ greaterPotion: 0, potion: 0, antidote: 0, bandage: 8 });
+    // 10칸 → 5칸: 중급 물약 1(1칸) + 물약 4(2칸) + 해독제 3(1칸) + 붕대 3(1칸)
+    expect(carried).toEqual({ greaterPotion: 1, potion: 4, antidote: 3, bandage: 3 });
+    expect(left).toEqual({ greaterPotion: 0, potion: 0, antidote: 0, bandage: 5 });
   });
 
   it("전멸하면 그 원정에서 얻은 금화·유물·물자를 잃는다", () => {
@@ -1162,7 +1162,7 @@ describe("클랜 내실 (상태)", () => {
     s = { ...s, progress: { ...s.progress, ...Object.fromEntries(PARTY4.map((id) => [id, { ...s.progress[id], hired: true }])) } };
     const t = gameReducer(s, { type: "enterDungeon", seed: 1 });
     expect(t.expedition!.supplies).toMatchObject({ bandage: 1, potion: 1 });
-    expect(t.expedition!.bag).toBe(10);
+    expect(t.expedition!.bag).toBe(12);
     expect(t.expedition!.scoutChance).toBe(0.15);
   });
 
@@ -1178,7 +1178,7 @@ describe("클랜 내실 (상태)", () => {
     s = gameReducer({ ...s, expedition: null, screen: { kind: "town" } } as GameState, { type: "enterDungeon", seed: 1 });
     expect(s.expedition!.keys).toEqual(["world_tree_branch"]);
     // 넘치게 채운다
-    const over = { ...s, expedition: { ...s.expedition!, salvage: { soft_pelt: 10 * 8 } } };
+    const over = { ...s, expedition: { ...s.expedition!, salvage: { soft_pelt: 10 * 16 } } };
     expect(gameReducer(over, { type: "endExpedition", seed: 1 })).toBe(over);
     // 열쇠를 버리고, 돌아오면 창고에서도 없다
     let t = gameReducer(s, { type: "discard", item: { kind: "key", id: "world_tree_branch" } });
