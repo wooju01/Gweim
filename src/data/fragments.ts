@@ -131,7 +131,7 @@ export const SUB_CAPS = { power: 0.25, pierce: 0.25, crit: 0.3, flat: 15 } as co
 export const CRAFT_COST = 10;
 
 /**
- * 해금 단계: 동 조각은 처음부터, 은 조각은 길드에 은 등급 이상 용병이 있어야 뚫을 수 있다 (길드 등급 = 고용한 용병 중 최고 등급).
+ * 해금 단계: 동 조각은 처음부터, 은 조각은 길드 등급이 은 이상이어야 뚫을 수 있다 (state.guildGrade, data/guild.ts).
  * 종족 전용 조각(직업+종족)은 모두 은.
  */
 export type UnlockTier = "bronze" | "silver";
