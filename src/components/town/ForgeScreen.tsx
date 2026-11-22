@@ -1,8 +1,10 @@
 import { CURRENCY } from "@/data/economy";
 import { getSalvage } from "@/data/loot";
 import { JOBS } from "@/data/traits";
-import { FORGEABLE, FORGE_DISCOUNT, SURVIVAL_LIMIT, TRINKET_MAX_LV, TRINKET_SLOTS, bonusText, canWear, forgeCost as baseCost, getTrinket, scaleBonus, trinketFits, trinketMaxLv, trinketText, type OwnedTrinket, type Trinket } from "@/data/trinkets";
+import { FORGEABLE, FORGE_DISCOUNT, SURVIVAL_LIMIT, TRINKET_MAX_LV, TRINKET_SLOTS, bonusText, canWear, forgeCost as baseCost, getTrinket, scaleBonus, tierFits, tierForgeable, trinketFits, trinketMaxLv, trinketText, type OwnedTrinket, type Trinket } from "@/data/trinkets";
 import { getBranch } from "@/data/jobs";
+import { RANKS } from "@/data/ranks";
+import { FORGE_TIER } from "@/data/facilities";
 import type { Merc } from "@/game/types";
 import { Button, Portrait } from "@/components/common/parts";
 import type { MercProgress } from "@/game/state/state";
@@ -12,6 +14,8 @@ type Props = {
   day: number;
   gold: number;
   hired: Merc[];
+  /** 대장간 시설 레벨 (만들 수 있는 장비 등급: 0 동, 1 은, 2 금 …) */
+  forgeLevel: number;
   progress: Record<string, MercProgress>;
   salvage: Record<string, number>;
   /** 보관함 (아무도 끼지 않은 장신구) */
@@ -39,7 +43,7 @@ function branchName(job: string, build: string): string {
 }
 
 /** 대장간: 유실물로 직업 전용 장신구를 만들고, 강화하고, 용병에게 낀다 */
-export function ForgeScreen({ day, gold, hired, progress, salvage, trinkets, onForge, onUpgrade, onEquip, onUnequip, discounted, onBack }: Props) {
+export function ForgeScreen({ day, gold, hired, forgeLevel, progress, salvage, trinkets, onForge, onUpgrade, onEquip, onUnequip, discounted, onBack }: Props) {
   const forgeCost = (t: Trinket, lv: number) => {
     const c = baseCost(t, lv);
     return discounted ? { ...c, gold: Math.round(c.gold * (1 - FORGE_DISCOUNT)) } : c;
@@ -69,7 +73,7 @@ export function ForgeScreen({ day, gold, hired, progress, salvage, trinkets, onF
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold">대장간</h1>
         <p className="text-sm text-ash">
-          유실물로 직업 장신구와 생존 장신구를 만든다. 용병마다 두 개까지 낄 수 있고 (같은 장신구 둘은 안 되고, 생존 장신구는 {SURVIVAL_LIMIT}개까지), 강화는 실패하지 않는다 ({TRINKET_MAX_LV}단계까지).{discounted ? ` 지금은 이용료 ${Math.round(FORGE_DISCOUNT * 100)}% 할인 중.` : ""} 장신구를 낀 용병이
+          유실물로 직업 장신구와 생존 장신구를 만든다. 지금 만들 수 있는 장비 등급: {RANKS[FORGE_TIER[forgeLevel] ?? "bronze"].name}까지 (대장간 시설 레벨로 올라간다). 장비 등급은 용병 등급 이하만 낄 수 있다. 용병마다 두 개까지 낄 수 있고 (같은 장신구 둘은 안 되고, 생존 장신구는 {SURVIVAL_LIMIT}개까지), 강화는 실패하지 않는다 ({TRINKET_MAX_LV}단계까지).{discounted ? ` 지금은 이용료 ${Math.round(FORGE_DISCOUNT * 100)}% 할인 중.` : ""} 장신구를 낀 용병이
           죽으면 그 전투를 이겼을 때만 거둬 올 수 있다.
         </p>
       </header>
@@ -82,7 +86,7 @@ export function ForgeScreen({ day, gold, hired, progress, salvage, trinkets, onF
           const full = worn.length >= TRINKET_SLOTS;
           const fits = trinkets
             .map((o, i) => ({ o, i }))
-            .filter(({ o }) => trinketFits(getTrinket(o.id), m.job) && canWear(getTrinket(o.id), full ? worn.slice(1) : worn));
+            .filter(({ o }) => trinketFits(getTrinket(o.id), m.job) && tierFits(getTrinket(o.id), m.level) && canWear(getTrinket(o.id), full ? worn.slice(1) : worn));
           return (
             <div key={m.id} className="flex flex-col gap-2 border-t border-edge/60 pt-2">
               <div className="flex items-start gap-3">
@@ -161,7 +165,7 @@ export function ForgeScreen({ day, gold, hired, progress, salvage, trinkets, onF
           제작 <span className="ml-1 text-xs font-normal text-ash">1단계로 만들어 보관함에 넣는다</span>
         </h2>
         <div className="grid gap-2 sm:grid-cols-2">
-          {[...FORGEABLE()]
+          {[...FORGEABLE().filter((t) => tierForgeable(t, forgeLevel))]
             .sort((a, b) => Number(a.kind === "job") - Number(b.kind === "job") || Number(jobsHired.has(b.job) || b.job === "any") - Number(jobsHired.has(a.job) || a.job === "any"))
             .map((t) => {
               const cost = forgeCost(t, 1);
@@ -173,7 +177,7 @@ export function ForgeScreen({ day, gold, hired, progress, salvage, trinkets, onF
                   <span>
                     <b>{t.name}</b>{" "}
                     <span className="text-ash">
-                      {KIND_NAME[t.kind]} · {t.job === "any" ? "누구나" : `${jobName(t.job)} 전용`}
+                      {RANKS[t.tier].name} 등급 · {KIND_NAME[t.kind]} · {t.job === "any" ? "누구나" : `${jobName(t.job)} 전용`}
                       {t.build ? ` · ${branchName(t.job, t.build)}` : ""}
                     </span>
                   </span>

@@ -35,6 +35,8 @@ import {
   TREASURE_RELIC_CHANCE,
 } from "@/data/economy";
 import { getRelic, rollRelic } from "@/data/relics";
+import { BAG_BASE, STACK } from "@/data/facilities";
+import { PRICE } from "@/data/economy";
 import { XP_GOAL_BONUS, XP_PER_SQUARE } from "@/data/growth";
 import { FIRST_DUNGEON, getDungeon, getRegion, hiddenFrom, recommendedGrade, type Region } from "@/data/regions";
 import type { BossFeat } from "@/game/quests";
@@ -60,6 +62,7 @@ import { BOND } from "@/data/bond";
 import { JOBS } from "@/data/traits";
 import {
   eventEncounter,
+  rollEncounter,
   mercUnit,
   startBattleFrom,
   type Battle,
@@ -186,7 +189,19 @@ export type Expedition = {
   /** 받아 둔 구출 의뢰의 사건 (그 지역 사건 칸에 먼저 나온다) / 이미 나온 것 */
   questEvents?: { eventId: string; regionId: string }[];
   questOffered?: string[];
+  /** 가방 칸 수 (data/facilities.ts의 bagSlots). 없으면 기본 */
+  bag?: number;
+  /** 가방에서 버린 히든 열쇠 (창고에서 가져온 것이면 귀환할 때 창고에서도 사라진다) */
+  keysLost?: KeyItemId[];
+  /** 가방이 꽉 차서 버린 것 (개수, 시뮬레이션·결산용) */
+  discarded?: number;
+  /** 길잡이 능력: 다음 칸의 내용을 미리 알 확률과, 미리 알아 둔 칸 (몬스터 구성·사건) */
+  scoutChance?: number;
+  scouted?: Record<string, Scout>;
 };
+
+/** 길잡이가 미리 알아 둔 칸의 내용. 그 칸에 들어가면 이대로 나온다 */
+export type Scout = { kind: "battle"; enemies: Unit[] } | { kind: "event"; eventId: string };
 
 // ── 시작 ────────────────────────────────────────────────
 
@@ -199,12 +214,14 @@ export function startExpedition(
   keys: KeyItemId[] = [],
   questEvents: { eventId: string; regionId: string }[] = [],
   seenEver: string[] = [],
+  opts: { bag?: number; scoutChance?: number } = {},
 ): Expedition {
   const dungeon = getDungeon(dungeonId) ?? getDungeon(FIRST_DUNGEON)!;
   const region = getRegion(dungeon.entry)!;
   // 1층 첫 칸에는 휴식이 나오지 않는다 (2층부터는 그대로)
   const map = generateMap(seed, cellsOf(region), { noRestFirst: region.depth === 1 });
-  return {
+  // 첫 칸에서 다음 칸들을 살핀다 (길잡이 능력)
+  return scoutAhead({
     map,
     at: map.startId,
     visited: [map.startId],
@@ -246,7 +263,120 @@ export function startExpedition(
     questOffered: [],
     seenEvents: [],
     seenEver: [...seenEver],
-  };
+    bag: opts.bag ?? BAG_BASE,
+    keysLost: [],
+    discarded: 0,
+    scoutChance: opts.scoutChance ?? 0,
+    scouted: {},
+  }, seed);
+}
+
+/** 원정을 시작했다: 첫 칸에서 다음 칸들을 살핀다 (길잡이 능력) */
+export function scoutAhead(exp: Expedition, seed: number): Expedition {
+  const chance = exp.scoutChance ?? 0;
+  const here = nodeById(exp.map, exp.at);
+  if (!here || chance <= 0) return exp;
+  const rng = createRng(seed ^ 0x5c0);
+  const scouted = { ...(exp.scouted ?? {}) };
+  for (const id of here.next) {
+    if (scouted[id] || exp.visited.includes(id)) continue;
+    const node = nodeById(exp.map, id);
+    if (!node || rng.next() >= chance) continue;
+    if (node.kind === "battle" && !node.boss) scouted[id] = { kind: "battle", enemies: rollEncounter(rng, regionOf(exp), 0, exp.floorMods ?? []) };
+    else if (node.kind === "event") {
+      const eventId = pickEvent(Math.floor(rng.next() * 2 ** 31), exp.region, [...(exp.seenEvents ?? []), ...Object.values(scouted).flatMap((x) => (x.kind === "event" ? [x.eventId] : []))], exp.seenEver);
+      scouted[id] = { kind: "event", eventId };
+    }
+  }
+  return { ...exp, scouted };
+}
+
+// ── 가방 ────────────────────────────────────────────────
+// 칸을 차지하는 것: 물자(한 칸 STACK.supply개), 재료·유실물(한 칸 STACK.item개), 유물·히든 열쇠(한 칸에 하나). 금화·장신구는 칸이 없다
+
+/** 가방에 든 것 한 줄 (가방 창) */
+export type BagItem = { kind: "supply" | "salvage" | "relic" | "key"; id: string; n: number; slots: number; value: number };
+
+/** 가방에 든 히든 열쇠 (창고에서 가져온 것 + 이번에 찾은 것) */
+export function bagKeys(exp: Expedition): KeyItemId[] {
+  return [...(exp.keys ?? []), ...(exp.keyFound ?? [])];
+}
+
+export function bagItems(exp: Expedition): BagItem[] {
+  const out: BagItem[] = [];
+  for (const [k, n] of Object.entries(exp.supplies) as [SupplyKind, number][])
+    if (n > 0) out.push({ kind: "supply", id: k, n, slots: Math.ceil(n / STACK.supply), value: n * (PRICE[k] ?? 0) });
+  for (const [id, n] of Object.entries(exp.salvage ?? {}))
+    if (n > 0) out.push({ kind: "salvage", id, n, slots: Math.ceil(n / STACK.item), value: n * (getSalvage(id)?.value ?? 0) });
+  const relics: Record<string, number> = {};
+  for (const id of exp.loot) relics[id] = (relics[id] ?? 0) + 1;
+  for (const [id, n] of Object.entries(relics)) out.push({ kind: "relic", id, n, slots: n, value: n * (getRelic(id)?.value ?? 0) });
+  for (const id of bagKeys(exp)) out.push({ kind: "key", id, n: 1, slots: 1, value: 0 });
+  return out;
+}
+
+export function bagUsed(exp: Expedition): number {
+  return bagItems(exp).reduce((s, x) => s + x.slots, 0);
+}
+
+/** 가방이 넘쳤다 (버릴 것을 고르기 전에는 움직일 수 없다) */
+export function bagOver(exp: Expedition): boolean {
+  return bagUsed(exp) > (exp.bag ?? BAG_BASE);
+}
+
+/** 가방에서 n개를 버린다 (히든 열쇠를 버리면 사라진다). 버릴 수 없으면 null */
+export function discardItem(exp: Expedition, item: { kind: BagItem["kind"]; id: string; n?: number }): Expedition | null {
+  const n = Math.max(1, item.n ?? 1);
+  const count = { ...exp, discarded: (exp.discarded ?? 0) + n };
+  switch (item.kind) {
+    case "supply": {
+      const k = item.id as SupplyKind;
+      if ((exp.supplies[k] ?? 0) < n) return null;
+      return { ...count, supplies: { ...exp.supplies, [k]: exp.supplies[k] - n } };
+    }
+    case "salvage": {
+      const have = exp.salvage?.[item.id] ?? 0;
+      if (have < n) return null;
+      const salvage = { ...exp.salvage, [item.id]: have - n };
+      if (salvage[item.id] <= 0) delete salvage[item.id];
+      return { ...count, salvage };
+    }
+    case "relic": {
+      const loot = [...exp.loot];
+      for (let i = 0; i < n; i++) {
+        const at = loot.indexOf(item.id);
+        if (at < 0) return null;
+        loot.splice(at, 1);
+      }
+      return { ...count, loot };
+    }
+    case "key": {
+      const id = item.id as KeyItemId;
+      if (exp.keyFound?.includes(id)) return { ...count, discarded: (exp.discarded ?? 0) + 1, keyFound: exp.keyFound.filter((k) => k !== id) };
+      if (!exp.keys?.includes(id)) return null;
+      return { ...count, discarded: (exp.discarded ?? 0) + 1, keys: exp.keys.filter((k) => k !== id), keysLost: [...(exp.keysLost ?? []), id] };
+    }
+  }
+}
+
+/** 자동 정리 (시뮬레이션): 가방이 넘치면 한 칸씩, 그 칸의 가치가 가장 낮은 것부터 버린다 (히든 열쇠·전수관 재료는 마지막) */
+export function autoDiscard(exp: Expedition): Expedition {
+  let next = exp;
+  for (let guard = 0; guard < 100 && bagOver(next); guard++) {
+    const items = bagItems(next).filter((x) => x.kind !== "key");
+    if (!items.length) break;
+    const worth = (x: BagItem) => {
+      const unit = x.value / x.n;
+      const sal = x.kind === "salvage" ? getSalvage(x.id) : undefined;
+      // 교본·종족 유물·보스 증표는 값이 0이지만 귀하다
+      const precious = sal && (sal.kind === "book" || sal.kind === "raceRelic" || sal.kind === "bossToken") ? 1000 : 0;
+      const n = x.kind === "relic" ? 1 : x.n % (x.kind === "supply" ? STACK.supply : STACK.item) || (x.kind === "supply" ? STACK.supply : STACK.item);
+      return { n: Math.min(n, x.n), cost: (unit + precious) * Math.min(n, x.n) };
+    };
+    const pick = items.map((x) => ({ x, ...worth(x) })).sort((a, b) => a.cost - b.cost)[0];
+    next = discardItem(next, { kind: pick.x.kind, id: pick.x.id, n: pick.n }) ?? next;
+  }
+  return next;
 }
 
 /** 용병이 낀 원소 (스킬의 원소 부 조각 + 원소술사의 원소) */
@@ -308,7 +438,8 @@ export const REVIVE_HP = 1;
 // ── 이동 ────────────────────────────────────────────────
 
 export function canMove(exp: Expedition, nodeId: string): boolean {
-  if (exp.room) return false;
+  // 가방이 넘치면 버릴 것을 먼저 고른다
+  if (exp.room || bagOver(exp)) return false;
   return nodeById(exp.map, exp.at)?.next.includes(nodeId) ?? false;
 }
 
@@ -342,7 +473,9 @@ export const EVENT_NEW_WEIGHT = 1.5;
  */
 export function hiddenEventFor(exp: Expedition): Region | undefined {
   if (exp.hiddenOffered || exp.hiddenNext) return undefined;
-  return hiddenFrom(regionOf(exp).id).find((r) => exp.keys?.includes(r.hidden!.keyItem));
+  // 열쇠가 가방에 있어야 한다 (창고에 두고 오면 나오지 않는다)
+  const keys = bagKeys(exp);
+  return hiddenFrom(regionOf(exp).id).find((r) => keys.includes(r.hidden!.keyItem));
 }
 
 /** 권장 등급별로 경험치를 쌓는다 */
@@ -376,6 +509,18 @@ export function moveTo(
   seed: number,
   bonds: Record<string, Stage> = {},
 ): { exp: Expedition; battle: Battle | null; kind: RoomKind } | null {
+  const moved = enterNode(exp, mercs, nodeId, seed, bonds);
+  // 들어선 칸에서 다음 칸들을 살핀다 (길잡이 능력)
+  return moved && { ...moved, exp: scoutAhead(moved.exp, seed) };
+}
+
+function enterNode(
+  exp: Expedition,
+  mercs: Merc[],
+  nodeId: string,
+  seed: number,
+  bonds: Record<string, Stage>,
+): { exp: Expedition; battle: Battle | null; kind: RoomKind } | null {
   if (!canMove(exp, nodeId)) return null;
   const node = nodeById(exp.map, nodeId)!;
   const next: Expedition = structuredClone({
@@ -388,8 +533,9 @@ export function moveTo(
 
   switch (node.kind) {
     case "battle": {
-      // 사건으로 끼어든 칸: 정해진 보스 (보상 배율)
-      const battle = battleFor(next, mercs, seed, bonds, node.boss);
+      // 사건으로 끼어든 칸: 정해진 보스 (보상 배율). 길잡이가 미리 본 칸이면 본 그대로
+      const seen = next.scouted?.[nodeId];
+      const battle = battleFor(next, mercs, seed, bonds, node.boss, 0, undefined, seen?.kind === "battle" ? seen.enemies : undefined);
       if (node.rewardMul) next.rewardMul = node.rewardMul;
       return { exp: spendBattleMods(next), battle, kind: node.kind };
     }
@@ -411,7 +557,8 @@ export function moveTo(
         next.hiddenOffered = true;
         next.room = { kind: "event", eventId: hidden.hidden!.event, result: null };
       } else {
-        const id = pickEvent(seed, next.region, next.seenEvents, next.seenEver);
+        const seen = next.scouted?.[nodeId];
+        const id = seen?.kind === "event" ? seen.eventId : pickEvent(seed, next.region, next.seenEvents, next.seenEver);
         next.seenEvents = [...(next.seenEvents ?? []), id];
         next.room = { kind: "event", eventId: id, result: null };
       }
@@ -470,7 +617,7 @@ export function descend(exp: Expedition, seed: number, regionId: string): Expedi
   const region = nextRegions(exp).find((r) => r.id === regionId);
   if (!region) return null;
   const map = generateMap(seed, cellsOf(region));
-  return {
+  return scoutAhead({
     ...exp,
     xp: expeditionXp(exp),
     walked: (exp.walked ?? 0) + exp.visited.length - 1,
@@ -487,9 +634,10 @@ export function descend(exp: Expedition, seed: number, regionId: string): Expedi
     goal: planGoal(region, seed),
     hiddenOffered: false,
     hiddenNext: undefined,
+    scouted: {},
     // 히든 층에 들어가면 그 열쇠를 쓴다
     ...(region.hidden ? { keyUsed: region.hidden.keyItem } : {}),
-  };
+  }, seed);
 }
 
 /** 휴식 칸에서 한 명과 이야기했다고 표시한다 (휴식마다 한 번) */
@@ -538,6 +686,8 @@ export function battleFor(
   boss?: string,
   elites = 0,
   event?: { monsters: string[]; elites?: number },
+  /** 길잡이가 미리 본 적 구성 (그대로 나온다) */
+  preset?: Unit[],
 ): Battle {
   const units: Unit[] = alive(exp).flatMap((m) => {
     const merc = mercs.find((x) => x.id === m.id);
@@ -570,7 +720,7 @@ export function battleFor(
     boss,
     elites: elites + extraElite,
     floorMods: mods,
-    ...(event ? { enemies: eventEncounter(event.monsters, regionOf(exp), event.elites ?? 0, createRng(seed ^ 0xe7e)) } : {}),
+    ...(preset ? { enemies: structuredClone(preset) } : event ? { enemies: eventEncounter(event.monsters, regionOf(exp), event.elites ?? 0, createRng(seed ^ 0xe7e)) } : {}),
     // 기습: 기습당한 쪽이 첫 차례를 쉰다 (전투를 시작하기 전에 건다)
     ambush: exp.nextBattle === "ambush" ? "enemy" : exp.nextBattle === "enemyAmbush" && !mods.some((m) => m.mode === "noAmbush") ? "merc" : undefined,
   });

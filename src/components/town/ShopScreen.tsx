@@ -1,5 +1,5 @@
 import { SUPPLY, type SupplyKind } from "@/data/combat";
-import { CURRENCY, MATERIAL_SHOP, PACK_LIMIT, PRICE, materialPrice, storageCaps, storageCost } from "@/data/economy";
+import { CURRENCY, MATERIAL_SHOP, PRICE, materialPrice, storageCaps, storageCost } from "@/data/economy";
 import { getRelic } from "@/data/relics";
 import { getSalvage, sellable } from "@/data/loot";
 import { Button } from "@/components/common/parts";
@@ -46,7 +46,7 @@ export function ShopScreen({ day, gold, pack, stock, relics, salvage, onBuy, onS
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold">상점</h1>
         <p className="text-sm text-ash">
-          재고는 원정에서 돌아올 때마다 새로 들어온다. 산 물자는 창고(물자 {caps.supply}개까지)에 두고, 떠날 때 {PACK_LIMIT}개까지 챙긴다 (물약부터).
+          재고는 원정에서 돌아올 때마다 새로 들어온다. 산 물자는 창고(물자 {caps.supply}개까지)에 두고, 떠날 때 던전 입구에서 가방에 챙긴다.
           재료·유실물은 종류별 {caps.item}개까지.
         </p>
       </header>

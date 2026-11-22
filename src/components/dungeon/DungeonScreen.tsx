@@ -5,7 +5,7 @@ import { ROOM_NAME, type RoomKind } from "@/data/dungeon";
 import { KEY_ITEMS } from "@/data/keyItems";
 import { getMonster } from "@/data/monsters";
 import { stageName } from "@/data/ranks";
-import { getEvent, type Approach } from "@/data/events";
+import { choiceSuccess, getEvent, type Approach } from "@/data/events";
 import { CURRENCY } from "@/data/economy";
 import { getRelic } from "@/data/relics";
 import { getTrinket } from "@/data/trinkets";
@@ -13,7 +13,8 @@ import { KIND_LABEL, UNSELLABLE_KINDS, addSalvage, carriedValue, salvageCount } 
 import { getQuest } from "@/data/quests";
 import { objectiveProgress } from "@/game/quests";
 import { objectiveText } from "@/components/town/BoardScreen";
-import { alive, bossWarning, canDescend, canMove, nextRegions, regionOf, choiceProblem, helperFor, supplyProblem, type Expedition, type Member } from "@/game/dungeon/expedition";
+import { alive, bagOver, bagUsed, bossWarning, canDescend, canMove, nextRegions, regionOf, choiceProblem, helperFor, supplyProblem, type BagItem, type Expedition, type Member } from "@/game/dungeon/expedition";
+import { BagModal } from "./BagModal";
 import { getStage } from "@/game/merc/affinity";
 import type { MercProgress, RestTalk } from "@/game/state/state";
 import { byStep, mapLength, type MapNode } from "@/game/dungeon/map";
@@ -46,6 +47,10 @@ type Props = {
   /** 받은 직접 의뢰와 창고의 유실물 (수집 진행 표시) */
   activeQuests: string[];
   homeSalvage: Record<string, number>;
+  /** 가방에서 버리기 */
+  onDiscard: (item: { kind: BagItem["kind"]; id: string; n?: number }) => void;
+  /** 전술실 레벨 (3레벨: 사건 선택지 성공 확률) */
+  warRoom: number;
 };
 
 const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion"];
@@ -62,7 +67,10 @@ const KIND_STYLE: Record<RoomKind, string> = {
 export function DungeonScreen(props: Props) {
   const { exp, reactions, onMove, onGive, onEnd, progress } = props;
   const [item, setItem] = useState<SupplyKind | null>(null);
+  const [bagOpen, setBagOpen] = useState(false);
   const over = exp.room?.kind === "goal" || exp.room?.kind === "defeat";
+  // 가방이 넘치면 가방 창이 저절로 열린다 (버릴 것을 골라야 움직일 수 있다)
+  const overflow = bagOver(exp) && exp.room?.kind !== "defeat";
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 px-4 py-8 sm:px-8">
@@ -77,6 +85,9 @@ export function DungeonScreen(props: Props) {
         </div>
         <div className="flex items-center gap-3">
           <CarriedLoot exp={exp} />
+          <Button className={`!px-3 !py-1 text-xs ${overflow ? "!border-blood text-blood" : ""}`} onClick={() => setBagOpen(true)} title="가방에 든 것을 보고 버린다">
+            가방 {bagUsed(exp)} / {exp.bag ?? 8}
+          </Button>
           {!over && (
             <Button variant="danger" onClick={onEnd} title="지금까지 얻은 것을 들고 돌아간다">
               후퇴한다
@@ -108,6 +119,8 @@ export function DungeonScreen(props: Props) {
           })}
         </p>
       )}
+
+      {(bagOpen || overflow) && <BagModal exp={exp} onDiscard={props.onDiscard} onClose={() => setBagOpen(false)} />}
 
       <DungeonMap exp={exp} onMove={onMove} />
 
@@ -169,6 +182,21 @@ export function DungeonScreen(props: Props) {
 }
 
 /** 단계를 가로로, 갈림길을 세로로 놓은 맵. 이어진 칸은 선으로 잇는다 */
+/** 길잡이가 미리 본 칸의 내용 (지도 칸에 마우스를 올리면) */
+function scoutText(exp: Expedition, nodeId: string): string | undefined {
+  const s = exp.scouted?.[nodeId];
+  if (!s) return undefined;
+  if (s.kind === "event") return `길잡이가 미리 봤다: 사건 「${getEvent(s.eventId)?.title ?? s.eventId}」`;
+  const count: Record<string, number> = {};
+  for (const u of s.enemies) {
+    const key = `${u.elite ? "정예 " : ""}${getMonster(u.kind ?? "")?.name ?? u.name}`;
+    count[key] = (count[key] ?? 0) + 1;
+  }
+  return `길잡이가 미리 봤다: ${Object.entries(count)
+    .map(([k, n]) => (n > 1 ? `${k} ×${n}` : k))
+    .join(", ")}`;
+}
+
 function DungeonMap({ exp, onMove }: { exp: Expedition; onMove: (id: string) => void }) {
   const steps = byStep(exp.map);
   const pos = (n: MapNode) => {
@@ -221,7 +249,15 @@ function DungeonMap({ exp, onMove }: { exp: Expedition; onMove: (id: string) => 
             disabled={!reachable}
             onClick={() => onMove(n.id)}
             style={{ left: `${x}%`, top: `${y}%` }}
-            title={strong ? "강한 적의 기척이 느껴진다 (정예)" : lair ? "이 층의 우두머리가 기다린다" : goal?.kind === "treasure" ? "무언가 숨겨져 있는 것 같다" : undefined}
+            title={
+              strong
+                ? "강한 적의 기척이 느껴진다 (정예)"
+                : lair
+                  ? "이 층의 우두머리가 기다린다"
+                  : goal?.kind === "treasure"
+                    ? "무언가 숨겨져 있는 것 같다"
+                    : scoutText(exp, n.id)
+            }
             className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-sm border bg-panel px-1.5 py-1 text-[11px] transition-all sm:px-2 sm:text-xs ${strong || lair ? "border-blood text-blood font-bold" : KIND_STYLE[n.kind]} ${
               here
                 ? "ring-2 ring-ember"
@@ -233,6 +269,7 @@ function DungeonMap({ exp, onMove }: { exp: Expedition; onMove: (id: string) => 
             }`}
           >
             {strong ? "강한 기척" : lair ? "우두머리" : ROOM_NAME[n.kind]}
+            {exp.scouted?.[n.id] && !visited.has(n.id) && <span className="ml-0.5 text-frost">👁</span>}
           </button>
         );
       })}
@@ -247,7 +284,7 @@ const APPROACH: Partial<Record<Approach, { name: string; style: string }>> = {
   risk: { name: "위험", style: "bg-blood/20 text-blood" },
 };
 
-function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, onDescend, explored, conquered, restTalk, onRestTalk, onRestReply, progress }: Props) {
+function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, onDescend, explored, conquered, restTalk, onRestTalk, onRestReply, progress, warRoom }: Props) {
   const bonds = Object.fromEntries(Object.entries(progress).map(([id, p]) => [id, getStage(p.affinity)]));
   const room = exp.room!;
   const box = "flex flex-col items-start gap-3 rounded-sm border p-4";
@@ -416,6 +453,8 @@ function RoomPanel({ exp, narration, reactions, onChoose, onLeaveRoom, onEnd, on
                             [
                               c.consumes && `${Object.entries(c.consumes).map(([k, n]) => `${SUPPLY[k as SupplyKind].name} -${n}`).join(", ")}`,
                               helper && `${helper.name}이(가) 나선다`,
+                              // 전술실 3레벨: 성공 확률
+                              warRoom >= 3 && choiceSuccess(c) !== null && `성공 ${Math.round(choiceSuccess(c)! * 100)}%`,
                             ]
                               .filter(Boolean)
                               .join(" · ")}

@@ -147,6 +147,8 @@ export const RecruitRequest = z.object({
   guildGrade: MercLevel.default("bronze"),
   /** 명성: 좋은 등급 용병이 나올 확률 (data/fame.ts) */
   fame: z.number().min(0).default(0),
+  /** 주점 확장 레벨 (data/facilities.ts의 TAVERN): 더 많이, 좋은 성격·높은 등급이 잘 온다 */
+  tavern: z.number().int().min(0).max(3).default(0),
 });
 export type RecruitRequest = z.infer<typeof RecruitRequest>;
 

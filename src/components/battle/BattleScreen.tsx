@@ -7,6 +7,7 @@ import {
   currentActor,
   isDowned,
   passiveNote,
+  resistOf,
   previewAction,
   skillDef,
   statOf,
@@ -39,6 +40,9 @@ type Props = {
   onFlee?: () => void;
   /** 이겼을 때 얻는 것 (금화·유실물·장신구 한 줄씩) */
   spoils?: string[];
+  /** 전술실 레벨과 전에 만난 보스 (1레벨: 예고 패턴, 2레벨: 약점) */
+  warRoom?: number;
+  bossesMet?: string[];
 };
 
 const BOND: Record<Stage, { name: string; style: string }> = {
@@ -198,7 +202,7 @@ function motionFor(unitId: string, e: BattleEvent | null): string {
   }
 }
 
-export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee, spoils }: Props) {
+export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee, spoils, warRoom = 0, bossesMet = [] }: Props) {
   const [speed, setSpeed] = useState(1);
   const play = usePlayback(battle, speed);
   const hp = displayedHp(battle, play.shown);
@@ -671,7 +675,7 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
           )}
           <div className="flex flex-col gap-1.5 rounded-sm border border-blood/30 bg-panel p-3">
             {foe ? (
-              <FoeStats unit={foe} hp={hp[foe.id]} preview={preview} battle={battle} />
+              <FoeStats unit={foe} hp={hp[foe.id]} preview={preview} battle={battle} intel={foe.kind && bossesMet.includes(foe.kind) ? warRoom : 0} />
             ) : (
               <p className="text-xs text-ash">상대 · 무대의 적에게 마우스를 올리면 그 적의 정보가 보인다.</p>
             )}
@@ -821,7 +825,38 @@ function Figure({
 }
 
 /** 상대(적) 정보와, 겨눈 스킬의 미리보기 */
-function FoeStats({ unit, hp, preview, battle }: { unit: Unit; hp: number; preview: ActionPreview | null; battle: Battle }) {
+/** 전술실: 전에 만난 보스의 패턴(1레벨)과 약점(2레벨) */
+function BossIntel({ unit, level }: { unit: Unit; level: number }) {
+  if (level <= 0 || (unit.rank !== "floorBoss" && unit.rank !== "dungeonBoss")) return null;
+  const skills = (unit.skills ?? []).map((id) => getSkill(id)).filter((x): x is NonNullable<typeof x> => !!x);
+  const weak: string[] = [];
+  if (level >= 2) {
+    weak.push(`기절 저항 ${pct(Math.max(0, resistOf(unit, "stun")))}`);
+    weak.push(`출혈 저항 ${pct(Math.max(0, resistOf(unit, "bleed")))}`);
+    weak.push(`중독 저항 ${pct(Math.max(0, resistOf(unit, "poison")))}`);
+    if ((unit.abilities ?? []).some((a) => a.kind === "regen")) weak.push("재생: 불에 그을리거나 피를 흘리면 막힌다");
+    if ((unit.evadeBonus ?? 0) > 0) weak.push(`회피 ${pct(unit.evadeBonus ?? 0)} (명중 보정이 도움된다)`);
+  }
+  return (
+    <div className="rounded-sm border border-frost/40 px-2.5 py-1.5 text-frost">
+      <p className="font-bold">전술실 기록</p>
+      {skills.length === 0 ? (
+        <p>예고하는 기술이 없다.</p>
+      ) : (
+        skills.map((sk) => (
+          <p key={sk.id}>
+            {sk.telegraph ? "⚠ " : ""}
+            {sk.name} <span className="text-bone/70">{sk.description}</span>
+            {sk.cooldown > 0 ? <span className="text-ash"> · 대기 {sk.cooldown}턴</span> : null}
+          </p>
+        ))
+      )}
+      {weak.length > 0 && <p className="text-bone/80">약점 정보: {weak.join(" · ")}</p>}
+    </div>
+  );
+}
+
+function FoeStats({ unit, hp, preview, battle, intel = 0 }: { unit: Unit; hp: number; preview: ActionPreview | null; battle: Battle; intel?: number }) {
   const stats = unitStats(unit);
   const p = preview?.damage.find((d) => d.target === unit.id);
   const applies = preview?.applies.filter((a) => a.target === unit.id) ?? [];
@@ -839,6 +874,7 @@ function FoeStats({ unit, hp, preview, battle }: { unit: Unit; hp: number; previ
         <p>
           공격 {stats.attack[0]}~{stats.attack[1]} · 방어 {stats.defense} (받는 피해 -{pct(stats.damageReduction)}) · 속도 {stats.speed} · 회피 {pct(stats.evadeChance)}
         </p>
+        <BossIntel unit={unit} level={intel} />
         {unit.charging && (
           <p className="font-bold text-blood">
             ⚠ 준비 중: {getSkill(unit.charging.skill)?.name}

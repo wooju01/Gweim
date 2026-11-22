@@ -2,15 +2,15 @@
 // (목적지 전 후퇴는 귀환길 습격 판정, 습격 전투는 끝까지 싸운다)
 import { type SupplyKind } from "@/data/combat";
 import { getEvent } from "@/data/events";
-import { alive, battleFor, retreatAmbush, battleSpoils, canDescend, chooseEvent, choiceAvailable, descend, finishBattle, leaveRoom, moveTo, startExpedition, type Expedition } from "@/game/dungeon/expedition";
+import { alive, autoDiscard, bagOver, battleFor, retreatAmbush, battleSpoils, canDescend, chooseEvent, choiceAvailable, descend, finishBattle, leaveRoom, moveTo, startExpedition, type Expedition } from "@/game/dungeon/expedition";
 import { nodeById } from "@/game/dungeon/map";
 import type { Merc } from "@/game/types";
 import { fight, patchUp, pickNext, ROUTES } from "./lib";
 
 const KINDS: SupplyKind[] = ["bandage", "antidote", "potion", "greaterPotion"];
 
-/** bossDeaths: 목적지(보스·정예) 전투에서 죽은 수 */
-export type Result = { ok: boolean; exp: Expedition; used: Record<SupplyKind, number>; retreated: boolean; ambushed: boolean; ambushDeaths: number; bossDeaths: number };
+/** bossDeaths: 목적지(보스·정예) 전투에서 죽은 수, discarded: 가방이 꽉 차서 버린 개수 */
+export type Result = { ok: boolean; exp: Expedition; used: Record<SupplyKind, number>; retreated: boolean; ambushed: boolean; ambushDeaths: number; bossDeaths: number; discarded: number };
 export type Pack = Record<SupplyKind, number>;
 export const PACKS: Record<string, Pack> = {
   "8": { bandage: 4, antidote: 2, potion: 2, greaterPotion: 0 },
@@ -18,19 +18,26 @@ export const PACKS: Record<string, Pack> = {
 };
 
 /** 원정 하나. retreat: 파티 체력 35% 이하이거나 이번 전투에서 쓰러진 용병이 나오면 맵에서 후퇴 (목적지 전이면 귀환길 습격 판정) */
-export function run(p: Merc[], depth: number, seed: number, retreat: boolean, pack: Pack): Result {
+/** opts.bag: 가방 칸 (기본 8), opts.scout: 길잡이 능력 확률 (기본 0). 가방이 넘치면 가치가 낮은 칸부터 자동으로 버린다 */
+export function run(p: Merc[], depth: number, seed: number, retreat: boolean, pack: Pack, opts: { bag?: number; scout?: number } = {}): Result {
   const route = ROUTES[seed % ROUTES.length].slice(0, depth);
   let s = seed * 7919 + 1;
   const ns = () => (s = (s * 48271) % 2147483647);
-  let exp: Expedition = startExpedition(p, ns(), { ...pack });
+  let exp: Expedition = startExpedition(p, ns(), { ...pack }, undefined, [], [], [], { bag: opts.bag, scoutChance: opts.scout });
   const used: Record<SupplyKind, number> = { bandage: 0, antidote: 0, potion: 0, greaterPotion: 0 };
   const spend = (before: Record<SupplyKind, number>, after: Record<SupplyKind, number>) => {
     for (const k of KINDS) if (before[k] > after[k]) used[k] += before[k] - after[k];
   };
   let bossDeaths = 0;
-  const done = (ok: boolean, retreated = false, ambushed = false, ambushDeaths = 0): Result => ({ ok, exp, used, retreated, ambushed, ambushDeaths, bossDeaths });
+  const done = (ok: boolean, retreated = false, ambushed = false, ambushDeaths = 0): Result => {
+    // 돌아가기 전에도 가방은 넘칠 수 없다
+    if (ok && bagOver(exp)) exp = autoDiscard(exp);
+    return { ok, exp, used, retreated, ambushed, ambushDeaths, bossDeaths, discarded: exp.discarded ?? 0 };
+  };
   let floor = 0;
   for (let guard = 0; guard < 600; guard++) {
+    // 가방이 넘치면 가치가 낮은 칸부터 버린다
+    if (bagOver(exp)) exp = autoDiscard(exp);
     const b0 = { ...exp.supplies };
     exp = patchUp(exp);
     spend(b0, exp.supplies);

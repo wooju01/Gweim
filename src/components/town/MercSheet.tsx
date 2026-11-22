@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { STAT_NAME, STAT_ORDER, nextPointGain, type StatKey } from "@/data/growth";
 import { getPassive } from "@/data/passives";
 import { RANKS, rankLabel } from "@/data/ranks";
-import { TRINKET_SLOTS, canWear, getTrinket, trinketFits, trinketText, trinketsBonus, type OwnedTrinket } from "@/data/trinkets";
+import { TRINKET_SLOTS, canWear, getTrinket, tierFits, trinketFits, trinketText, trinketsBonus, type OwnedTrinket } from "@/data/trinkets";
 import { CURRENCY } from "@/data/economy";
 import { mercUnit, resistOf, unitStats } from "@/game/combat/engine";
 import { getStage } from "@/game/merc/affinity";
@@ -64,7 +64,7 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
   const need = xpToNext(p.lv);
   const worn = p.trinkets;
   const full = worn.length >= TRINKET_SLOTS;
-  const fits = trinkets.map((t, index) => ({ t, index, def: getTrinket(t.id) })).filter((x) => trinketFits(x.def, merc.job) && canWear(x.def, full ? worn.slice(1) : worn));
+  const fits = trinkets.map((t, index) => ({ t, index, def: getTrinket(t.id) })).filter((x) => trinketFits(x.def, merc.job) && tierFits(x.def, merc.level) && canWear(x.def, full ? worn.slice(1) : worn));
   const steel = merc.passives?.includes("steel_heart");
 
   return (

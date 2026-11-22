@@ -12,7 +12,8 @@ import { nodeById } from "@/game/dungeon/map";
 import { getStage } from "@/game/merc/affinity";
 import { DialogueScreen } from "@/components/dialogue/DialogueScreen";
 import { GuildScreen } from "@/components/guild/GuildScreen";
-import { entryId, forgeDiscounted, gameReducer, questSlots, shopPrice, guildPromotionBlocks, hiredCount, promotionBlocks, initialState, mercOf, type TownPlace } from "@/game/state/state";
+import { canHire, entryId, facilityBlock, facilitySlots, forgeDiscounted, gameReducer, questSlots, shopPrice, guildPromotionBlocks, hiredCount, promotionBlocks, initialState, mercOf, type TownPlace } from "@/game/state/state";
+import { FACILITIES, bagSlots, type FacilityId } from "@/data/facilities";
 import { GateScreen } from "@/components/town/GateScreen";
 import { ReportScreen } from "@/components/town/ReportScreen";
 import { YardScreen } from "@/components/town/YardScreen";
@@ -30,7 +31,7 @@ import { ShopScreen } from "@/components/town/ShopScreen";
 import { TownScreen } from "@/components/town/TownScreen";
 import { MercSheet } from "@/components/town/MercSheet";
 import { BoardScreen } from "@/components/town/BoardScreen";
-import { ROSTER_LIMIT } from "@/data/clan";
+import { CLAN_MEMBER_LIMIT, GUEST_ROOMS, INN_LIMIT } from "@/data/clan";
 import { clanJoinChance } from "@/game/quests";
 import { createRng } from "@/game/random";
 import { clearSave, loadGame, saveGame } from "@/game/state/save";
@@ -187,23 +188,26 @@ export function Game() {
 
   // 의뢰 보상 "용병 합류": 모집 API로 동 등급 한 명을 만들어 고용비 없이 합류시킨다
   const joining = useRef(false);
+  const hireRoom = canHire(state);
   useEffect(() => {
-    if (!state.booted || state.pendingJoins <= 0 || joining.current) return;
+    // 자리가 있을 때만 (숙소 6명, 클랜 본부 객실 4칸)
+    if (!state.booted || state.pendingJoins <= 0 || joining.current || !hireRoom) return;
     joining.current = true;
-    postRecruit({ count: 1, avoidNames: state.roster.map((e) => mercOf(e).name), guildGrade: "bronze", fame: 0 })
+    postRecruit({ count: 1, avoidNames: state.roster.map((e) => mercOf(e).name), guildGrade: "bronze", fame: 0, tavern: 0 })
       .then((res) => dispatch({ type: "joinedFree", seeds: res.seeds }))
       .catch(() => {})
       .finally(() => {
         joining.current = false;
       });
-  }, [state.booted, state.pendingJoins, state.roster]);
+  }, [state.booted, state.pendingJoins, state.roster, hireRoom]);
 
   async function recruit() {
     if (state.recruit.pending) return;
     dispatch({ type: "recruitStart" });
     try {
       const avoidNames = state.roster.map((e) => mercOf(e).name);
-      const res = await postRecruit({ avoidNames, guildGrade: state.guildGrade, fame: state.fame });
+      // 주점 확장: 더 많이, 좋은 성격·높은 등급이 잘 온다
+      const res = await postRecruit({ avoidNames, guildGrade: state.guildGrade, fame: state.fame, tavern: state.facilities.tavern ?? 0 });
       dispatch({ type: "recruited", seeds: res.seeds });
     } catch (e) {
       dispatch({ type: "recruitFailed", error: e instanceof Error ? e.message : String(e) });
@@ -302,6 +306,8 @@ export function Game() {
         leaveLabel={state.expedition ? { victory: "계속 나아간다", defeat: "결과를 본다" } : undefined}
         bonds={Object.fromEntries(state.party.map((id) => [id, getStage(state.progress[id]?.affinity ?? 0)]))}
         onFlee={state.expedition ? () => void leaveBattle(true) : undefined}
+        warRoom={state.facilities.warRoom ?? 0}
+        bossesMet={state.bossesMet}
         spoils={
           state.expedition && state.screen.battle.outcome === "victory"
             ? battleSpoils(finishBattle(state.expedition, state.screen.battle), state.screen.battle, state.screen.battle.rng).lines
@@ -323,6 +329,8 @@ export function Game() {
         onGive={(item, target) => dispatch({ type: "giveSupply", item, target })}
         onEnd={() => dispatch({ type: "endExpedition", seed: roll() })}
         onDescend={(region) => dispatch({ type: "descend", seed: roll(), region })}
+        onDiscard={(item) => dispatch({ type: "discard", item })}
+        warRoom={state.facilities.warRoom ?? 0}
         explored={state.explored}
         conquered={state.conquered}
         omenLines={omen?.at === state.expedition.at ? omen.lines : []}
@@ -351,7 +359,7 @@ export function Game() {
           merc={mercOf(entry)}
           screen={state.screen}
           progress={state.progress[state.screen.mercId]}
-          partyFull={hiredCount(state) >= ROSTER_LIMIT}
+          partyFull={!state.progress[state.screen.mercId]?.hired && !canHire(state)}
           onAct={act}
           onLeave={() => dispatch({ type: "leave" })}
           gold={state.gold}
@@ -439,6 +447,8 @@ export function Game() {
           day={state.day}
           gold={state.gold}
           hired={hired.length}
+          limit={state.home === "clanHall" ? `${CLAN_MEMBER_LIMIT} + 객실 ${GUEST_ROOMS}` : `${INN_LIMIT}`}
+          canHire={canHire(state)}
           guildGrade={state.guildGrade}
           guildPromotion={guildPromotionBlocks(state)}
           onPromoteGuild={() => dispatch({ type: "promoteGuild" })}
@@ -497,6 +507,16 @@ export function Game() {
           onTalkEnd={() => dispatch({ type: "homeTalkEnd" })}
           onProposeClan={(mercId) => void proposeClan(mercId)}
           onFoundClan={() => dispatch({ type: "foundClan" })}
+          facility={{
+            levels: state.facilities,
+            slots: facilitySlots(state),
+            blocks: Object.fromEntries(FACILITIES.map((f) => [f.id, facilityBlock(state, f.id)])) as Record<FacilityId, string | null>,
+            onBuild: (id) => dispatch({ type: "buildFacility", id }),
+            memorial: state.memorial,
+            legaciesUsed: state.legaciesUsed,
+            hired,
+            onInherit: (fallenId, piece, mercId) => dispatch({ type: "inheritLegacy", fallenId, piece, mercId }),
+          }}
           onInspect={setSheetId}
           onBack={toTown}
         />
@@ -545,6 +565,7 @@ export function Game() {
           day={state.day}
           gold={state.gold}
           hired={hired}
+          forgeLevel={state.facilities.forge ?? 0}
           progress={state.progress}
           salvage={state.salvage}
           trinkets={state.trinkets}
@@ -586,7 +607,9 @@ export function Game() {
           explored={state.explored}
           conquered={state.conquered}
           keyItems={state.keyItems}
-          onDepart={(dungeon) => dispatch({ type: "enterDungeon", seed: roll(), dungeon })}
+          bag={bagSlots(state.facilities)}
+          infirmary={state.facilities.infirmary ?? 0}
+          onDepart={(dungeon, carry, keys) => dispatch({ type: "enterDungeon", seed: roll(), dungeon, carry, keys })}
           onGo={go}
         />
       );
@@ -609,6 +632,7 @@ export function Game() {
           trainable={hired.reduce((s, m) => s + (state.progress[m.id]?.trainable ?? 0), 0)}
           notices={state.notices}
           memorial={state.memorial}
+          memorialLevel={state.facilities.memorial ?? 0}
           onGo={go}
           onDismissNotices={() => dispatch({ type: "dismissNotices" })}
           onNewGame={newGame}

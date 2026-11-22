@@ -171,11 +171,12 @@ export function pickImpression(id: string, traits: Trait[]): string | undefined 
 /**
  * 고용 시장에 오는 용병의 등급: 길드 등급과 같은 등급은 RECRUIT_TOP_CHANCE, 아니면 한 등급 아래 (길드가 동이면 늘 동)
  */
-export function recruitLevel(guildGrade: MercLevel, rand: Rand, fame = 0): MercLevel {
+export function recruitLevel(guildGrade: MercLevel, rand: Rand, fame = 0, topBonus = 0): MercLevel {
   const i = RANK_ORDER.indexOf(guildGrade);
   if (i <= RANK_ORDER.indexOf(RECRUIT_LEVEL)) return RECRUIT_LEVEL;
   // 명성이 높을수록 좋은 등급 용병이 잘 모인다
-  return rand() < RECRUIT_TOP_CHANCE + fameRank(fameTier(fame)) * FAME_EFFECT.recruitTopPerTier ? guildGrade : RANK_ORDER[i - 1];
+  // 주점 확장 3레벨: 높은 등급이 잘 온다 (topBonus)
+  return rand() < RECRUIT_TOP_CHANCE + fameRank(fameTier(fame)) * FAME_EFFECT.recruitTopPerTier + topBonus ? guildGrade : RANK_ORDER[i - 1];
 }
 
 /** 모집 시 패시브를 뽑는다: 50% 확률로 종족 패시브 하나 (등급과 상관없이) */

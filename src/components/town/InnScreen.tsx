@@ -4,7 +4,9 @@ import type { Merc } from "@/game/types";
 import { wageOf } from "@/game/merc/wages";
 import { atLastStage, canPromote, xpToNext } from "@/game/merc/growth";
 import { CURRENCY } from "@/data/economy";
-import { CLAN_FOUNDERS, CLAN_JOIN, HOME_TALKS, SETTLEMENT_DAYS } from "@/data/clan";
+import { CLAN_FOUNDERS, CLAN_JOIN, CLAN_MEMBER_LIMIT, GUEST_ROOMS, HOME_TALKS, INN_LIMIT, SETTLEMENT_DAYS } from "@/data/clan";
+import { FacilityPanel } from "./FacilityPanel";
+import type { ComponentProps } from "react";
 import { rankLabel } from "@/data/ranks";
 import { upkeepCost } from "@/game/quests";
 import type { Stage, TalkAction } from "@/lib/schemas";
@@ -34,6 +36,8 @@ type Props = {
   onTalkEnd: () => void;
   onProposeClan: (mercId: string) => void;
   onFoundClan: () => void;
+  /** 시설 (짓기·레벨 올리기·유산) */
+  facility: ComponentProps<typeof FacilityPanel>;
   onBack: () => void;
 };
 
@@ -46,7 +50,7 @@ const STAGE: Record<Stage, { name: string; style: string }> = {
 };
 
 /**
- * 집: 숙소(처음) → 클랜 본부(가입 의사 8명이 모이면 창설).
+ * 집: 숙소(처음, 고용 6명까지) → 클랜 본부(가입 의사 5명이 모이면 창설. 클랜원 10명 + 객실 4칸).
  * 원정 파티를 정하고, 귀환마다 두 명과 1:1로 이야기하고, 신뢰하는 용병에게 클랜 가입을 청한다
  */
 export function InnScreen(props: Props) {
@@ -54,6 +58,7 @@ export function InnScreen(props: Props) {
     props;
   const clan = home === "clanHall";
   const members = hired.filter((m) => progress[m.id]?.kind === "member");
+  const guests = clan ? hired.filter((m) => progress[m.id]?.kind !== "member") : [];
   const pledged = hired.filter((m) => progress[m.id]?.pledged);
   const nextSettlement = settlement.lastDay + SETTLEMENT_DAYS;
   const busy = (id: string) => (progress[id]?.busyUntilDay ?? 0) > day;
@@ -80,11 +85,18 @@ export function InnScreen(props: Props) {
         {clan ? (
           <>
             <p>
-              <b>클랜원 {members.length}명</b>
+              <b>
+                클랜원 {members.length} / {CLAN_MEMBER_LIMIT}명 · 객실 {guests.length} / {GUEST_ROOMS}칸
+              </b>
               <span className="ml-2 text-ash">
-                다음 정산 {nextSettlement}일 · 유지비 {CURRENCY} {upkeepCost("clanHall", members.length)}
+                다음 정산 {nextSettlement}일 · 유지비 {CURRENCY} {upkeepCost("clanHall", members.map((m) => m.level ?? "bronze"))}
               </span>
             </p>
+            {guests.length > 0 && (
+              <p className="text-xs text-ash">
+                객실 용병은 기한 안에 클랜에 들지 않으면 떠난다: {guests.map((m) => `${m.name} (${progress[m.id]?.guestUntilDay ?? day}일까지)`).join(", ")}
+              </p>
+            )}
             {settlement.debt > 0 && (
               <p className="text-blood">
                 밀린 유지비 {CURRENCY} {settlement.debt} ({settlement.arrearsWeeks}주 연체) · 1주 연체면 클랜원 호감이 떨어지고, 2주부터는 한 명씩 떠난다
@@ -96,6 +108,7 @@ export function InnScreen(props: Props) {
             <p>
               <b>클랜 창설</b>
               <span className="ml-2 text-ash">
+                숙소 {hired.length} / {INN_LIMIT}명 ·{" "}
                 가입 의사 {pledged.length} / {CLAN_FOUNDERS} · 신뢰 단계(호감 {CLAN_JOIN.minAffinity} 이상)인 용병에게 가입을 청할 수 있다
               </span>
             </p>
@@ -111,6 +124,8 @@ export function InnScreen(props: Props) {
           </p>
         )}
       </section>
+
+      <FacilityPanel {...props.facility} />
 
       {homeScene?.day === day && (
         <section className="flex flex-col gap-1 rounded-sm border border-edge bg-panel px-4 py-3 text-sm">
@@ -175,7 +190,7 @@ export function InnScreen(props: Props) {
                     </button>
                     <span className={`ml-2 text-xs font-normal ${stage.style}`}>{stage.name}</span>
                     <span className={`ml-2 text-xs font-normal ${member ? "text-frost" : "text-ash"}`}>
-                      {member ? "클랜원" : p.pledged ? "가입 의사 있음" : "용병"}
+                      {member ? "클랜원" : p.pledged ? "가입 의사 있음" : clan ? `객실 · ${p.guestUntilDay ?? day}일까지` : "용병"}
                     </span>
                   </span>
                   <span className="text-xs text-ash">

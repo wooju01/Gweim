@@ -1,6 +1,6 @@
 import { MERC_SLOTS } from "@/game/merc/party";
-import { ROSTER_LIMIT } from "@/data/clan";
-import { PACK_LIMIT } from "@/data/economy";
+import { CLAN_MEMBER_LIMIT, GUEST_ROOMS, INN_LIMIT } from "@/data/clan";
+import { getRegion } from "@/data/regions";
 import type { SupplyKind } from "@/data/combat";
 import { Button, Portrait } from "@/components/common/parts";
 import type { Fallen, TownPlace } from "@/game/state/state";
@@ -30,6 +30,8 @@ type Props = {
   homeName: string;
   notices: string[];
   memorial: Fallen[];
+  /** 위령비 레벨 (1레벨부터 사망 장소·마지막 전투를 새긴다) */
+  memorialLevel: number;
   onGo: (place: TownPlace) => void;
   onDismissNotices: () => void;
   onNewGame: () => void;
@@ -49,14 +51,14 @@ export function TownScreen(props: Props) {
       place: "guild",
       name: "용병 길드",
       description: "떠돌이 용병을 모집하고, 말을 걸어 동행을 청한다.",
-      status: `고용 ${hired} / ${ROSTER_LIMIT}${visitors ? ` · 기다리는 용병 ${visitors}명` : ""}`,
+      status: `고용 ${hired} / ${homeName === "클랜 본부" ? `${CLAN_MEMBER_LIMIT} + 객실 ${GUEST_ROOMS}` : INN_LIMIT}${visitors ? ` · 기다리는 용병 ${visitors}명` : ""}`,
     },
     {
       key: "shop",
       place: "shop",
       name: "상점",
       description: "원정 물자를 사서 짐에 넣고, 던전에서 가져온 유물을 판다.",
-      status: `창고 물자 ${packed} · 원정엔 ${PACK_LIMIT}개까지${relics + salvage ? ` · 팔 것 ${relics + salvage}개` : ""}`,
+      status: `창고 물자 ${packed}${relics + salvage ? ` · 팔 것 ${relics + salvage}개` : ""}`,
     },
     {
       key: "inn",
@@ -180,8 +182,10 @@ export function TownScreen(props: Props) {
               <li key={f.id} className="text-bone/80">
                 <span className="font-bold">{f.name}</span>
                 <span className="ml-2 text-xs text-ash">
-                  {f.title} · {f.depth}층에서
+                  {f.title} · {props.memorialLevel > 0 && f.region ? `${getRegion(f.region)?.name ?? f.region}(${f.depth}층)` : `${f.depth}층`}에서
+                  {props.memorialLevel > 0 && f.day ? ` · ${f.day}일째` : ""}
                 </span>
+                {props.memorialLevel > 0 && f.lastBattle && <p className="pl-3 text-xs text-ash">마지막 전투: {f.lastBattle}</p>}
                 {f.words && <p className="pl-3 text-xs text-ash italic">“{f.words}”</p>}
               </li>
             ))}

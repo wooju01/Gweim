@@ -11,6 +11,10 @@ import { getMonster } from "@/data/monsters";
 import { getSalvage } from "@/data/loot";
 import type { Merc } from "@/game/types";
 import {
+  autoDiscard,
+  bagOver,
+  bagUsed,
+  discardItem,
   battleFor,
   battleSpoils,
   canDescend,
@@ -709,5 +713,63 @@ describe("장신구: 마지막 숨결 (원정 동안 이어진다)", () => {
     const after = finishBattle(exp, used);
     expect(after.members.find((m) => m.id === varn.id)!.breathUsed).toBe(1);
     expect(battleFor(after, withBreath, 2).units.find((u) => u.id === varn.id)!.breath).toBe(1);
+  });
+});
+
+describe("가방 (2026-11-22)", () => {
+  it("겹치기: 물자 한 칸 3개, 재료·유실물 한 칸 5개, 유물·열쇠는 한 칸에 하나. 넘치면 움직일 수 없다", () => {
+    const base = startExpedition(mercs, 1, { bandage: 4, antidote: 0, potion: 3, greaterPotion: 0 }, undefined, ["world_tree_branch"]);
+    expect(base.bag).toBe(8);
+    // 붕대 4 = 2칸, 물약 3 = 1칸, 열쇠 1칸
+    expect(bagUsed(base)).toBe(4);
+    const full = { ...base, salvage: { soft_pelt: 6, mat_fang: 5 }, loot: ["crystal_eye"] };
+    // + 털가죽 6 = 2칸, 송곳니 5 = 1칸, 유물 1칸
+    expect(bagUsed(full)).toBe(8);
+    expect(bagOver(full)).toBe(false);
+    const over = { ...full, salvage: { ...full.salvage, rat_fang: 1 } };
+    expect(bagOver(over)).toBe(true);
+    const next = nodeById(over.map, over.at)!.next[0];
+    expect(canMove(over, next)).toBe(false);
+    // 하나 버리면 다시 움직일 수 있다
+    const fixed = discardItem(over, { kind: "salvage", id: "rat_fang" })!;
+    expect(bagOver(fixed)).toBe(false);
+    expect(fixed.discarded).toBe(1);
+    expect(canMove(fixed, next)).toBe(true);
+  });
+
+  it("자동 정리는 가치가 낮은 칸부터 버리고, 열쇠는 남긴다", () => {
+    const base = startExpedition(mercs, 1, { bandage: 0, antidote: 0, potion: 0, greaterPotion: 0 }, undefined, ["world_tree_branch"]);
+    const over = { ...base, salvage: { rat_fang: 5, owlbear_egg: 5, boss_token: 1, soft_pelt: 30 } };
+    const out = autoDiscard(over);
+    expect(bagOver(out)).toBe(false);
+    expect(out.keys).toEqual(["world_tree_branch"]);
+    expect(out.salvage.owlbear_egg).toBe(5);
+    expect(out.salvage.boss_token).toBe(1);
+  });
+
+  it("히든 사건은 열쇠가 가방에 있어야 나온다", () => {
+    const withKey = startExpedition(mercs, 1, undefined, undefined, ["world_tree_branch"]);
+    const without = startExpedition(mercs, 1, undefined, undefined, []);
+    const deep = (e: Expedition) => ({ ...e, region: "uf_deeper_forest" });
+    expect(hiddenEventFor(deep(withKey))).toBeDefined();
+    expect(hiddenEventFor(deep(without))).toBeUndefined();
+    expect(hiddenEventFor(deep({ ...without, keyFound: ["world_tree_branch"] }))).toBeDefined();
+  });
+});
+
+describe("길잡이 능력 (2026-11-22)", () => {
+  it("확률 1이면 다음 칸을 모두 미리 알고, 들어가면 본 그대로 나온다. 확률 0이면 모른다", () => {
+    const sure = startExpedition(mercs, 3, undefined, undefined, [], [], [], { scoutChance: 1 });
+    const none = startExpedition(mercs, 3, undefined, undefined, [], [], [], { scoutChance: 0 });
+    expect(Object.keys(none.scouted ?? {})).toEqual([]);
+    const next = nodeById(sure.map, sure.at)!.next.filter((id) => ["battle", "event"].includes(nodeById(sure.map, id)!.kind));
+    expect(Object.keys(sure.scouted ?? {}).sort()).toEqual([...next].sort());
+    const battleId = next.find((id) => sure.scouted![id].kind === "battle");
+    if (battleId) {
+      const seen = sure.scouted![battleId];
+      const r = moveTo(sure, mercs, battleId, 99)!;
+      const kinds = r.battle!.units.filter((u) => u.side === "enemy").map((u) => u.kind);
+      expect(kinds).toEqual(seen.kind === "battle" ? seen.enemies.map((u) => u.kind) : []);
+    }
   });
 });

@@ -20,10 +20,12 @@ import { FIRST_DUNGEON, getDungeon, getRegion } from "@/data/regions";
 import { RANKS, RANK_ORDER, nextRank, stageOf } from "@/data/ranks";
 import { GUILD_PROMOTION, GUILD_START, PROOF_BOSSES } from "@/data/guild";
 import { getMonster } from "@/data/monsters";
-import { FORGE_DISCOUNT, TRINKET_SLOTS, canWear, forgeCost, getTrinket, trinketFits, trinketMaxLv, trinketsBonus, type OwnedTrinket } from "@/data/trinkets";
+import { FORGE_DISCOUNT, TRINKET_SLOTS, canWear, forgeCost, getTrinket, tierFits, tierForgeable, trinketFits, trinketMaxLv, trinketsBonus, type OwnedTrinket } from "@/data/trinkets";
 import { advanceCost, wageOf } from "@/game/merc/wages";
 import { act, giftsReceived, isDowned, type Battle, type BattleAction } from "@/game/combat/engine";
 import {
+  bagOver,
+  discardItem,
   chooseEvent,
   finishBattle,
   giveSupply,
@@ -43,7 +45,8 @@ import {
   type Expedition,
 } from "@/game/dungeon/expedition";
 import { KEY_ITEMS, type KeyItemId } from "@/data/keyItems";
-import { ARREARS, CLAN_FOUNDERS, DAILY_SCENE_CHANCE, HOME_TALKS, SETTLEMENT_DAYS } from "@/data/clan";
+import { ARREARS, CLAN_FOUNDERS, CLAN_MEMBER_LIMIT, DAILY_SCENE_CHANCE, GUEST_DAYS, GUEST_ROOMS, HOME_TALKS, INN_LIMIT, SETTLEMENT_DAYS } from "@/data/clan";
+import { FACILITY_SLOTS, INFIRMARY, MEMORIAL, NEW_HIRE_DAYS, SCOUT_CHANCE, STACK, TRAINING_XP, bagSlots, getFacility, type FacilityId, type FacilityLevels } from "@/data/facilities";
 import { DISPATCH, FAME_BY_KIND, QUEST_INFO, getQuest, type DirectQuest, type QuestReward } from "@/data/quests";
 import { FAME, FAME_EFFECT, QUEST_SLOTS, fameRank, fameTier } from "@/data/fame";
 import { clanJoinChance, fixedQuests, isDirect, objectiveDone, questOverdue, resolveDispatch, rewardBlocked, rollBoard, settlementsDue, upkeepCost, type DispatchOutcome, type Tally } from "@/game/quests";
@@ -77,6 +80,10 @@ export type MercProgress = TalkState & {
   bossWins: string[];
   /** 단련한 횟수 (단련 비용이 오른다) */
   trainings?: number;
+  /** 고용한 날 (훈련장: 고용 NEW_HIRE_DAYS일 안이면 경험치 +) */
+  hiredDay?: number;
+  /** 객실 용병: 이 날까지 클랜에 가입하지 않으면 떠난다 (클랜 본부에서 새로 고용한 용병) */
+  guestUntilDay?: number;
 } & Growth;
 
 /** 진행 중인 파견 */
@@ -178,6 +185,12 @@ export type GameState = {
   eventsSeen: string[];
   /** 이번 원정 사이에 상점에서 산 재료 (종류별 개수, 원정을 마치면 비운다) */
   materialBought: Record<string, number>;
+  /** 클랜 시설 레벨 (data/facilities.ts). 숙소 3칸, 클랜 본부 7칸 */
+  facilities: FacilityLevels;
+  /** 위령비 유산 전수 횟수 */
+  legaciesUsed: number;
+  /** 전투에서 만난 보스 (전술실: 예고 패턴·약점 미리 보기) */
+  bossesMet: string[];
   /** 의뢰 보상으로 합류할 용병 수 (모집 API로 만든다) */
   pendingJoins: number;
   /** 한 번이라도 쓰러뜨린 보스 (처음 쓰러뜨리면 명성) */
@@ -199,7 +212,23 @@ export type GameState = {
 };
 
 /** day: 죽은 날 (결산에서 이번 원정의 사망자를 찾는다) */
-export type Fallen = { id: string; name: string; title: string; words: string | null; depth: number; day?: number };
+/**
+ * 잃은 동료 (위령비). region: 죽은 곳, lastBattle: 마지막 전투(적 이름), job·legacy: 강화된 부 조각 (위령비 2레벨부터 같은 직업 용병에게 전수),
+ * legacyTaken: 전수했다
+ */
+export type Fallen = {
+  id: string;
+  name: string;
+  title: string;
+  words: string | null;
+  depth: number;
+  day?: number;
+  region?: string;
+  lastBattle?: string;
+  job?: string;
+  legacy?: { id: string; lv: number }[];
+  legacyTaken?: boolean;
+};
 
 /** 원정 결산 */
 export type Report = {
@@ -264,7 +293,14 @@ export type GameAction =
   | { type: "recruited"; seeds: MercSeed[] }
   | { type: "recruitFailed"; error: string }
   /** seed: 맵·전투·사건 난수 시드. 리듀서를 순수하게 유지하려고 밖에서 굴려 넘긴다 */
-  | { type: "enterDungeon"; seed: number; dungeon?: string }
+  /** carry: 가방에 넣어 갈 물자 (없으면 자동), keys: 가방에 넣어 갈 히든 열쇠 (없으면 모두, 칸이 되는 만큼) */
+  | { type: "enterDungeon"; seed: number; dungeon?: string; carry?: Record<SupplyKind, number>; keys?: KeyItemId[] }
+  /** 가방에서 버리기 (원정 중) */
+  | { type: "discard"; item: { kind: "supply" | "salvage" | "relic" | "key"; id: string; n?: number } }
+  /** 시설 짓기·레벨 올리기 */
+  | { type: "buildFacility"; id: FacilityId }
+  /** 위령비 유산: 죽은 용병의 강화된 부 조각을 같은 직업 용병에게 */
+  | { type: "inheritLegacy"; fallenId: string; piece: string; mercId: string }
   | { type: "move"; nodeId: string; seed: number }
   | { type: "narrated"; eventId: string; data: EventResponse | null }
   | { type: "chooseEvent"; choiceId: string; seed: number }
@@ -367,7 +403,7 @@ export function mercOf(entry: RosterEntry): Merc {
  * 죽은 용병을 명단에서 영영 지우고 추모 명단에 올린다.
  * 함께 있던 동료들은 호감이 떨어지고(지켜 주지 못했다), 기억에 그 죽음이 남는다.
  */
-function bury(state: GameState, deadIds: string[], won: boolean): GameState {
+function bury(state: GameState, deadIds: string[], won: boolean, lastBattle?: string): GameState {
   if (deadIds.length === 0) return state;
   let next = state;
   const lines: string[] = [];
@@ -392,12 +428,31 @@ function bury(state: GameState, deadIds: string[], won: boolean): GameState {
       roster: next.roster.filter((e) => entryId(e) !== id),
       party: next.party.filter((x) => x !== id),
       progress,
-      memorial: [...next.memorial, { id, name: merc.name, title: merc.title, words: null, depth: next.expedition?.depth ?? 1, day: next.day }],
+      // 위령비에 새긴다: 죽은 곳, 마지막 전투, 강화된 부 조각 (유산)
+      memorial: [
+        ...next.memorial,
+        {
+          id,
+          name: merc.name,
+          title: merc.title,
+          words: null,
+          depth: next.expedition?.depth ?? 1,
+          day: next.day,
+          ...(next.expedition?.region ? { region: next.expedition.region } : {}),
+          ...(lastBattle ? { lastBattle } : {}),
+          job: merc.job,
+          legacy: Object.entries(state.progress[id]?.levels ?? {})
+            .filter(([, lv]) => lv >= 2)
+            .map(([pid, lv]) => ({ id: pid, lv })),
+        },
+      ],
     };
     lines.push(`${merc.name}이(가) 숨을 거두었다.`);
     // 함께 있던 동료들: 호감 하락, 기억에 남는다
     const witnesses = next.party.filter((x) => next.progress[x]);
-    const down = bumpAffinity(next, Object.fromEntries(witnesses.map((x) => [x, DEATH.allyAffinity])), `${merc.name}을(를) 잃었다`);
+    // 위령비 1레벨부터: 호감 하락 절반
+    const drop = Math.round(DEATH.allyAffinity * ((next.facilities.memorial ?? 0) > 0 ? MEMORIAL.allyAffinityMul : 1));
+    const down = bumpAffinity(next, Object.fromEntries(witnesses.map((x) => [x, drop])), `${merc.name}을(를) 잃었다`);
     const remembered = { ...down.progress };
     for (const x of witnesses) {
       const p = remembered[x];
@@ -456,17 +511,11 @@ export function isTown(kind: string): kind is TownPlace {
   return kind === "town" || kind === "guild" || kind === "shop" || kind === "inn" || kind === "gate" || kind === "yard" || kind === "hall" || kind === "forge" || kind === "board";
 }
 
-/** 떠날 때 창고에서 원정 짐을 챙긴다: PACK_LIMIT까지, PACK_ORDER 순서로 */
-export function packFor(stash: Record<SupplyKind, number>): { carried: Record<SupplyKind, number>; left: Record<SupplyKind, number> } {
-  const carried = { ...START_PACK };
+/** 떠날 때 창고에서 가방에 물자를 챙긴다 (자동: 가방 칸의 절반까지, PACK_ORDER 순서로) */
+export function packFor(stash: Record<SupplyKind, number>, slots = 8): { carried: Record<SupplyKind, number>; left: Record<SupplyKind, number> } {
+  const carried = autoCarry(stash, slots);
   const left = { ...stash };
-  let room = PACK_LIMIT;
-  for (const k of PACK_ORDER) {
-    const n = Math.min(room, left[k] ?? 0);
-    carried[k] = n;
-    left[k] = (left[k] ?? 0) - n;
-    room -= n;
-  }
+  for (const k of PACK_ORDER) left[k] = (left[k] ?? 0) - carried[k];
   return { carried, left };
 }
 
@@ -749,13 +798,15 @@ export function initialState(opts: { seeds?: MercSeed[]; hired?: boolean; party?
   const seeds = opts.seeds ?? startSeeds();
   const hired = opts.hired ?? true;
   const roster: RosterEntry[] = [...MERCS.map((m) => ({ kind: "unique" as const, id: m.id })), ...seeds.map((seed) => ({ kind: "random" as const, seed }))];
+  // 숙소는 INN_LIMIT명까지: 처음 파티부터, 나머지 시작 용병은 길드 홀에서 기다린다
+  const startHired = [...new Set([...(opts.party ?? START_PARTY), ...roster.map(entryId)])].slice(0, opts.seeds ? roster.length : INN_LIMIT);
   return {
     roster,
     progress: Object.fromEntries(
       roster.map((e) => {
         const merc = mercOf(e);
         const p = freshProgress(merc);
-        return [entryId(e), hired ? { ...p, hired: true, wage: wageOf(merc) } : p];
+        return [entryId(e), hired && startHired.includes(entryId(e)) ? { ...p, hired: true, wage: wageOf(merc), hiredDay: 1 } : p];
       }),
     ),
     party: opts.party ?? (hired && !opts.seeds ? START_PARTY : []),
@@ -776,6 +827,9 @@ export function initialState(opts: { seeds?: MercSeed[]; hired?: boolean; party?
     infos: [],
     discounts: [],
     materialBought: {},
+    facilities: {},
+    legaciesUsed: 0,
+    bossesMet: [],
     pendingJoins: 0,
     bossesSlain: [],
     storageLevel: 0,
@@ -832,6 +886,73 @@ const nameOf = (state: GameState, id: string) => {
   const entry = state.roster.find((e) => entryId(e) === id);
   return entry ? mercOf(entry).name : "누군가";
 };
+
+/** 위령비: 마지막 전투의 적 이름 (같은 이름은 ×n) */
+function enemyNames(b: Battle): string {
+  const count: Record<string, number> = {};
+  for (const u of b.units.filter((x) => x.side === "enemy")) count[u.name.replace(/ [A-Z가-힣]$/, "")] = (count[u.name.replace(/ [A-Z가-힣]$/, "")] ?? 0) + 1;
+  return Object.entries(count)
+    .map(([n, c]) => (c > 1 ? `${n} ×${c}` : n))
+    .join(", ");
+}
+
+const levelOf = (state: GameState, id: string): MercLevel => {
+  const entry = state.roster.find((e) => entryId(e) === id);
+  return (entry && mercOf(entry).level) || "bronze";
+};
+
+/** 객실 용병 (클랜 본부에서 고용했고 아직 클랜원이 아니다) */
+export function guestIds(state: GameState): string[] {
+  return state.home === "clanHall" ? Object.entries(state.progress).filter(([, p]) => p.hired && p.kind !== "member").map(([id]) => id) : [];
+}
+
+/** 클랜원 */
+export function memberIds(state: GameState): string[] {
+  return Object.entries(state.progress).filter(([, p]) => p.hired && p.kind === "member").map(([id]) => id);
+}
+
+/** 더 고용할 자리가 있나: 숙소는 고용 INN_LIMIT명, 클랜 본부는 객실 GUEST_ROOMS칸 */
+export function canHire(state: GameState): boolean {
+  return state.home === "clanHall" ? guestIds(state).length < GUEST_ROOMS : hiredCount(state) < INN_LIMIT;
+}
+
+/** 시설 칸: 지은 시설 수 / 칸 수 */
+export function facilitySlots(state: GameState): { used: number; max: number } {
+  return { used: Object.values(state.facilities).filter((lv) => (lv ?? 0) > 0).length, max: FACILITY_SLOTS[state.home] };
+}
+
+/** 시설을 짓거나(1레벨) 올릴 수 없는 이유. 할 수 있으면 null */
+export function facilityBlock(state: GameState, id: FacilityId): string | null {
+  const f = getFacility(id);
+  const lv = state.facilities[id] ?? 0;
+  if (lv >= f.levels.length) return "최대 레벨";
+  if (lv === 0) {
+    const slots = facilitySlots(state);
+    if (slots.used >= slots.max) return `시설 칸이 꽉 찼다 (${slots.max}칸)`;
+  }
+  const grade = f.grade[lv];
+  if (RANK_ORDER.indexOf(state.guildGrade) < RANK_ORDER.indexOf(grade)) return `길드 등급 부족 (${RANKS[grade].name} 필요)`;
+  if (state.gold < f.cost[lv]) return `금화 부족 (${f.cost[lv]})`;
+  return null;
+}
+
+/** 출발할 때 가방에 넣을 물자 (자동): 가방 칸의 절반까지, PACK_ORDER 순서로 (한 칸에 STACK.supply개) */
+export function autoCarry(stash: Record<SupplyKind, number>, slots: number): Record<SupplyKind, number> {
+  const carried = { ...START_PACK };
+  let room = Math.floor(slots / 2) * STACK.supply;
+  for (const k of PACK_ORDER) {
+    const n = Math.min(room, stash[k] ?? 0);
+    carried[k] = n;
+    room -= Math.ceil(n / STACK.supply) * STACK.supply;
+    if (room <= 0) break;
+  }
+  return carried;
+}
+
+/** 물자가 차지하는 가방 칸 */
+export function supplySlots(s: Partial<Record<SupplyKind, number>>): number {
+  return Object.values(s).reduce((a, n) => a + Math.ceil((n ?? 0) / STACK.supply), 0);
+}
 
 /**
  * 던전에서 돌아왔을 때 (보상·날짜는 이미 처리됨): 직접 의뢰 완료 → 파견 진행 → 정산 → 대화 횟수 → 게시판 → 일상 장면.
@@ -920,12 +1041,21 @@ function returnToVillage(state: GameState, exp: Expedition, report: Report, seed
   }
   if (questLines.length) report.quests = questLines;
 
+  // 객실 용병: 기한 안에 클랜에 가입하지 않았으면 떠난다
+  for (const id of guestIds(next)) {
+    const until = next.progress[id]?.guestUntilDay;
+    if (until !== undefined && next.day > until) {
+      report.left.push(`${nameOf(next, id)}은(는) 클랜에 들지 않고 객실을 떠났다.`);
+      next = removeMerc(next, id);
+    }
+  }
+
   // 4. 정산: 7일 경계를 넘은 만큼 유지비. 모자라면 연체 (1주: 호감 하락, 2주부터: 호감이 가장 낮은 클랜원이 떠난다)
   const due = settlementsDue(next.lastSettlementDay, next.day);
   const clanLines: string[] = [];
   for (let i = 0; i < due; i++) {
     const memberIds = Object.entries(next.progress).filter(([, p]) => p.hired && p.kind === "member").map(([id]) => id);
-    const owed = upkeepCost(next.home, memberIds.length) + next.clanDebt;
+    const owed = upkeepCost(next.home, memberIds.map((id) => levelOf(next, id))) + next.clanDebt;
     if (owed === 0) continue;
     const paid = Math.min(next.gold, owed);
     const debt = owed - paid;
@@ -987,7 +1117,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         ...(playerText ? [{ speaker: "player" as const, text: playerText }] : []),
         { speaker: "merc", text: res.message },
       ];
-      const joined = res.joined === true;
+      // 자리가 없으면 고용하지 않는다 (숙소 INN_LIMIT명, 클랜 본부 객실 GUEST_ROOMS칸)
+      const joined = res.joined === true && (state.progress[mercId]?.hired || canHire(state));
       const entry = state.roster.find((e) => entryId(e) === mercId);
       const merc = entry ? mercOf(entry) : undefined;
       // 조건 제시가 받아들여졌으면 기록하고, 선금이면 금화를 낸다
@@ -1005,6 +1136,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         talks: res.talks,
         offers,
         hired: prev.hired || joined,
+        ...(joined && !prev.hired ? { hiredDay: state.day, ...(state.home === "clanHall" ? { guestUntilDay: state.day + GUEST_DAYS } : {}) } : {}),
         // 고용될 때 보수가 정해진다 (몫 약속을 했으면 +50%)
         wage: prev.wage ?? (joined && merc ? Math.max(1, Math.round(wageOf(merc, offers.share) * hireRate(state))) : undefined),
       };
@@ -1035,9 +1167,28 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         const q = getQuest(id);
         return isDirect(q) && q.objective.type === "rescue" ? [{ eventId: q.objective.eventId, regionId: q.objective.regionId }] : [];
       });
-      // 창고에서 원정 짐을 챙긴다 (PACK_LIMIT까지, 물약부터). 나머지는 창고에 남는다
-      const { carried, left } = packFor(state.pack);
-      const expedition = startExpedition(mercs, action.seed, carried, dungeon.id, state.keyItems, questEvents, state.eventsSeen);
+      // 가방: 물자(골랐으면 그대로, 아니면 자동)와 히든 열쇠(골랐으면 그것만, 아니면 칸이 되는 만큼)를 넣는다. 나머지는 창고에 남는다
+      const bag = bagSlots(state.facilities);
+      const carry = action.carry ?? autoCarry(state.pack, bag);
+      if (PACK_ORDER.some((k) => (carry[k] ?? 0) < 0 || (carry[k] ?? 0) > (state.pack[k] ?? 0))) return state;
+      const keys = (action.keys ?? state.keyItems).filter((k) => state.keyItems.includes(k)).slice(0, Math.max(0, bag - supplySlots(carry)));
+      if (supplySlots(carry) + keys.length > bag) return state;
+      const left = { ...state.pack };
+      for (const k of PACK_ORDER) left[k] = (left[k] ?? 0) - (carry[k] ?? 0);
+      // 의무실: 무료 물자 (가방에 자리가 있을 때만)
+      const carried = { ...START_PACK, ...carry };
+      const free = INFIRMARY[(state.facilities.infirmary ?? 0) - 1] ?? {};
+      for (const [k, n] of Object.entries(free) as [SupplyKind, number][]) {
+        for (let i = 0; i < n; i++) {
+          const trial = { ...carried, [k]: carried[k] + 1 };
+          if (supplySlots(trial) + keys.length <= bag) carried[k] += 1;
+        }
+      }
+      const expedition = startExpedition(mercs, action.seed, carried, dungeon.id, keys, questEvents, state.eventsSeen, {
+        bag,
+        // 길잡이 능력: 길드 등급 기준
+        scoutChance: SCOUT_CHANCE[state.guildGrade],
+      });
       return {
         ...state,
         // 짐을 들고 떠난다 (남은 물자는 돌아올 때 짐으로 돌아온다)
@@ -1090,7 +1241,47 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...next, expedition: exp };
     }
 
+    case "discard": {
+      if (!state.expedition) return state;
+      const exp = discardItem(state.expedition, action.item);
+      return exp ? { ...state, expedition: exp } : state;
+    }
+
+    case "buildFacility": {
+      if (state.expedition || facilityBlock(state, action.id)) return state;
+      const f = getFacility(action.id);
+      const lv = state.facilities[action.id] ?? 0;
+      return {
+        ...state,
+        gold: state.gold - f.cost[lv],
+        facilities: { ...state.facilities, [action.id]: lv + 1 },
+        notices: [...state.notices, `${f.name} ${lv + 1}레벨: ${f.levels[lv]}`],
+      };
+    }
+
+    case "inheritLegacy": {
+      // 위령비 2레벨부터: 죽은 용병의 강화된 부 조각 하나를 같은 직업 용병에게 (그 레벨 그대로)
+      const fallen = state.memorial.find((f) => f.id === action.fallenId);
+      const p = state.progress[action.mercId];
+      const entry = state.roster.find((e) => entryId(e) === action.mercId);
+      const allowed = MEMORIAL.legacies[(state.facilities.memorial ?? 0) - 1] ?? 0;
+      const piece = fallen?.legacy?.find((x) => x.id === action.piece);
+      if (state.expedition || !fallen || fallen.legacyTaken || !piece || !p?.hired || !entry || state.legaciesUsed >= allowed) return state;
+      if (mercOf(entry).job !== fallen.job) return state;
+      return {
+        ...state,
+        legaciesUsed: state.legaciesUsed + 1,
+        memorial: state.memorial.map((f) => (f.id === fallen.id ? { ...f, legacyTaken: true } : f)),
+        progress: {
+          ...state.progress,
+          [action.mercId]: { ...p, pieces: [...new Set([...p.pieces, piece.id])], levels: { ...p.levels, [piece.id]: Math.max(p.levels[piece.id] ?? 1, piece.lv) } },
+        },
+        notices: [...state.notices, `${mercOf(entry).name}이(가) ${fallen.name}의 ${getFragment(piece.id)?.name ?? piece.id} (Lv${piece.lv})을(를) 이어받았다.`],
+      };
+    }
+
     case "descend": {
+      if (state.expedition && bagOver(state.expedition)) return state;
       const next = state.expedition && descend(state.expedition, action.seed, action.region);
       if (!next) return state;
       // 히든 지역을 처음 찾았다: 명성
@@ -1313,11 +1504,20 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case "joinedFree": {
       // 의뢰 보상: 모집 API로 만든 용병이 고용비 없이 바로 합류한다
       if (state.pendingJoins <= 0 || action.seeds.length === 0) return state;
-      const entries = action.seeds.slice(0, state.pendingJoins).map((seed) => ({ kind: "random" as const, seed }));
+      // 자리가 있는 만큼만 (나머지는 다음에)
+      const room = state.home === "clanHall" ? GUEST_ROOMS - guestIds(state).length : INN_LIMIT - hiredCount(state);
+      const entries = action.seeds.slice(0, Math.min(state.pendingJoins, Math.max(0, room))).map((seed) => ({ kind: "random" as const, seed }));
+      if (entries.length === 0) return state;
       const progress = { ...state.progress };
       for (const e of entries) {
         const merc = mercOf(e);
-        progress[entryId(e)] = { ...freshProgress(merc), hired: true, wage: wageOf(merc) };
+        progress[entryId(e)] = {
+          ...freshProgress(merc),
+          hired: true,
+          wage: wageOf(merc),
+          hiredDay: state.day,
+          ...(state.home === "clanHall" ? { guestUntilDay: state.day + GUEST_DAYS } : {}),
+        };
       }
       return {
         ...state,
@@ -1354,6 +1554,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const p = state.progress[action.mercId];
       const entry = state.roster.find((e) => entryId(e) === action.mercId);
       if (state.expedition || !p?.hired || !entry || p.kind === "member" || p.pledged || p.clanAskedDay === state.day) return state;
+      // 클랜원은 CLAN_MEMBER_LIMIT명까지
+      if (state.home === "clanHall" && memberIds(state).length >= CLAN_MEMBER_LIMIT) return state;
       const merc = mercOf(entry);
       const chance = clanJoinChance(p.affinity, merc.traitIds?.personalities ?? [], merc.traitIds?.background, state.fame);
       if (chance <= 0) return state;
@@ -1361,7 +1563,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       // 클랜이 이미 있으면 바로 클랜원, 없으면 가입 의사만
       const changed: MercProgress = accepted
         ? state.home === "clanHall"
-          ? { ...p, kind: "member", clanAskedDay: state.day }
+          ? { ...p, kind: "member", clanAskedDay: state.day, guestUntilDay: undefined }
           : { ...p, pledged: true, clanAskedDay: state.day }
         : { ...p, clanAskedDay: state.day };
       return { ...state, progress: { ...state.progress, [action.mercId]: changed }, clanAnswer: { mercId: action.mercId, accepted, words: null } };
@@ -1375,6 +1577,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       if (state.expedition || state.home !== "inn" || pledged.length < CLAN_FOUNDERS) return state;
       const progress = { ...state.progress };
       for (const [id, p] of pledged) progress[id] = { ...p, kind: "member", pledged: false };
+      // 가입 의사를 밝히지 않은 용병은 객실로 (GUEST_DAYS일 안에 가입하지 않으면 떠난다)
+      for (const [id, p] of Object.entries(progress)) if (p.hired && p.kind !== "member") progress[id] = { ...p, guestUntilDay: state.day + GUEST_DAYS };
       return { ...state, home: "clanHall", progress, lastSettlementDay: state.day, notices: [...state.notices, "클랜 본부를 세웠다. 이제 7일마다 유지비가 나간다."] };
     }
 
@@ -1401,7 +1605,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case "forgeTrinket": {
       const t = getTrinket(action.trinket);
-      if (state.expedition || !t || t.quest) return state;
+      // 대장간 시설 레벨로 만들 수 있는 등급까지 (마을 대장간은 동)
+      if (state.expedition || !t || t.quest || !tierForgeable(t, state.facilities.forge ?? 0)) return state;
       const cost = forgePrice(state, forgeCost(t, 1));
       if (!canPay(state, cost)) return state;
       return { ...state, gold: state.gold - cost.gold, salvage: paySalvage(state.salvage, cost.salvage), trinkets: [...state.trinkets, { id: t.id, lv: 1 }] };
@@ -1427,7 +1632,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const p = state.progress[action.mercId];
       const entry = state.roster.find((e) => entryId(e) === action.mercId);
       const owned = state.trinkets[action.index];
-      if (state.expedition || !p?.hired || !entry || !owned || !trinketFits(getTrinket(owned.id), mercOf(entry).job)) return state;
+      // 장비 등급은 용병 등급 이하만
+      if (state.expedition || !p?.hired || !entry || !owned || !trinketFits(getTrinket(owned.id), mercOf(entry).job) || !tierFits(getTrinket(owned.id), mercOf(entry).level)) return state;
       // 빈 칸이 있으면 끼고, 두 칸이 다 찼으면 slot번(없으면 첫 칸)과 바꾼다. 같은 장신구 둘, 생존 장신구 둘은 낄 수 없다
       const t = getTrinket(owned.id);
       const keep = p.trinkets.length < TRINKET_SLOTS ? p.trinkets : p.trinkets.filter((_, i) => i !== (action.slot ?? 0));
@@ -1517,9 +1723,12 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       // 보스를 처음 쓰러뜨렸다: 명성 (보스마다 한 번)
       const slain = battle.outcome === "victory" ? [...new Set(battle.units.filter((u) => u.side === "enemy" && (u.rank === "floorBoss" || u.rank === "dungeonBoss") && u.kind && u.hp <= 0).map((u) => u.kind!))] : [];
       const firsts = slain.filter((id) => !state.bossesSlain.includes(id));
+      // 전술실: 만난 보스 (이겼든 졌든)
+      const met = battle.units.filter((u) => u.side === "enemy" && (u.rank === "floorBoss" || u.rank === "dungeonBoss") && u.kind).map((u) => u.kind!);
       let next: GameState = {
         ...state,
         ...gained,
+        bossesMet: [...new Set([...state.bossesMet, ...met])],
         fame: state.fame + firsts.length * FAME.bossFirstKill,
         bossesSlain: [...state.bossesSlain, ...firsts],
         progress,
@@ -1532,6 +1741,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         next,
         state.screen.battle.units.filter((u) => u.side === "merc" && u.dead).map((u) => u.id),
         state.screen.battle.outcome === "victory",
+        enemyNames(battle),
       );
       // 귀환길 습격을 치렀다: 이겼든 전멸했든 그대로 마을로 (습격 판정은 다시 하지 않는다)
       if (next.expedition?.returning) next = gameReducer(next, { type: "endExpedition", seed: action.seed ?? battle.rng });
@@ -1542,12 +1752,15 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       if (state.screen.kind !== "battle" || state.screen.battle.outcome || !state.expedition) return state;
       // 쓰러진 용병은 남겨진다 (사망)
       const battle = { ...state.screen.battle, units: state.screen.battle.units.map((u) => (isDowned(u) ? { ...u, dead: true, downedTurnsLeft: undefined, downedFresh: undefined } : u)) };
+      // 전술실: 도망쳤어도 만난 보스는 기록한다
+      const metBosses = battle.units.filter((u) => u.side === "enemy" && (u.rank === "floorBoss" || u.rank === "dungeonBoss") && u.kind).map((u) => u.kind!);
       // 체력·쓰러짐·죽음을 반영하고, 죽은 용병을 묻는다
       // 전투에서 도망친 건 맵 후퇴가 아니라 귀환길 습격 판정이 없다 (습격 전투에서 도망쳐도 마찬가지)
       let next: GameState = bury(
-        { ...state, expedition: { ...finishBattle(state.expedition, battle), room: null, returning: true }, screen: { kind: "dungeon" } },
+        { ...state, bossesMet: [...new Set([...state.bossesMet, ...metBosses])], expedition: { ...finishBattle(state.expedition, battle), room: null, returning: true }, screen: { kind: "dungeon" } },
         battle.units.filter((u) => u.side === "merc" && u.dead).map((u) => u.id),
         false,
+        enemyNames(battle),
       );
       // 살아 있는 동행 용병: 싸움에서 등을 보인 것에 대한 반응 (성격마다 다르다)
       const changes: Record<string, number> = {};
@@ -1580,6 +1793,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case "endExpedition": {
+      // 가방이 넘치면 버릴 것을 먼저 고른다 (전멸은 빼고)
+      if (state.expedition && state.expedition.room?.kind !== "defeat" && bagOver(state.expedition)) return state;
       // 귀환길 습격: 목적지 전에 맵에서 후퇴하면 한 번 판정 (층별 확률). 습격이면 싸운 뒤에 돌아온다
       if (state.expedition && state.screen.kind === "dungeon" && !state.expedition.returning) {
         const monsters = retreatAmbush(state.expedition, action.seed);
@@ -1641,7 +1856,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           const p = progress[m.id];
           const entry = next.roster.find((e) => entryId(e) === m.id);
           if (!p || !entry) continue;
-          const xp = xpFor(exp, mercOf(entry).level);
+          // 훈련장: 고용 NEW_HIRE_DAYS일 안인 용병은 경험치 +
+          const fresh = (state.facilities.training ?? 0) > 0 && p.hiredDay !== undefined && state.day - p.hiredDay < NEW_HIRE_DAYS;
+          const xp = Math.round(xpFor(exp, mercOf(entry).level) * (fresh ? 1 + TRAINING_XP[(state.facilities.training ?? 1) - 1] : 1));
           if (xp <= 0) {
             report.growth.push(`${m.name}: 이 던전에서는 더 배울 것이 없다 (경험치 0)`);
             continue;
@@ -1660,7 +1877,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       // 히든 열쇠: 쓴 열쇠는 보스를 잡고 나오면 소모, 전멸하면 잃고, 후퇴하면 남는다.
       // 이번에 얻은 열쇠는 살아 돌아와야 창고에 (이미 있으면 금화로)
       {
-        let keys = [...next.keyItems];
+        // 가방에서 버린 열쇠는 사라진다
+        let keys = next.keyItems.filter((k) => !(exp.keysLost ?? []).includes(k));
         const lines: string[] = [];
         let bonusGold = 0;
         if (exp.keyUsed && keys.includes(exp.keyUsed)) {

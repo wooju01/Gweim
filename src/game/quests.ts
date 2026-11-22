@@ -1,5 +1,5 @@
 // 의뢰·클랜 규칙 (순수 함수). 수치는 data/quests.ts, data/clan.ts.
-import { CLAN_JOIN, SETTLEMENT_DAYS, UPKEEP } from "@/data/clan";
+import { CLAN_JOIN, SETTLEMENT_DAYS, UPKEEP_PER_GRADE } from "@/data/clan";
 import { BOARD_SIZE, DISPATCH, QUESTS, getQuest, type DirectQuest, type Objective, type Quest, type QuestReward } from "@/data/quests";
 import { FAME_EFFECT, fameRank, fameTier } from "@/data/fame";
 import type { StatBlock } from "@/data/growth";
@@ -209,9 +209,10 @@ export function clanJoinChance(affinity: number, personalities: string[], backgr
 }
 
 /** 유지비 (정산 한 번) */
-export function upkeepCost(home: "inn" | "clanHall", members: number): number {
-  const u = UPKEEP[home];
-  return u.base + u.perMember * members + u.facility;
+/** 클랜 유지비 (정산 한 번): 클랜원 수 × 등급별 금액. 숙소 시절에는 0. members: 클랜원들의 등급 */
+export function upkeepCost(home: "inn" | "clanHall", members: MercLevel[]): number {
+  if (home !== "clanHall") return 0;
+  return members.reduce((s, lv) => s + UPKEEP_PER_GRADE[lv], 0);
 }
 
 /** 지난 정산 이후 넘은 정산 경계 수 (정산일: 1 + 7k) */

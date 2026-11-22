@@ -5,7 +5,7 @@ import { getEvent } from "@/data/events";
 import { getTrinket } from "@/data/trinkets";
 import { getMonster } from "@/data/monsters";
 import { getSalvage } from "@/data/loot";
-import { UPKEEP } from "@/data/clan";
+import { UPKEEP_PER_GRADE } from "@/data/clan";
 import { clanJoinChance, dispatchChance, fixedQuests, isDirect, objectiveDone, objectiveProgress, questOverdue, resolveDispatch, rewardBlocked, rollBoard, settlementsDue, upkeepCost } from "./quests";
 
 const member = (id: string, level: "bronze" | "silver" = "bronze", personalities: string[] = []) => ({ id, level, stats: {}, personalities });
@@ -110,8 +110,10 @@ describe("클랜", () => {
   });
 
   it("유지비와 정산 횟수", () => {
-    expect(upkeepCost("inn", 5)).toBe(0);
-    expect(upkeepCost("clanHall", 5)).toBe(UPKEEP.clanHall.base + 5 * UPKEEP.clanHall.perMember);
+    expect(upkeepCost("inn", ["bronze", "silver"])).toBe(0);
+    // 클랜원 수 × 등급별 금액 (동 10, 은 20, 금 35 …)
+    expect(upkeepCost("clanHall", ["bronze", "bronze", "silver"])).toBe(10 + 10 + 20);
+    expect(UPKEEP_PER_GRADE).toEqual({ bronze: 10, silver: 20, gold: 35, mithril: 55, diamond: 80, radiant: 110 });
     expect(settlementsDue(1, 7)).toBe(0);
     expect(settlementsDue(1, 8)).toBe(1);
     expect(settlementsDue(1, 16)).toBe(2);

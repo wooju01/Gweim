@@ -1,5 +1,5 @@
 // 캠페인 시뮬레이션: 동3 파티 4명으로 원정 TRIPS번 연속. 죽으면 동3 새로 고용 (무료), 남는 금화는 아래 순서로 쓴다.
-// 물자(짐 5) → 생존 장신구 → [재료 구매 →] 해금·조립 → [재료 구매 →] 강화 → 직업 장신구 → 단련 → 승급
+// 물자(짐 5) → 시설(의무실 → 가방 → 훈련장 → 위령비) → 생존 장신구 → [재료 구매 →] 해금·조립 → [재료 구매 →] 강화 → 직업 장신구 → 단련 → 승급
 // 실행: npm run sim:campaign  (CAMPAIGNS=50, POLICY=retreat|none|both, CONFIGS=trinkets|none,trinkets)
 // 결과: scripts/sim/results/날짜-campaign.md. 수치를 바꿔 다시 돌릴 때는 게임 데이터(data/*)만 고치면 된다
 import { it } from "vitest";
@@ -23,6 +23,10 @@ import type { Merc } from "@/game/types";
 import type { MercSeed } from "@/lib/schemas";
 import type { SupplyKind } from "@/data/combat";
 import { run } from "./expedition";
+import { FACILITY_SLOTS, INFIRMARY, NEW_HIRE_DAYS, SCOUT_CHANCE, TRAINING_XP, bagSlots, getFacility, type FacilityId, type FacilityLevels } from "@/data/facilities";
+
+/** 시설을 짓는 순서 */
+const FACILITY_ORDER: FacilityId[] = ["infirmary", "bag", "training", "memorial"];
 import { rng } from "./party";
 import { Report, mean, pct } from "./report";
 import { assertMockAI } from "./setup";
@@ -48,8 +52,10 @@ type Member = {
   build: string;
   worn: OwnedTrinket[];
   trinketGold: number;
+  /** 고용한 날 (훈련장: 고용 NEW_HIRE_DAYS일 안이면 경험치 +) */
+  hiredDay: number;
 };
-const SPEND = ["보수", "물자", "생존 장신구", "재료 구매", "해금·조립", "강화", "직업 장신구", "단련", "용병 승급", "길드 승급"] as const;
+const SPEND = ["보수", "물자", "시설", "생존 장신구", "재료 구매", "해금·조립", "강화", "직업 장신구", "단련", "용병 승급", "길드 승급"] as const;
 type Spend = (typeof SPEND)[number];
 const SEEDS = sampleSeeds();
 const PACK5: Record<SupplyKind, number> = { bandage: 2, antidote: 1, potion: 2, greaterPotion: 0 };
@@ -71,6 +77,10 @@ type Config = { trinkets: boolean; name: string };
 function campaign(c: number, retreat: boolean, cfg: Config) {
   const r = rng(c + 77);
   let hires = 0;
+  /** 날짜 (원정마다 내려간 층수만큼 지난다), 시설 레벨 (숙소 3칸) */
+  let day = 1;
+  const facilities: FacilityLevels = {};
+  let discarded = 0;
   const hire = (exclude: string[]): Member => {
     const pool = SEEDS.filter((s) => !exclude.includes(s.id));
     const base = pool[Math.floor(r() * pool.length)];
@@ -82,6 +92,7 @@ function campaign(c: number, retreat: boolean, cfg: Config) {
       build: branches[Math.floor(r() * branches.length)].id,
       worn: [],
       trinketGold: 0,
+      hiredDay: day,
     };
   };
   const baseId = (m: Member) => (m.seed as MercSeed & { _base: string })._base;
@@ -89,7 +100,7 @@ function campaign(c: number, retreat: boolean, cfg: Config) {
   while (party.length < 4) party.push(hire(party.map(baseId)));
   let gold = START_GOLD;
   let salvage: Record<string, number> = {};
-  let stash = { ...PACK5 };
+  const stash = { ...PACK5 };
   let guildSilver = false, examDone = false;
   const spent: Record<Spend, number> = Object.fromEntries(SPEND.map((k) => [k, 0])) as Record<Spend, number>;
   let income = 0, lost = 0, deaths = 0, unpaid = 0, wipes = 0, lostTrinketGold = 0, bossDeaths = 0;
@@ -156,14 +167,20 @@ function campaign(c: number, retreat: boolean, cfg: Config) {
     const depth = Math.min(3, 1 + Math.floor(avg));
     depths.push(depth);
     const mercs = party.map(mercOf);
-    const res = run(mercs, depth, c * 1000 + t * 17 + (retreat ? 7 : 0), retreat, stash);
+    // 가방: 시작 짐 5개를 챙기고(나머지는 창고), 의무실 무료 물자를 더한다
+    const carry = Object.fromEntries(KINDS.map((k) => [k, Math.min(stash[k], PACK5[k])])) as Record<SupplyKind, number>;
+    for (const k of KINDS) stash[k] -= carry[k];
+    for (const [k, n] of Object.entries(INFIRMARY[(facilities.infirmary ?? 0) - 1] ?? {}) as [SupplyKind, number][]) carry[k] += n;
+    const res = run(mercs, depth, c * 1000 + t * 17 + (retreat ? 7 : 0), retreat, carry, { bag: bagSlots(facilities), scout: SCOUT_CHANCE[guildSilver ? "silver" : "bronze"] });
+    discarded += res.discarded;
+    day += res.exp.depth;
     // 상점 재료 구매 한도는 원정마다 다시 찬다
     for (const k of Object.keys(bought)) delete bought[k];
     const exp = res.exp;
     if (!res.ok) wipes++;
     bossDeaths += res.bossDeaths;
     // 들고 간 물자: 살아 돌아오면 남은 것, 전멸하면 잃는다
-    stash = res.ok ? { ...exp.supplies } : { bandage: 0, antidote: 0, potion: 0, greaterPotion: 0 };
+    if (res.ok) for (const k of KINDS) stash[k] += exp.supplies[k] ?? 0;
     // 수입: 금화 + 유물 판매 (재료는 팔지 않고 해금·강화용으로 모은다)
     if (res.ok) {
       const got = exp.gold + exp.loot.reduce((a, id) => a + (getRelic(id)?.value ?? 0), 0);
@@ -191,7 +208,9 @@ function campaign(c: number, retreat: boolean, cfg: Config) {
       }
       if (!res.ok) continue;
       if (bossHere) m.bossWin = true;
-      const xp = xpFor(exp, m.seed.level);
+      // 훈련장: 고용 NEW_HIRE_DAYS일 안이면 경험치 +
+      const fresh = (facilities.training ?? 0) > 0 && day - m.hiredDay < NEW_HIRE_DAYS;
+      const xp = Math.round(xpFor(exp, m.seed.level) * (fresh ? 1 + TRAINING_XP[(facilities.training ?? 1) - 1] : 1));
       m.growth = gainXp(m.growth, xp, m.seed.traits.job).growth;
     }
     // 보수: 살아 돌아온 동행 용병 (새로 고용한 용병은 다음 원정부터)
@@ -210,6 +229,20 @@ function campaign(c: number, retreat: boolean, cfg: Config) {
         stash[k]++;
         pay("물자", PRICE[k]);
       }
+    // 1.5) 시설: 의무실 → 가방 → 훈련장 → 위령비 (숙소는 3칸이라 위령비는 칸이 없다). 길드 은이면 2레벨도 같은 순서로
+    for (const want of [1, 2]) {
+      if (want === 2 && !guildSilver) break;
+      for (const id of FACILITY_ORDER) {
+        const lv = facilities[id] ?? 0;
+        if (lv !== want - 1) continue;
+        const used = Object.values(facilities).filter((x) => (x ?? 0) > 0).length;
+        if (lv === 0 && used >= FACILITY_SLOTS.inn) continue;
+        const cost = getFacility(id).cost[lv];
+        if (gold < cost) break;
+        pay("시설", cost);
+        facilities[id] = lv + 1;
+      }
+    }
     // 2) 공용 생존 장신구: 모두 1단계를 먼저, 그다음 2·3단계 (1명당 1개)
     if (cfg.trinkets) {
       for (const m of party) {
@@ -296,7 +329,8 @@ function campaign(c: number, retreat: boolean, cfg: Config) {
     goldAfter.push(gold);
   }
   return {
-    goldBefore, goldAfter, depths, spent, income, lost, deaths, bossDeaths, unpaid, wipes, guildSilver,
+    goldBefore, goldAfter, depths, spent, income, lost, deaths, bossDeaths, unpaid, wipes, guildSilver, discarded,
+    facilities: FACILITY_ORDER.map((id) => `${getFacility(id).name} ${facilities[id] ?? 0}`).join(", "),
     stage: party.reduce((a, m) => a + stageIdx(m), 0) / party.length,
     silver: party.filter((m) => m.seed.level !== "bronze").length,
     unlocks: party.reduce((a, m) => a + m.unlocks, 0),
@@ -329,10 +363,11 @@ it("캠페인", () => {
   r.line(`# 캠페인 시뮬레이션 · ${CAMPAIGNS}캠페인 × 원정 ${TRIPS}번`);
   r.line(`시작 금화 ${START_GOLD} · 시작 짐 5개 · 깨우기 포함 · 필요 경험치 ${XP_TO_NEXT.join("/")} · 단련 ${trainingCost(0)}+10×횟수 · 상점 재료 계열 ${MATERIAL_SHOP.material}·파편 ${MATERIAL_SHOP.shard} (원정마다 종류별 ${MATERIAL_SHOP.perExpedition}개)`);
   r.line("층: 파티 평균 단계 내림 + 1 (최대 3층) · 수입 = 금화 + 유물 판매가 (유실물·재료는 팔지 않는다)");
-  r.line("지출 순서: 물자 → 생존 장신구 → (재료 구매) 해금·조립 → (재료 구매) 강화 → 직업 장신구 → 단련 → 승급\n");
+  r.line("지출 순서: 물자 → 시설(의무실 → 가방 → 훈련장 → 위령비, 숙소 3칸) → 생존 장신구 → (재료 구매) 해금·조립 → (재료 구매) 강화 → 직업 장신구 → 단련 → 승급");
+  r.line("가방: 시설 레벨 칸 수, 넘치면 가치가 낮은 칸부터 자동으로 버린다 · 길잡이 능력: 길드 등급 확률 · 클랜은 만들지 않는다 (숙소 단계)\n");
   r.line(`## 요약 (${TRIPS}회 시점)\n`);
   r.table(
-    ["설정", "사망 (합)", "그중 목적지 전투", "전멸 원정", "남은 금화", "평균 단계", "은 용병", "길드 은", "장신구 단계 합", "날아간 투자"],
+    ["설정", "사망 (합)", "그중 목적지 전투", "전멸 원정", "가방이 꽉 차 버린 개수", "남은 금화", "평균 단계", "은 용병", "길드 은", "장신구 단계 합", "날아간 투자"],
     all.map((x) => {
       const st = mean(x.xs.map((v) => v.stage));
       return [
@@ -340,6 +375,7 @@ it("캠페인", () => {
         mean(x.xs.map((v) => v.deaths)).toFixed(1),
         mean(x.xs.map((v) => v.bossDeaths)).toFixed(1),
         mean(x.xs.map((v) => v.wipes)).toFixed(2),
+        mean(x.xs.map((v) => v.discarded)).toFixed(1),
         mean(x.xs.map((v) => v.goldAfter[TRIPS - 1])).toFixed(0),
         `${st.toFixed(2)} (${STAGE_NAME(st)})`,
         mean(x.xs.map((v) => v.silver)).toFixed(2),
@@ -349,6 +385,7 @@ it("캠페인", () => {
       ];
     }),
   );
+  r.line(`시설 (첫 캠페인 예): ${all[0]?.xs[0]?.facilities ?? ""}\n`);
   r.line("## 총수입 대비 지출처\n");
   r.table(
     ["설정", "총수입", ...SPEND, "남은 금화"],

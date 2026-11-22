@@ -3,6 +3,8 @@
 // 보물 칸에서 낮은 확률로 1단계 직업 장신구가 나온다. 용병이 죽으면 그 전투를 이겼을 때만 돌려받는다.
 // 효과는 3단계 값. 1·2단계는 LEVEL_SHARE(1/3, 2/3)를 곱해 반올림한다 (정수 효과는 최소 1). 생존 장신구는 단계별 표를 쓴다.
 import type { Rng } from "@/game/random";
+import type { MercLevel } from "@/lib/schemas";
+import { RANK_ORDER } from "./ranks";
 
 /**
  * 장신구 효과 (낀 장신구들의 효과는 더한다). 확률·비율은 0~1.
@@ -87,6 +89,11 @@ export type TrinketKind = "job" | "survival" | "quest";
 export type Trinket = {
   id: string;
   name: string;
+  /**
+   * 장비 등급 (2026-11-22). 용병 등급 이상인 장비는 낄 수 없다. 지금의 직업 장신구 36종·생존 4종·의뢰 장신구는 동.
+   * 상위 등급 장비는 그 던전 재료가 정해지면 추가한다 (대장간 시설 레벨로 제작 해금: data/facilities.ts의 FORGE_TIER)
+   */
+  tier: MercLevel;
   /** job: 직업 전용 / survival: 공용 생존 (누구나, 1명당 1개) / quest: 의뢰 보상 (누구나, 1단계 고정, 만들 수 없다) */
   kind: TrinketKind;
   /** 낄 수 있는 직업 ("any"면 누구나) */
@@ -212,6 +219,7 @@ const m = (id: string, n: number) => ({ id, n });
 const job = (id: string, name: string, jobId: string, build: string, effect: TrinketBonus, material: { id: string; n: number }[], description: string): Trinket => ({
   id,
   name,
+  tier: "bronze",
   kind: "job",
   job: jobId,
   build,
@@ -219,10 +227,11 @@ const job = (id: string, name: string, jobId: string, build: string, effect: Tri
   material,
   description,
 });
-const quest = (id: string, name: string, effect: TrinketBonus, description: string): Trinket => ({ id, name, kind: "quest", job: "any", quest: true, effect, material: [], description });
+const quest = (id: string, name: string, effect: TrinketBonus, description: string): Trinket => ({ id, name, tier: "bronze", kind: "quest", job: "any", quest: true, effect, material: [], description });
 const survival = (id: string, name: string, levels: [TrinketBonus, TrinketBonus, TrinketBonus], elite: string, relic: string, description: string): Trinket => ({
   id,
   name,
+  tier: "bronze",
   kind: "survival",
   job: "any",
   effect: levels[2],
@@ -292,6 +301,16 @@ export const TRINKETS: Trinket[] = [
   // 효과는 나중에 정한다 (임시: 공격 +3)
   quest("t_orc_tusk_necklace", "오크 왕의 엄니 목걸이", { attack: 3 }, "오크 킹의 엄니를 꿰어 만든 목걸이. 목에 걸면 피가 끓는다. (공격 +3)"),
 ];
+
+/** 장비 등급이 용병 등급 이하인가 (장착 조건) */
+export function tierFits(t: Trinket | undefined, level: MercLevel | undefined): boolean {
+  return !!t && RANK_ORDER.indexOf(t.tier) <= RANK_ORDER.indexOf(level ?? "bronze");
+}
+
+/** 대장간 시설 레벨로 만들 수 있는 등급인가 (레벨 0 = 마을 대장간, 동 등급까지) */
+export function tierForgeable(t: Trinket | undefined, forgeLevel: number): boolean {
+  return !!t && RANK_ORDER.indexOf(t.tier) <= forgeLevel;
+}
 
 /** 이 직업이 낄 수 있나 */
 export function trinketFits(t: Trinket | undefined, job: string | undefined): boolean {

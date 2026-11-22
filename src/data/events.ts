@@ -143,6 +143,18 @@ export type EventTemplate = {
 };
 
 const once = (text: string, effect: EventEffect = {}): EventOutcome[] => [{ weight: 1, text, effect }];
+
+/** 나쁜 결과 (다치거나, 상태이상·저주·싸움·불리한 다음 전투) */
+export function badOutcome(e: EventEffect): boolean {
+  return !!(e.damageOne || e.damageAll || e.status || e.curse || e.battle || e.nextBattle === "debuff" || e.nextBattle === "enemyAmbush" || (e.affinity && e.affinity.delta < 0));
+}
+
+/** 선택지 성공 확률 (전술실 3레벨): 결과가 여럿일 때 나쁘지 않은 결과의 가중치 비율. 결과가 하나면 null */
+export function choiceSuccess(choice: EventChoice): number | null {
+  if (choice.outcomes.length < 2) return null;
+  const total = choice.outcomes.reduce((s, o) => s + o.weight, 0);
+  return choice.outcomes.filter((o) => !badOutcome(o.effect)).reduce((s, o) => s + o.weight, 0) / total;
+}
 /** 무너지는 통로: 무사히 지나면 30% 확률로 유실물 하나 */
 const safeFind = (text: string): EventOutcome[] => [
   { weight: 7, text, effect: {} },

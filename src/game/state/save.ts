@@ -1,7 +1,7 @@
 // 자동 저장. 브라우저(localStorage)에 한 칸만 두고, 상태가 바뀔 때마다 덮어쓴다 (되돌리기 없음).
 // 저장 데이터는 Zod 스키마로 검사하고 버전 번호를 붙인다. 버전이 다르면 읽지 않고 새 게임으로 시작한다
 // (형식이 크게 바뀔 때 변환하지 않고 초기화하기로 했다. 2026-11-20: 직업·등급·스킬 조각 개편 → 버전 3,
-// 2026-11-21: 시간·클랜·의뢰 → 버전 4, 2026-11-22: 길드 등급·용병 승급 증명 → 버전 5, 게시판 개선(명성·기한·보상 선택)·시작 용병 8명 → 버전 6, 밸런스 1차(창고·중급 물약)는 기본값으로 읽어서 버전 6 그대로, 장신구 개편(직업 36종·생존 4종) → 버전 7).
+// 2026-11-21: 시간·클랜·의뢰 → 버전 4, 2026-11-22: 길드 등급·용병 승급 증명 → 버전 5, 게시판 개선(명성·기한·보상 선택)·시작 용병 8명 → 버전 6, 밸런스 1차(창고·중급 물약)는 기본값으로 읽어서 버전 6 그대로, 장신구 개편(직업 36종·생존 4종) → 버전 7, 클랜 내실(숙소 6명·시설·가방) → 버전 8).
 // 대화 화면·AI 응답 대기처럼 잠깐 거치는 상태는 저장하지 않는다.
 // 전투 중이면 전투 그대로 저장한다 (새로고침으로 도망칠 수 없게).
 import { z } from "zod";
@@ -12,7 +12,7 @@ import { entryId, initialState, mercOf, type GameState } from "./state";
 export const SAVE_KEY = "ashen-save";
 /** 읽지 못한 저장을 지우기 전에 옮겨 두는 곳 (직접 살펴볼 수 있게) */
 export const BROKEN_KEY = "ashen-save-broken";
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 
 const MercProgressSave = TalkState.extend({
   hired: z.boolean(),
@@ -23,6 +23,8 @@ const MercProgressSave = TalkState.extend({
   stats: z.record(z.string(), z.number().int().min(0)).default({}),
   trainable: z.number().int().min(0).default(0),
   trainings: z.number().int().min(0).default(0),
+  hiredDay: z.number().int().optional(),
+  guestUntilDay: z.number().int().optional(),
   learned: z.array(SkillBuild).max(40).default([]),
   pieces: z.array(z.string().max(40)).default([]),
   levels: z.record(z.string().max(40), z.number().int().min(1).max(3)).default({}),
@@ -89,7 +91,19 @@ export const SaveFile = z.object({
     day: z.number().int().min(1).default(1),
     memorial: z
       .array(
-        z.object({ id: z.string(), name: z.string(), title: z.string(), words: z.string().nullable(), depth: z.number(), day: z.number().optional() }),
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          title: z.string(),
+          words: z.string().nullable(),
+          depth: z.number(),
+          day: z.number().optional(),
+          region: z.string().optional(),
+          lastBattle: z.string().optional(),
+          job: z.string().optional(),
+          legacy: z.array(z.object({ id: z.string(), lv: z.number().int() })).optional(),
+          legacyTaken: z.boolean().optional(),
+        }),
       )
       .default([]),
     gold: z.number().int().min(0).default(START_GOLD),
@@ -133,6 +147,9 @@ export const SaveFile = z.object({
     discounts: z.array(z.object({ facility: z.enum(["forge", "shop"]), untilDay: z.number().int() })).default([]),
     eventsSeen: z.array(z.string().max(40)).max(200).default([]),
     materialBought: z.record(z.string().max(40), z.number().int().min(0)).default({}),
+    facilities: z.partialRecord(z.enum(["infirmary", "training", "bag", "warRoom", "tavern", "memorial", "forge"]), z.number().int().min(0).max(5)).default({}),
+    legaciesUsed: z.number().int().min(0).default(0),
+    bossesMet: z.array(z.string().max(40)).max(100).default([]),
     pendingJoins: z.number().int().min(0).max(5).default(0),
     bossesSlain: z.array(z.string().max(40)).default([]),
     storageLevel: z.number().int().min(0).default(0),
@@ -196,6 +213,9 @@ export function toSave(state: GameState, now = new Date()): SaveFile {
       storageLevel: state.storageLevel,
       eventsSeen: state.eventsSeen,
       materialBought: state.materialBought,
+      facilities: state.facilities,
+      legaciesUsed: state.legaciesUsed,
+      bossesMet: state.bossesMet,
     } as SaveFile["state"],
   };
 }
@@ -279,6 +299,9 @@ export function fromSave(raw: unknown): { state: GameState } | { error: string }
       storageLevel: s.storageLevel,
       eventsSeen: s.eventsSeen,
       materialBought: s.materialBought,
+      facilities: s.facilities,
+      legaciesUsed: s.legaciesUsed,
+      bossesMet: s.bossesMet,
       // 사건 칸에서 멈췄으면 AI 묘사 없이 기본 문장으로 이어 간다
       narration: room?.kind === "event" && !room.result ? { eventId: room.eventId, pending: false, data: null } : null,
     },

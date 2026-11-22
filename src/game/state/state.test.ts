@@ -4,7 +4,7 @@ import { wageOf } from "@/game/merc/wages";
 import { promotionChoices } from "@/game/merc/promotion";
 import { knownFragments, ownerOf } from "@/game/merc/skillhall";
 import { CRAFT_COST, UPGRADE_COST, getFragment } from "@/data/fragments";
-import { forgeCost, getTrinket } from "@/data/trinkets";
+import { TRINKETS, forgeCost, getTrinket, tierFits, tierForgeable } from "@/data/trinkets";
 import { RANKS } from "@/data/ranks";
 import { PROMOTE_BONUS, TRAINING_COST, XP_TO_NEXT } from "@/data/growth";
 import { GUILD_PROMOTION } from "@/data/guild";
@@ -19,11 +19,11 @@ import { tierOpen } from "@/game/merc/skillhall";
 import { fragmentsFor, skillKey } from "@/game/skills";
 import { act, living } from "@/game/combat/engine";
 import { battleSpoils, finishBattle } from "@/game/dungeon/expedition";
-import { entryId, gameReducer, guildPromotionBlocks, initialState as newGame, mercOf, packFor, promotionBlocks, type GameState } from "./state";
+import { canHire, entryId, facilityBlock, gameReducer, guestIds, guildPromotionBlocks, initialState as newGame, mercOf, packFor, promotionBlocks, type GameState } from "./state";
 import { PRICE, STORAGE } from "@/data/economy";
 import { sampleSeeds } from "@/data/sampleRoster";
 import { START_PARTY } from "@/data/startRoster";
-import { ROSTER_LIMIT } from "@/data/clan";
+import { CLAN_MEMBER_LIMIT, GUEST_DAYS, GUEST_ROOMS, INN_LIMIT } from "@/data/clan";
 
 /** 테스트는 고용하지 않은 샘플 명단으로 시작한다 */
 const initialState = () => newGame({ seeds: sampleSeeds(), hired: false });
@@ -156,10 +156,11 @@ describe("금화와 상점 (상태)", () => {
     expect(sold.relics).toEqual([]);
   });
 
-  it("떠날 때 창고에서 10개까지만 챙기고 나머지는 창고에 남는다 (물약부터)", () => {
+  it("떠날 때 가방 칸의 절반까지 물자를 챙기고 (한 칸 3개, 물약부터) 나머지는 창고에 남는다", () => {
     const { carried, left } = packFor({ bandage: 8, antidote: 3, potion: 4, greaterPotion: 1 });
-    expect(carried).toEqual({ greaterPotion: 1, potion: 4, antidote: 3, bandage: 2 });
-    expect(left).toEqual({ greaterPotion: 0, potion: 0, antidote: 0, bandage: 6 });
+    // 8칸 → 4칸: 중급 물약 1(1칸) + 물약 4(2칸) + 해독제 3(1칸)
+    expect(carried).toEqual({ greaterPotion: 1, potion: 4, antidote: 3, bandage: 0 });
+    expect(left).toEqual({ greaterPotion: 0, potion: 0, antidote: 0, bandage: 8 });
   });
 
   it("전멸하면 그 원정에서 얻은 금화·유물·물자를 잃는다", () => {
@@ -522,12 +523,14 @@ describe("승급 (상태)", () => {
 });
 
 describe("새 게임", () => {
-  it("숙소에 고용된 동 등급 11명으로 시작한다. 9개 직업이 모두 있고, 종족×직업은 모두 다르고, 호감은 30~80", () => {
+  it("시작 용병 11명 중 숙소에 6명(처음 파티 먼저)이 고용돼 있고 나머지는 길드 홀에. 9개 직업이 모두 있고, 종족×직업은 모두 다르고, 호감은 30~80", () => {
     const s = newGame();
     const mercs = s.roster.map(mercOf);
     expect(mercs).toHaveLength(11);
-    expect(mercs.length).toBeLessThanOrEqual(ROSTER_LIMIT);
-    expect(mercs.every((m) => m.level === "bronze" && s.progress[m.id].hired && (s.progress[m.id].wage ?? 0) > 0)).toBe(true);
+    const hired = mercs.filter((m) => s.progress[m.id].hired);
+    expect(hired).toHaveLength(INN_LIMIT);
+    expect(START_PARTY.every((id) => s.progress[id].hired)).toBe(true);
+    expect(hired.every((m) => m.level === "bronze" && (s.progress[m.id].wage ?? 0) > 0)).toBe(true);
     expect(new Set(mercs.map((m) => m.job)).size).toBe(9);
     expect(new Set(mercs.map((m) => `${m.race}/${m.job}`)).size).toBe(11);
     expect(mercs.every((m) => s.progress[m.id].affinity >= 30 && s.progress[m.id].affinity <= 80)).toBe(true);
@@ -1067,5 +1070,140 @@ describe("시간 · 클랜 · 의뢰 (상태)", () => {
     s = gameReducer(s, { type: "homeTalkEnd" });
     expect(s.talksLeft).toBe(0);
     expect(gameReducer(s, { type: "homeTalkStart", mercId: "s-tob" })).toBe(s);
+  });
+});
+
+describe("클랜 내실 (상태)", () => {
+  /** 샘플 명단을 n명 고용한 숙소 */
+  const withHired = (n: number, home: "inn" | "clanHall" = "inn"): GameState => {
+    const s = initialState();
+    const ids = s.roster.map(entryId).slice(0, n);
+    return { ...s, home, progress: { ...s.progress, ...Object.fromEntries(ids.map((id) => [id, { ...s.progress[id], hired: true, kind: home === "clanHall" ? ("member" as const) : ("merc" as const) }])) } };
+  };
+  const talkJoin = (s: GameState, mercId: string) =>
+    gameReducer(s, {
+      type: "resolved",
+      mercId,
+      playerText: "가자",
+      res: {
+        mode: "mock" as const, tone: null, delta: { affinity: 0, willingness: 0 }, affinity: 60, willingness: 100, stage: "neutral" as const,
+        recentTones: [], message: "좋아.", emotion: "pleased" as const, choices: [], joined: true, memory: "", forget: 0, talks: 1, offer: null,
+      },
+    });
+
+  it("숙소는 고용 6명까지 (6명이면 더 고용되지 않는다)", () => {
+    const s = withHired(INN_LIMIT);
+    expect(canHire(s)).toBe(false);
+    const next = s.roster.map(entryId).find((id) => !s.progress[id].hired)!;
+    expect(canHire(withHired(INN_LIMIT - 1))).toBe(true);
+    expect(talkJoin(s, next).progress[next].hired).toBe(false);
+  });
+
+  it("클랜 창설은 가입 의사 5명", () => {
+    const s = withHired(6);
+    const ids = s.roster.map(entryId).slice(0, 6);
+    const pledge = (n: number) => ({ ...s, progress: { ...s.progress, ...Object.fromEntries(ids.slice(0, n).map((id) => [id, { ...s.progress[id], pledged: true }])) } });
+    expect(gameReducer(pledge(4), { type: "foundClan" }).home).toBe("inn");
+    const founded = gameReducer(pledge(5), { type: "foundClan" });
+    expect(founded.home).toBe("clanHall");
+    // 가입 의사를 안 밝힌 용병은 객실 (20일 기한)
+    expect(founded.progress[ids[5]]).toMatchObject({ kind: "merc", guestUntilDay: s.day + GUEST_DAYS });
+    expect(guestIds(founded)).toEqual([ids[5]]);
+  });
+
+  it("클랜 본부: 클랜원 10명 + 객실 4칸. 새로 고용한 용병은 객실, 20일 안에 가입하지 않으면 떠난다", () => {
+    let s = withHired(4, "clanHall");
+    const free = s.roster.map(entryId).filter((id) => !s.progress[id].hired);
+    expect(canHire(s)).toBe(true);
+    s = talkJoin(s, free[0]);
+    expect(s.progress[free[0]]).toMatchObject({ hired: true, kind: "merc", hiredDay: s.day, guestUntilDay: s.day + GUEST_DAYS });
+    // 클랜원이 10명이면 가입 제안을 할 수 없다 (명단 밖 클랜원을 채워 넣는다)
+    const fake = Object.fromEntries(Array.from({ length: CLAN_MEMBER_LIMIT }, (_, i) => [`fake-${i}`, { ...s.progress[free[0]], hired: true, kind: "member" as const }]));
+    const full = { ...s, progress: { ...s.progress, ...fake, [free[0]]: { ...s.progress[free[0]], affinity: 100 } } };
+    expect(gameReducer(full, { type: "proposeClan", mercId: free[0], seed: 1 })).toBe(full);
+    // 객실이 다 차면 더 고용하지 않는다
+    let g = s;
+    for (const id of free.slice(1, GUEST_ROOMS)) g = talkJoin(g, id);
+    expect(guestIds(g)).toHaveLength(GUEST_ROOMS);
+    expect(canHire(g)).toBe(false);
+    // 기한이 지나면 떠난다
+    const late = { ...inDungeon(PARTY4), home: "clanHall" as const, progress: { ...g.progress, ...Object.fromEntries(PARTY4.map((id) => [id, { ...g.progress[id], hired: true }])) } };
+    const back = gameReducer({ ...late, day: s.day + GUEST_DAYS + 1 }, { type: "endExpedition", seed: 1 });
+    expect(back.progress[free[0]]).toBeUndefined();
+    expect(back.report!.left.some((l) => l.includes("객실을 떠났다"))).toBe(true);
+  });
+
+  it("클랜 유지비는 클랜원 수 × 등급별 금액", () => {
+    const s = { ...withHired(3, "clanHall"), gold: 1000, lastSettlementDay: 1 };
+    const party = s.roster.map(entryId).slice(0, 1);
+    let t = gameReducer({ ...s, party }, { type: "enterDungeon", seed: 1 });
+    t = gameReducer({ ...t, day: 8 }, { type: "endExpedition", seed: 2 });
+    expect(t.report!.clan?.[0]).toContain(`${3 * 10}`);
+  });
+
+  it("시설: 숙소 3칸, 2레벨은 길드 은부터, 칸이 차면 새로 지을 수 없다", () => {
+    let s: GameState = { ...initialState(), gold: 10000 };
+    for (const id of ["infirmary", "bag", "training"] as const) s = gameReducer(s, { type: "buildFacility", id });
+    expect(s.facilities).toEqual({ infirmary: 1, bag: 1, training: 1 });
+    expect(s.gold).toBe(10000 - 900);
+    expect(facilityBlock(s, "memorial")).toContain("칸이 꽉 찼다");
+    expect(gameReducer(s, { type: "buildFacility", id: "memorial" })).toBe(s);
+    // 레벨 올리기는 칸을 쓰지 않지만 길드 은이 필요하다
+    expect(facilityBlock(s, "bag")).toContain("길드 등급 부족");
+    const silver = gameReducer({ ...s, guildGrade: "silver" }, { type: "buildFacility", id: "bag" });
+    expect(silver.facilities.bag).toBe(2);
+    expect(silver.gold).toBe(s.gold - 800);
+    // 대장간 1레벨부터 길드 은
+    expect(facilityBlock({ ...initialState(), gold: 10000 }, "forge")).toContain("길드 등급 부족");
+  });
+
+  it("의무실: 출발 때 무료 물자, 가방: 칸 수, 길잡이 능력: 길드 등급 확률", () => {
+    let s: GameState = { ...initialState(), pack: { bandage: 0, antidote: 0, potion: 0, greaterPotion: 0 }, facilities: { infirmary: 2, bag: 1 }, party: PARTY4 };
+    s = { ...s, progress: { ...s.progress, ...Object.fromEntries(PARTY4.map((id) => [id, { ...s.progress[id], hired: true }])) } };
+    const t = gameReducer(s, { type: "enterDungeon", seed: 1 });
+    expect(t.expedition!.supplies).toMatchObject({ bandage: 1, potion: 1 });
+    expect(t.expedition!.bag).toBe(10);
+    expect(t.expedition!.scoutChance).toBe(0.15);
+  });
+
+  it("훈련장: 고용 20일 안인 용병은 경험치 +", () => {
+    let s = inDungeon(PARTY4);
+    s = { ...s, facilities: { training: 1 }, progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], hiredDay: s.day } }, expedition: { ...s.expedition!, xp: 10, xpBy: { bronze: 10 }, room: { kind: "goal" } } };
+    const back = gameReducer(s, { type: "endExpedition", seed: 1 });
+    expect(back.report!.growth.find((l) => l.includes("브란"))).toContain("+12");
+  });
+
+  it("가방: 버리기, 열쇠를 버리면 창고에서도 사라진다, 넘치면 움직이거나 돌아갈 수 없다", () => {
+    let s: GameState = { ...inDungeon(PARTY4), keyItems: ["world_tree_branch"] };
+    s = gameReducer({ ...s, expedition: null, screen: { kind: "town" } } as GameState, { type: "enterDungeon", seed: 1 });
+    expect(s.expedition!.keys).toEqual(["world_tree_branch"]);
+    // 넘치게 채운다
+    const over = { ...s, expedition: { ...s.expedition!, salvage: { soft_pelt: 5 * 8 } } };
+    expect(gameReducer(over, { type: "endExpedition", seed: 1 })).toBe(over);
+    // 열쇠를 버리고, 돌아오면 창고에서도 없다
+    let t = gameReducer(s, { type: "discard", item: { kind: "key", id: "world_tree_branch" } });
+    expect(t.expedition!.keys).toEqual([]);
+    t = gameReducer(t, { type: "endExpedition", seed: 1 });
+    expect(t.keyItems).toEqual([]);
+  });
+
+  it("장비 등급: 용병 등급보다 높은 장비는 낄 수 없고, 대장간 레벨이 모자라면 만들 수 없다", () => {
+    const silverGear = { ...getTrinket("t_oath_badge")!, tier: "silver" as const };
+    expect(tierFits(silverGear, "bronze")).toBe(false);
+    expect(tierFits(silverGear, "silver")).toBe(true);
+    expect(tierForgeable(silverGear, 0)).toBe(false);
+    expect(tierForgeable(silverGear, 1)).toBe(true);
+    expect(TRINKETS.every((t) => t.tier === "bronze")).toBe(true);
+  });
+
+  it("위령비: 동료가 죽으면 호감 하락 절반, 2레벨부터 유산 전수", () => {
+    const s = initialState();
+    const base = { ...s, gold: 0, facilities: { memorial: 2 }, memorial: [{ id: "x", name: "엑스", title: "", words: null, depth: 1, job: "knight", legacy: [{ id: "knight_grit", lv: 2 }] }] };
+    const done = gameReducer({ ...base, progress: { ...base.progress, "s-bran": { ...base.progress["s-bran"], hired: true } } }, { type: "inheritLegacy", fallenId: "x", piece: "knight_grit", mercId: "s-bran" });
+    expect(done.progress["s-bran"].levels.knight_grit).toBe(2);
+    expect(done.progress["s-bran"].pieces).toContain("knight_grit");
+    expect(done.legaciesUsed).toBe(1);
+    // 다른 직업에게는 안 된다
+    expect(gameReducer({ ...base, progress: { ...base.progress, "s-durgan": { ...base.progress["s-durgan"], hired: true } } }, { type: "inheritLegacy", fallenId: "x", piece: "knight_grit", mercId: "s-durgan" }).legaciesUsed).toBe(0);
   });
 });

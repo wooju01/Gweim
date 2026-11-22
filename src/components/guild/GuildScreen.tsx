@@ -4,7 +4,6 @@ import { CURRENCY } from "@/data/economy";
 import { wageOf } from "@/game/merc/wages";
 import type { Merc } from "@/game/types";
 import { Button, MercStats, Portrait } from "@/components/common/parts";
-import { ROSTER_LIMIT } from "@/data/clan";
 import type { MercProgress } from "@/game/state/state";
 import { TownBar } from "@/components/town/TownBar";
 import type { MercLevel } from "@/lib/schemas";
@@ -21,6 +20,9 @@ type Props = {
   day: number;
   gold: number;
   hired: number;
+  /** 고용 한도 문구 ("6", "10 + 객실 4")와 더 고용할 수 있나 */
+  limit: string;
+  canHire: boolean;
   guildGrade: MercLevel;
   guildPromotion: { next: MercLevel | null; gold: number; blocks: string[] };
   onPromoteGuild: () => void;
@@ -30,7 +32,7 @@ type Props = {
   onBack: () => void;
 };
 
-export function GuildScreen({ mercs, progress, recruit, onRecruit, onTalk, onInspect, day, gold, hired, guildGrade, guildPromotion, onPromoteGuild, promotions, onPromote, onBack }: Props) {
+export function GuildScreen({ mercs, progress, recruit, onRecruit, onTalk, onInspect, day, gold, hired, limit, canHire, guildGrade, guildPromotion, onPromoteGuild, promotions, onPromote, onBack }: Props) {
   const waiting = mercs.filter((m) => promotions[m.id]);
   // 길드 홀에는 고용 전 용병만 (고용한 용병은 숙소·마을에서 본다)
   const visitors = mercs.filter((m) => !progress[m.id]?.hired);
@@ -51,9 +53,9 @@ export function GuildScreen({ mercs, progress, recruit, onRecruit, onTalk, onIns
           </Button>
           <span className="text-[11px] text-ash">고용하지 않은 떠돌이 용병은 떠나고 새 얼굴이 온다</span>
           {recruit.error && <span className="text-xs text-blood">{recruit.error}</span>}
-          <span className={`text-xs ${hired >= ROSTER_LIMIT ? "text-ember" : "text-ash"}`}>
-            고용 {hired} / {ROSTER_LIMIT}
-            {hired >= ROSTER_LIMIT ? " · 더 고용할 수 없다" : ""}
+          <span className={`text-xs ${!canHire ? "text-ember" : "text-ash"}`}>
+            고용 {hired} / {limit}
+            {!canHire ? " · 더 고용할 수 없다 (자리가 없다)" : ""}
           </span>
         </div>
       </header>
