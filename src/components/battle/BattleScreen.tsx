@@ -207,6 +207,8 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
   const [item, setItem] = useState<SupplyKind | null>(null);
   /** 대상을 골라야 하는 스킬을 겨누는 중 (스킬 id) */
   const [aiming, setAiming] = useState<string | null>(null);
+  /** 깨우기: 쓰러진 아군을 고르는 중 */
+  const [waking, setWaking] = useState(false);
   const [floats, setFloats] = useState<Float[]>([]);
   /** 마우스를 올린 유닛 (스킬·물자 대상 미리보기), 스킬 버튼에 마우스를 올렸는지 */
   const [hover, setHover] = useState<string | null>(null);
@@ -253,6 +255,19 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
     setAiming(null);
   }
 
+  /** 깨울 수 있는 쓰러진 아군 (하나면 바로 깨운다) */
+  const wakeable = battle.units.filter((u) => can({ type: "wake", target: u.id }));
+  function onWakeButton() {
+    if (wakeable.length === 1) {
+      onAct({ type: "wake", target: wakeable[0].id });
+      setWaking(false);
+    } else {
+      setWaking(!waking);
+      setAiming(null);
+      setItem(null);
+    }
+  }
+
   function onSkillButton(id: string) {
     if (def(id)?.target === "none") cast(id);
     else {
@@ -263,12 +278,17 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
 
   /** 무대 위 유닛을 눌렀을 때: 겨눈 스킬, 건넬 물자, 아무것도 고르지 않았으면 평타 */
   function clickUnit(u: Unit) {
+    if (waking && can({ type: "wake", target: u.id })) {
+      onAct({ type: "wake", target: u.id });
+      return setWaking(false);
+    }
     if (aiming && can({ type: "skill", skill: aiming, target: u.id })) return cast(aiming, u.id);
     if (item && can({ type: "guide", item, target: u.id })) return give(u.id);
     if (!aiming && !item && can({ type: "attack", target: u.id })) onAct({ type: "attack", target: u.id });
   }
 
   function clickable(u: Unit): boolean {
+    if (waking) return can({ type: "wake", target: u.id });
     if (aiming) return can({ type: "skill", skill: aiming, target: u.id });
     if (item) return can({ type: "guide", item, target: u.id });
     return can({ type: "attack", target: u.id });
@@ -282,6 +302,7 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
     if (key === "Escape") {
       setAiming(null);
       setItem(null);
+      setWaking(false);
       return;
     }
     const n = Number(key);
@@ -570,6 +591,15 @@ export function BattleScreen({ battle, onAct, onLeave, leaveLabel, bonds, onFlee
                   </Button>
                   <Button disabled={play.playing} onClick={() => onAct({ type: "wait" })} title="아무것도 하지 않고 이번 차례를 넘긴다">
                     차례 넘기기
+                  </Button>
+                  <Button
+                    variant={waking ? "ember" : "ghost"}
+                    className="col-span-2"
+                    disabled={wakeable.length === 0}
+                    onClick={onWakeButton}
+                    title="이번 차례를 써서 쓰러진 아군을 체력 1로 일으킨다 (같은 아군은 전투당 1번)"
+                  >
+                    깨우기{wakeable.length > 1 ? (waking ? " · 깨울 아군을 고른다" : ` · ${wakeable.length}명`) : wakeable.length === 1 ? ` · ${wakeable[0].name}` : ""}
                   </Button>
                 </div>
               </>

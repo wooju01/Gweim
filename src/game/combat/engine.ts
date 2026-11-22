@@ -37,7 +37,7 @@ import {
 import { SKILL_SLOTS, type DamageEffect, type DmgCond, type Scaling, type Skill, type SkillDef, type SkillId, type StatusRoll } from "@/data/skills";
 import { BOND } from "@/data/bond";
 import { JOB_STAT, PER_POINT, STAT_CURVE, curveBonus, type PowerStat, type StatKey } from "@/data/growth";
-import { DEATH, TEST_RULES, downedTurns } from "@/data/death";
+import { DEATH, downedTurns } from "@/data/death";
 import { ELITE_TRAITS, MAX_ENEMIES, getMonster, type Ability, type EliteTrait, type Monster, type MonsterRank, type MonsterTag } from "@/data/monsters";
 import { scaleOf, type Region } from "@/data/regions";
 import type { FloorMod } from "@/data/events";
@@ -152,7 +152,7 @@ export type PassiveState = {
   /** 장신구: 버팀 팔찌를 이번 전투에 썼나, 이번 전투에 마지막 숨결을 쓴 횟수 */
   braceUsed?: boolean;
   breathUsed?: number;
-  /** 시험 규칙 깨우기로 이번 전투에 일어났다 */
+  /** 깨우기로 이번 전투에 일어났다 (같은 대상은 전투당 1번) */
   woken?: boolean;
 };
 
@@ -181,7 +181,7 @@ export type BattleEvent =
   | { type: "refresh"; actor: string; skill: SkillId }
   /** 쓰러졌다 (turns 차례 안에 일으켜야 한다) / 일으켰다 / 죽었다 */
   | { type: "downed"; target: string; turns: number }
-  | { type: "rescue"; target: string; via: "potion" | "skill" | "miracle"; by: Actor }
+  | { type: "rescue"; target: string; via: "potion" | "skill" | "miracle" | "wake"; by: Actor }
   | { type: "death"; target: string }
   /** 차례를 넘겼다 */
   | { type: "wait"; unit: string }
@@ -244,7 +244,7 @@ export type BattleAction =
   /** skill을 생략하면 첫 번째 칸의 스킬 */
   | { type: "skill"; skill?: SkillId; target?: string }
   | { type: "guide"; item: SupplyKind; target: string }
-  /** 시험 규칙 깨우기 (TEST_RULES.wake): 쓰러진 아군을 체력 1로 일으킨다 (같은 대상은 전투당 1번) */
+  /** 깨우기: 자기 차례를 써서 쓰러진 아군을 체력 1로 일으킨다 (같은 대상은 전투당 1번) */
   | { type: "wake"; target: string };
 
 // ── 조회 ────────────────────────────────────────────────
@@ -292,7 +292,6 @@ export function validate(b: Battle, action: BattleAction): string | null {
     case "wait":
       return null;
     case "wake": {
-      if (!TEST_RULES.wake) return "깨우기 규칙이 꺼져 있다";
       const target = unitById(b, action.target);
       if (!target || target.side !== actor.side || !isDowned(target)) return "깨울 수 없는 대상";
       if (target.fx?.woken) return "이번 전투에서 이미 깨웠다";
@@ -682,7 +681,7 @@ export function act(battle: Battle, action: BattleAction): Battle {
     case "wake": {
       const target = unitById(b, action.target)!;
       target.fx = { ...target.fx, woken: true };
-      revive(b, target, 1, actor.id, "skill");
+      revive(b, target, 1, actor.id, "wake");
       break;
     }
     case "bandage":
@@ -926,7 +925,7 @@ function kill(b: Battle, u: Unit) {
 }
 
 /** 쓰러진 용병을 amount 체력으로 일으킨다 */
-function revive(b: Battle, u: Unit, amount: number, by: Actor, via: "potion" | "skill" | "miracle") {
+function revive(b: Battle, u: Unit, amount: number, by: Actor, via: "potion" | "skill" | "miracle" | "wake") {
   // 생명의 부적: 일어날 때 회복 +
   u.hp = Math.max(1, Math.min(u.maxHp, Math.round(amount * (1 + (u.gear?.riseHeal ?? 0)))));
   u.downedTurnsLeft = undefined;

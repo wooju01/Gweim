@@ -18,6 +18,12 @@ export const PACK_LIMIT = 10;
  * 창고 (2026-11-22 밸런스 1차): 재료·유실물은 종류별 99개, 물자는 모두 합쳐 20개.
  * 확장할 때마다 종류별 +10칸, 물자 +20개. 확장 비용은 100에서 시작해 한 번마다 +50
  */
+/**
+ * 상점 재료 판매 (2026-11-22, 금화 지출처): 계열 재료 개당 25, 기술 파편 개당 30.
+ * 원정 한 번(귀환하면 다시 채워진다)마다 종류별 perExpedition개까지. 전술 교본·종족 유물·보스 증표·유실물은 팔지 않는다
+ */
+export const MATERIAL_SHOP = { material: 25, shard: 30, perExpedition: 3 } as const;
+
 export const STORAGE = { itemCap: 99, supplyCap: 20, itemPerLevel: 10, supplyPerLevel: 20, baseCost: 100, costStep: 50 } as const;
 export const storageCaps = (level: number) => ({ item: STORAGE.itemCap + STORAGE.itemPerLevel * level, supply: STORAGE.supplyCap + STORAGE.supplyPerLevel * level });
 export const storageCost = (level: number) => STORAGE.baseCost + STORAGE.costStep * level;
@@ -52,3 +58,10 @@ export const FIRST_FLOOR_GOLD = 1.25;
  * 후퇴한 층 기준 확률 (1층부터), 그 층 일반 몬스터 [최소, 최대]마리
  */
 export const RETREAT_AMBUSH = { chance: [0.05, 0.15, 0.15, 0.15], size: [2, 3] as const };
+
+/** 상점에서 사는 재료 값 (팔지 않는 것은 null): 계열 재료(mat_*)와 기술 파편 */
+export function materialPrice(id: string): number | null {
+  if (id === "tech_shard") return MATERIAL_SHOP.shard;
+  if (id.startsWith("mat_")) return MATERIAL_SHOP.material;
+  return null;
+}

@@ -7,11 +7,11 @@ import { DEATH } from "@/data/death";
 import { MEMORY_MAX_CHARS } from "@/game/merc/memory";
 import { applyTone, clampStat, getStage } from "@/game/merc/affinity";
 import { createRng, rollInt, type Rng } from "@/game/random";
-import { CURRENCY, GREATER_POTION_GRADE, PACK_LIMIT, PACK_ORDER, PRICE, START_GOLD, START_PACK, START_STOCK, STOCK_RANGE, storageCaps, storageCost } from "@/data/economy";
+import { CURRENCY, GREATER_POTION_GRADE, PACK_LIMIT, PACK_ORDER, PRICE, START_GOLD, START_PACK, START_STOCK, STOCK_RANGE, MATERIAL_SHOP, materialPrice, storageCaps, storageCost } from "@/data/economy";
 import { getRelic } from "@/data/relics";
 import { SALVAGE, addSalvage, getSalvage, salvageCount, sellable } from "@/data/loot";
 import { WAGE } from "@/data/wages";
-import { PROMOTE_BONUS, STAT_NAME, TRAINING_COST, type StatBlock } from "@/data/growth";
+import { PROMOTE_BONUS, STAT_NAME, trainingCost, type StatBlock } from "@/data/growth";
 import { NO_GROWTH, addStats, atLastStage, canPromote, gainXp, statLine, validTraining, xpToNext, type Growth } from "@/game/merc/growth";
 import { promote, promoteCost } from "@/game/merc/promotion";
 import { craft, forgetSkill, knownFragments, paySalvage, swapSkills, unlockBlock, upgradeBlock } from "@/game/merc/skillhall";
@@ -75,6 +75,8 @@ export type MercProgress = TalkState & {
   clanAskedDay?: number;
   /** 살아서 이긴 던전 보스 (monster id). 등급이 바뀌는 승급의 증명 (data/guild.ts의 PROOF_BOSSES) */
   bossWins: string[];
+  /** 단련한 횟수 (단련 비용이 오른다) */
+  trainings?: number;
 } & Growth;
 
 /** 진행 중인 파견 */
@@ -174,6 +176,8 @@ export type GameState = {
   discounts: { facility: "forge" | "shop"; untilDay: number }[];
   /** 한 번이라도 본 사건 (처음 보는 사건이 조금 잘 나온다) */
   eventsSeen: string[];
+  /** 이번 원정 사이에 상점에서 산 재료 (종류별 개수, 원정을 마치면 비운다) */
+  materialBought: Record<string, number>;
   /** 의뢰 보상으로 합류할 용병 수 (모집 API로 만든다) */
   pendingJoins: number;
   /** 한 번이라도 쓰러뜨린 보스 (처음 쓰러뜨리면 명성) */
@@ -275,6 +279,8 @@ export type GameAction =
   | { type: "battleFinish"; seed?: number }
   /** 상점: 물자 하나 사기, 유물 하나 팔기 */
   | { type: "buy"; item: SupplyKind }
+  /** 상점 재료 하나 사기 (계열 재료·기술 파편) */
+  | { type: "buyMaterial"; id: string }
   | { type: "sell"; index: number }
   /** 단련장: 금화를 내고 스탯 3을 직접 배분 (레벨업으로 생긴 기회를 하나 쓴다) */
   | { type: "train"; mercId: string; alloc: StatBlock }
@@ -730,6 +736,7 @@ function freshProgress(merc: Merc): MercProgress {
     kind: "merc",
     trinkets: [],
     bossWins: [],
+    trainings: 0,
     ...NO_GROWTH,
   };
 }
@@ -768,6 +775,7 @@ export function initialState(opts: { seeds?: MercSeed[]; hired?: boolean; party?
     weeklyRewards: { book: false, relic: false },
     infos: [],
     discounts: [],
+    materialBought: {},
     pendingJoins: 0,
     bossesSlain: [],
     storageLevel: 0,
@@ -1147,11 +1155,27 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case "train": {
       const p = state.progress[action.mercId];
-      if (state.expedition || !p?.hired || p.trainable <= 0 || state.gold < TRAINING_COST || !validTraining(action.alloc)) return state;
+      // 단련 비용은 그 용병이 단련한 횟수만큼 오른다
+      const cost = trainingCost(p?.trainings ?? 0);
+      if (state.expedition || !p?.hired || p.trainable <= 0 || state.gold < cost || !validTraining(action.alloc)) return state;
       return {
         ...state,
-        gold: state.gold - TRAINING_COST,
-        progress: { ...state.progress, [action.mercId]: { ...p, stats: addStats(p.stats, action.alloc), trainable: p.trainable - 1 } },
+        gold: state.gold - cost,
+        progress: { ...state.progress, [action.mercId]: { ...p, stats: addStats(p.stats, action.alloc), trainable: p.trainable - 1, trainings: (p.trainings ?? 0) + 1 } },
+      };
+    }
+
+    case "buyMaterial": {
+      // 상점 재료: 계열 재료·기술 파편만, 원정 사이에 종류별 MATERIAL_SHOP.perExpedition개까지
+      const price = materialPrice(action.id);
+      const bought = state.materialBought[action.id] ?? 0;
+      if (state.expedition || price === null || state.gold < price || bought >= MATERIAL_SHOP.perExpedition) return state;
+      if ((state.salvage[action.id] ?? 0) >= storageCaps(state.storageLevel).item) return state;
+      return {
+        ...state,
+        gold: state.gold - price,
+        salvage: { ...state.salvage, [action.id]: (state.salvage[action.id] ?? 0) + 1 },
+        materialBought: { ...state.materialBought, [action.id]: bought + 1 },
       };
     }
 
@@ -1684,7 +1708,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       }
       // 본 사건 기록과 사건 명성은 전멸해도 남는다
       next = addFame({ ...next, eventsSeen: [...new Set([...next.eventsSeen, ...(exp.seenEvents ?? [])])] }, exp.fameDelta ?? 0);
-      next = { ...next, stock: restock(action.seed, next.guildGrade) };
+      // 상점 물건이 바뀌고, 재료 구매 한도가 다시 찬다
+      next = { ...next, stock: restock(action.seed, next.guildGrade), materialBought: {} };
       // 보수: 살아 있는 동행 용병에게 원정마다 준다. 모자라면 체불 (호감이 떨어진다)
       const payroll = payWages(next, exp.members.filter((m) => !m.dead).map((m) => m.id));
       next = payroll.state;

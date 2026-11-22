@@ -2228,32 +2228,28 @@ describe("장신구 효과 (2026-11-22 개편)", () => {
 
 });
 
-describe("시험 규칙: 깨우기", () => {
-  it("꺼져 있으면 못 쓰고, 켜면 쓰러진 아군을 체력 1로 일으킨다 (같은 대상은 전투당 1번)", async () => {
-    const { TEST_RULES } = await import("@/data/death");
+describe("깨우기", () => {
+  it("자기 차례를 써서 쓰러진 아군을 체력 1로 일으킨다 (같은 대상은 전투당 1번)", () => {
     let b = start([{ ...elke, kit: ["pray"] }, varn], 1, [dummy("e0", 999)]);
     b = edit(b, (c) => {
       const v = unitById(c, varn.id)!;
       v.hp = 0;
       v.downedTurnsLeft = 1;
     });
-    expect(validate(b, { type: "wake", target: varn.id })).toBe("깨우기 규칙이 꺼져 있다");
-    TEST_RULES.wake = true;
-    try {
-      const woke = act(b, { type: "wake", target: varn.id });
-      expect(unitById(woke, varn.id)).toMatchObject({ hp: 1, downedTurnsLeft: undefined });
-      const again = edit(woke, (c) => {
-        const v = unitById(c, varn.id)!;
-        v.hp = 0;
-        v.downedTurnsLeft = 1;
-        c.turn = c.order.indexOf(elke.id);
-      });
-      expect(validate(again, { type: "wake", target: varn.id })).toBe("이번 전투에서 이미 깨웠다");
-    } finally {
-      TEST_RULES.wake = false;
-    }
+    expect(validate(b, { type: "wake", target: "e0" })).toBe("깨울 수 없는 대상");
+    const woke = act(b, { type: "wake", target: varn.id });
+    expect(unitById(woke, varn.id)).toMatchObject({ hp: 1, downedTurnsLeft: undefined });
+    expect(woke.log).toContainEqual({ type: "rescue", target: varn.id, via: "wake", by: elke.id });
+    const again = edit(woke, (c) => {
+      const v = unitById(c, varn.id)!;
+      v.hp = 0;
+      v.downedTurnsLeft = 1;
+      c.turn = c.order.indexOf(elke.id);
+    });
+    expect(validate(again, { type: "wake", target: varn.id })).toBe("이번 전투에서 이미 깨웠다");
   });
 });
+
 
 describe("스탯 곡선 (방어·회피·치명)", () => {
   it("장신구 %는 곡선 값에 더하고, 상한: 받는 피해 감소 80%, 회피 60%, 치명 80%", () => {

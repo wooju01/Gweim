@@ -92,11 +92,12 @@ describe("몬스터 능력", () => {
   });
 
   it("슬라임 킹은 체력이 3분의 1씩 줄 때마다 분열하고, 적은 MAX_ENEMIES를 넘지 않는다", () => {
-    let b = startBattleWithUnits([hero("h", [28, 28]), ...bossEncounter("slime_king")], 7); // 평타 0.8배 → 22
+    // 평타 0.8배 → 36, 방어 2의 곡선(약 8%)을 빼면 33: 체력 73 → 40 (0.55) → 7 (0.1)
+    let b = startBattleWithUnits([hero("h", [45, 45]), ...bossEncounter("slime_king")], 7);
     const king = () => b.units.find((u) => u.kind === "slime_king")!;
-    b = hit(b, king().id); // 55 → 33 (0.6)
+    b = hit(b, king().id); // → 0.55
     expect(b.units.filter((u) => u.kind === "slimelet")).toHaveLength(2);
-    b = hit(b, king().id); // → 11 (0.2)
+    b = hit(b, king().id); // → 0.1
     expect(b.units.filter((u) => u.kind === "slimelet").length).toBeGreaterThanOrEqual(3);
     expect(living(b, "enemy").length).toBeLessThanOrEqual(MAX_ENEMIES);
   });

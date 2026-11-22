@@ -133,4 +133,9 @@ export const PROMOTE_BONUS = { hp: 5, trainable: 1 } as const;
 
 /** 단련장: 레벨업 1번마다 기회 1번. 금화를 내고 스탯을 직접 배분한다 */
 export const TRAINING_POINTS = 3;
+/** 단련 비용 = TRAINING_COST + 그 용병이 단련한 횟수 × TRAINING_STEP (2026-11-22) */
 export const TRAINING_COST = 40;
+export const TRAINING_STEP = 10;
+export function trainingCost(trainings: number): number {
+  return TRAINING_COST + Math.max(0, trainings) * TRAINING_STEP;
+}

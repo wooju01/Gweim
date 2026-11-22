@@ -416,6 +416,21 @@ describe("귀환길 습격 (상태)", () => {
   });
 });
 
+describe("상점 재료 (상태)", () => {
+  it("계열 재료 25, 기술 파편 30. 원정 사이에 종류별 3개까지, 원정을 마치면 다시 산다. 교본·유물·증표는 안 판다", () => {
+    let s: GameState = { ...initialState(), gold: 1000 };
+    for (let i = 0; i < 4; i++) s = gameReducer(s, { type: "buyMaterial", id: "mat_fang" });
+    expect(s.salvage.mat_fang).toBe(3);
+    expect(s.gold).toBe(1000 - 75);
+    s = gameReducer(s, { type: "buyMaterial", id: "tech_shard" });
+    expect(s.gold).toBe(1000 - 75 - 30);
+    for (const id of ["tactic_book", "relic_spirit", "boss_token", "soft_pelt"]) expect(gameReducer(s, { type: "buyMaterial", id })).toBe(s);
+    // 원정을 마치면 한도가 다시 찬다
+    const back = gameReducer({ ...inDungeon(PARTY4), gold: 1000, materialBought: s.materialBought }, { type: "endExpedition", seed: 1 });
+    expect(back.materialBought).toEqual({});
+  });
+});
+
 describe("성장 (상태)", () => {
   it("살아 돌아온 용병은 지나온 칸만큼 경험치를 받고, 레벨업이 결산에 남는다", () => {
     let s = inDungeon(PARTY4);
@@ -454,6 +469,10 @@ describe("성장 (상태)", () => {
     expect(bad).toBe(s);
     const ok = gameReducer(s, { type: "train", mercId: id, alloc: { crit: 2, faith: 1 } });
     expect(ok.gold).toBe(s.gold - TRAINING_COST);
+    expect(ok.progress[id].trainings).toBe(1);
+    // 단련 비용은 단련할 때마다 10씩 오른다
+    const again = gameReducer({ ...ok, progress: { ...ok.progress, [id]: { ...ok.progress[id], trainable: 1 } } }, { type: "train", mercId: id, alloc: { str: 3 } });
+    expect(again.gold).toBe(ok.gold - (TRAINING_COST + 10));
     expect(ok.progress[id]).toMatchObject({ trainable: 0, stats: { crit: 2, faith: 1 } });
     expect(gameReducer(ok, { type: "train", mercId: id, alloc: { hp: 3 } })).toBe(ok);
   });

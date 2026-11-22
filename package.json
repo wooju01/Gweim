@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sim": "vitest run --config vitest.sim.config.ts",
+    "sim:boss": "vitest run --config vitest.sim.config.ts boss",
+    "sim:campaign": "vitest run --config vitest.sim.config.ts campaign"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.9.0",

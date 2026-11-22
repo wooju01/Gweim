@@ -22,6 +22,7 @@ const MercProgressSave = TalkState.extend({
   lv: z.number().int().min(0).default(0),
   stats: z.record(z.string(), z.number().int().min(0)).default({}),
   trainable: z.number().int().min(0).default(0),
+  trainings: z.number().int().min(0).default(0),
   learned: z.array(SkillBuild).max(40).default([]),
   pieces: z.array(z.string().max(40)).default([]),
   levels: z.record(z.string().max(40), z.number().int().min(1).max(3)).default({}),
@@ -131,6 +132,7 @@ export const SaveFile = z.object({
     infos: z.array(z.string().max(40)).default([]),
     discounts: z.array(z.object({ facility: z.enum(["forge", "shop"]), untilDay: z.number().int() })).default([]),
     eventsSeen: z.array(z.string().max(40)).max(200).default([]),
+    materialBought: z.record(z.string().max(40), z.number().int().min(0)).default({}),
     pendingJoins: z.number().int().min(0).max(5).default(0),
     bossesSlain: z.array(z.string().max(40)).default([]),
     storageLevel: z.number().int().min(0).default(0),
@@ -193,6 +195,7 @@ export function toSave(state: GameState, now = new Date()): SaveFile {
       bossesSlain: state.bossesSlain,
       storageLevel: state.storageLevel,
       eventsSeen: state.eventsSeen,
+      materialBought: state.materialBought,
     } as SaveFile["state"],
   };
 }
@@ -275,6 +278,7 @@ export function fromSave(raw: unknown): { state: GameState } | { error: string }
       bossesSlain: s.bossesSlain,
       storageLevel: s.storageLevel,
       eventsSeen: s.eventsSeen,
+      materialBought: s.materialBought,
       // 사건 칸에서 멈췄으면 AI 묘사 없이 기본 문장으로 이어 간다
       narration: room?.kind === "event" && !room.result ? { eventId: room.eventId, pending: false, data: null } : null,
     },

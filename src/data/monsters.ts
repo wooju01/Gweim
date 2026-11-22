@@ -172,22 +172,22 @@ export const MONSTERS: Monster[] = [
 
   // ── 미지의 숲 추가 (2026-11-21). ★ = 종 자체가 정예 ──
   { id: "golden_rat", name: "황금 숲 쥐", hp: 14, attack: [2, 4], defense: 0, speed: 10, evade: 0.2, abilities: [{ kind: "flee", turns: 2 }], bounty: [25, 40], tags: ["beast"], rank: "elite", note: "털이 금빛으로 반짝인다. 두 번째 차례에 달아난다. 그전에 잡으면 금화를 잔뜩 떨어뜨린다." },
-  { id: "giant_boar", name: "거대 숲 멧돼지", hp: 22, attack: [7, 9], defense: 2, speed: 3, escort: ["forest_boar"], skills: ["m_charge"], tags: ["beast"], rank: "floorBoss", note: "숲의 주인 노릇을 하는 멧돼지. 무섭게 돌진한다." },
+  { id: "giant_boar", name: "거대 숲 멧돼지", hp: 31, attack: [10, 13], defense: 2, speed: 3, escort: ["forest_boar"], skills: ["m_charge"], tags: ["beast"], rank: "floorBoss", note: "숲의 주인 노릇을 하는 멧돼지. 무섭게 돌진한다." },
   { id: "forest_boar", name: "숲 멧돼지", hp: 24, attack: [5, 8], defense: 1, speed: 4, skills: ["m_charge"], tags: ["beast"], rank: "normal", note: "고개를 숙이고 돌진해 온다." },
   { id: "vine_spirit", name: "숲의 덩굴 정령", hp: 20, attack: [3, 6], defense: 1, speed: 3, skills: ["m_vine_grab"], tags: ["plant", "spirit"], rank: "normal", note: "덩굴로 한 사람을 휘감아 한 차례 묶는다." },
   { id: "kobold_miner", name: "코볼트 광부", hp: 18, attack: [4, 7], defense: 1, speed: 5, onHit: { status: "armorDown", chance: 0.3 }, tags: ["goblin"], rank: "normal", note: "곡괭이로 갑옷 틈을 쪼아 낸다 (방어 감소)." },
   { id: "crystal_spider", name: "수정 등딱지 거미", hp: 30, attack: [5, 8], defense: 4, speed: 4, onHit: poison(0.3), tags: ["insect"], rank: "elite", note: "등에 수정이 돋아 몹시 단단하다." },
-  { id: "giant_cave_bat", name: "거대 동굴 박쥐", hp: 43, attack: [12, 15], defense: 1, speed: 9, evade: 0.1, onHit: bleed(0.35), escort: ["vampire_bat", "vampire_bat"], skills: ["m_screech"], tags: ["bat", "beast"], rank: "floorBoss", note: "날개를 펴면 동굴이 어두워진다. 초음파로 모두의 기를 꺾는다." },
+  { id: "giant_cave_bat", name: "거대 동굴 박쥐", hp: 62, attack: [17, 22], defense: 1, speed: 9, evade: 0.1, onHit: bleed(0.35), escort: ["vampire_bat", "vampire_bat"], skills: ["m_screech"], tags: ["bat", "beast"], rank: "floorBoss", note: "날개를 펴면 동굴이 어두워진다. 초음파로 모두의 기를 꺾는다." },
   { id: "goblin_bomber", name: "고블린 폭탄병", hp: 14, attack: [2, 4], defense: 0, speed: 3, abilities: [{ kind: "explode", turns: 2, damage: [5, 8] }], tags: ["goblin"], rank: "normal", note: "불붙은 폭탄을 안고 있다. 두 번째 차례에 자폭해 모두에게 피해를 준다. 그전에 쓰러뜨려야 한다." },
   { id: "silver_wolf", name: "은빛 그림자 늑대", hp: 30, attack: [7, 10], defense: 1, speed: 8, evade: 0.15, onHit: bleed(0.4), tags: ["beast"], rank: "elite", note: "은빛 털이 그림자처럼 스친다. 잘 피하고, 물리면 피가 멎지 않는다." },
   { id: "deadly_spider", name: "맹독 거미", hp: 26, attack: [6, 9], defense: 1, speed: 6, onHit: poison(0.8), tags: ["insect"], rank: "elite", note: "독이 너무 진해서 물리면 거의 반드시 중독된다." },
   { id: "giant_ooze", name: "거대 점액 슬라임", hp: 45, attack: [5, 8], defense: 2, speed: 0, onHit: poison(0.3), abilities: [{ kind: "split", into: "green_slime", count: 2 }], tags: ["slime"], rank: "elite", note: "커다란 점액 덩어리. 쓰러지면 초록 슬라임 둘로 갈라진다." },
   { id: "owlbear", name: "오울베어", hp: 48, attack: [8, 12], defense: 2, speed: 4, skills: ["m_maul"], tags: ["beast"], rank: "elite", note: "부엉이 머리에 곰의 몸. 짓이기는 한 방이 무겁다." },
-  { id: "orc_captain", name: "오크 대장", hp: 70, attack: [8, 12], defense: 3, speed: 4, escort: ["orc_warrior", "orc_archer"], skills: ["m_slam", "m_orc_cry"], tags: ["orc"], rank: "floorBoss", note: "더 깊은 숲의 오크들을 이끈다. 호령 한 번에 부하들이 사나워진다." },
+  { id: "orc_captain", name: "오크 대장", hp: 61, attack: [7, 10], defense: 3, speed: 4, escort: ["orc_warrior", "orc_archer"], skills: ["m_slam", "m_orc_cry"], tags: ["orc"], rank: "floorBoss", note: "더 깊은 숲의 오크들을 이끈다. 호령 한 번에 부하들이 사나워진다." },
   { id: "orc_drummer", name: "오크 전투 군악병", hp: 26, attack: [4, 7], defense: 1, speed: 3, ranged: true, skills: ["m_drumbeat"], tags: ["orc"], rank: "normal", note: "북을 두드려 동료 모두의 공격을 끌어올린다." },
 
   // ── 미지의 숲 2층 깊은 숲 보스 ──
-  { id: "tree_giant", name: "나무 거인", hp: 84, attack: [20, 24], defense: 1, speed: 0, rankHp: 2.5, skills: ["m_root_bind", "m_branch_sweep", "m_bark"], abilities: [{ kind: "regen", pct: 0.03 }], keyDrop: { item: "world_tree_branch", chance: 1 }, tags: ["plant"], rank: "floorBoss", note: "느리고 단단하다. 자기 차례마다 체력을 조금 되찾는다 (불에 그을리거나 피를 흘리면 못 되찾는다). 뿌리로 묶거나 가지로 휩쓴다." },
+  { id: "tree_giant", name: "나무 거인", hp: 115, attack: [26, 32], defense: 1, speed: 0, rankHp: 2.5, skills: ["m_root_bind", "m_branch_sweep", "m_bark"], abilities: [{ kind: "regen", pct: 0.03 }], keyDrop: { item: "world_tree_branch", chance: 1 }, tags: ["plant"], rank: "floorBoss", note: "느리고 단단하다. 자기 차례마다 체력을 조금 되찾는다 (불에 그을리거나 피를 흘리면 못 되찾는다). 뿌리로 묶거나 가지로 휩쓴다." },
 
   // ── [히든] 타락한 엘프의 숲 ──
   { id: "corrupted_ranger", name: "타락한 엘프 순찰자", hp: 24, attack: [7, 10], defense: 0, speed: 7, crit: 0.15, ranged: true, onHit: { status: "evadeDown", chance: 0.4 }, tags: ["spirit"], rank: "normal", note: "검게 물든 활을 쏜다. 급소를 잘 노리고, 맞으면 몸이 무거워진다 (회피 감소)." },
@@ -195,18 +195,19 @@ export const MONSTERS: Monster[] = [
   { id: "shadow_wolf", name: "그림자 늑대", hp: 26, attack: [7, 10], defense: 0, speed: 9, onHit: bleed(0.4), tags: ["beast", "spirit"], rank: "normal", note: "그림자에서 튀어나와 물어뜯는다." },
   { id: "corrupted_shaman", name: "타락한 정령술사", hp: 24, attack: [4, 7], defense: 0, speed: 5, ranged: true, skills: ["m_corrupt_mend", "m_spore_rain"], tags: ["spirit"], rank: "normal", note: "다친 동료를 치료하고, 포자를 흩뿌려 모두를 중독시킨다." },
   { id: "worldtree_guard", name: "타락한 세계수 근위병", hp: 50, attack: [5, 8], defense: 5, speed: 3, skills: ["m_shield_cover"], tags: ["plant"], rank: "elite", note: "큰 방패를 든 근위병. 다친 동료를 감싸 대신 맞아 준다." },
-  { id: "corrupted_spirit_king", name: "타락한 정령왕", hp: 120, attack: [8, 12], defense: 2, speed: 4, escort: ["worldtree_guard", "corrupted_shaman"], skills: ["m_thorn_bind", "m_spore_burst"], abilities: [{ kind: "regen", amount: 5 }], tags: ["spirit"], rank: "dungeonBoss", note: "숲을 삼킨 정령들의 왕. 가시 덩굴로 모두를 늦추고, 포자를 터뜨려 중독시킨다. 차례마다 체력을 되찾는다." },
+  { id: "corrupted_spirit_king", name: "타락한 정령왕", hp: 107, attack: [7, 11], defense: 2, speed: 4, escort: ["worldtree_guard", "corrupted_shaman"], skills: ["m_thorn_bind", "m_spore_burst"], abilities: [{ kind: "regen", amount: 5 }], tags: ["spirit"], rank: "dungeonBoss", note: "숲을 삼킨 정령들의 왕. 가시 덩굴로 모두를 늦추고, 포자를 터뜨려 중독시킨다. 차례마다 체력을 되찾는다." },
   // 타락한 엘프 여왕: 패턴 미정. 데이터 자리만 (보스 후보 가중치 0이라 아직 나오지 않는다)
-  { id: "corrupted_elf_queen", name: "타락한 엘프 여왕", hp: 110, attack: [9, 13], defense: 2, speed: 6, tags: ["spirit"], rank: "dungeonBoss", note: "패턴 준비 중." },
+  { id: "corrupted_elf_queen", name: "타락한 엘프 여왕", hp: 121, attack: [10, 14], defense: 2, speed: 6, tags: ["spirit"], rank: "dungeonBoss", note: "패턴 준비 중." },
 
   // ── 던전 보스 ──
-  { id: "goblin_king", name: "고블린 킹", hp: 40, attack: [11, 15], defense: 2, speed: 4, escort: ["goblin_warrior", "goblin_shaman"], skills: ["m_slam", "m_king_command"], abilities: [{ kind: "brood", into: "goblin_grunt", count: 2, every: 3, max: 2 }], tags: ["goblin"], rank: "dungeonBoss", note: "고블린 마을의 왕. 세 번째 차례마다 졸개 둘을 부르고(살아 있는 졸개는 최대 둘), \"왕의 호령\"을 예고한 뒤 부하 모두의 공격을 끌어올린다." },
-  { id: "slime_king", name: "슬라임 킹", hp: 55, attack: [8, 12], defense: 2, speed: 1, escort: ["poison_slime"], abilities: [{ kind: "splitAt", into: "slimelet", count: 2, at: [0.66, 0.33] }], tags: ["slime"], rank: "dungeonBoss", note: "거대한 슬라임. 체력이 3분의 1씩 줄 때마다 작은 슬라임 둘을 떼어 낸다." },
-  { id: "orc_king", name: "오크 킹", hp: 31, attack: [7, 10], defense: 3, speed: 3, escort: ["orc_warrior", "orc_shaman"], skills: ["m_slam", "m_howl"], tags: ["orc"], rank: "dungeonBoss", note: "오크 마을의 우두머리. 울부짖음 한 번에 기가 꺾인다." },
-  { id: "spider_queen", name: "거미 여왕", hp: 43, attack: [3, 5], defense: 1, speed: 5, onHit: { status: "poison", chance: 1 }, poisonStack: 6, escort: ["cave_spider"], skills: ["m_web", "m_venom_spray"], abilities: [{ kind: "brood", into: "egg_sac", count: 2, every: 3 }], tags: ["insect"], rank: "dungeonBoss", note: "직접 때리는 힘은 약하지만 물 때마다 독이 쌓인다 (+6). 거미줄을 뿌려 한 사람을 1차례 묶고, 독액을 자주 뿜어 모두를 중독(+7)시키고 받는 회복을 2턴 동안 30% 줄인다. 독을 언제 풀지가 관건이다. 세 번째 차례마다 알 둘을 낳는다 (두 차례 뒤 동굴 거미가 깨어난다. 그전에 깨면 부화하지 않는다)." },
-  { id: "alpha_wolf", name: "우두머리 늑대", hp: 55, attack: [8, 13], defense: 1, speed: 7, onHit: bleed(0.5), escort: ["cave_wolf", "hungry_wolf"], skills: ["m_hunt_rush"], abilities: [{ kind: "pack", tag: "beast", bonus: 1 }, { kind: "summon", into: "cave_wolf", count: 1, below: 0.5, times: 1 }], tags: ["beast"], rank: "dungeonBoss", note: "곁의 짐승 하나당 공격 +1, 물면 출혈. \"사냥 돌진\"을 예고한 뒤 한 명에게 큰 피해. 체력이 절반 아래면 동굴 늑대 하나를 부른다." },
+  { id: "goblin_king", name: "고블린 킹", hp: 51, attack: [14, 19], defense: 2, speed: 4, escort: ["goblin_warrior", "goblin_shaman"], skills: ["m_slam", "m_king_command"], abilities: [{ kind: "brood", into: "goblin_grunt", count: 2, every: 3, max: 2 }], tags: ["goblin"], rank: "dungeonBoss", note: "고블린 마을의 왕. 세 번째 차례마다 졸개 둘을 부르고(살아 있는 졸개는 최대 둘), \"왕의 호령\"을 예고한 뒤 부하 모두의 공격을 끌어올린다." },
+  { id: "slime_king", name: "슬라임 킹", hp: 73, attack: [11, 16], defense: 2, speed: 1, escort: ["poison_slime"], abilities: [{ kind: "splitAt", into: "slimelet", count: 2, at: [0.66, 0.33] }], tags: ["slime"], rank: "dungeonBoss", note: "거대한 슬라임. 체력이 3분의 1씩 줄 때마다 작은 슬라임 둘을 떼어 낸다." },
+  { id: "orc_king", name: "오크 킹", hp: 51, attack: [12, 17], defense: 3, speed: 3, escort: ["orc_warrior", "orc_shaman"], skills: ["m_slam", "m_howl"], tags: ["orc"], rank: "dungeonBoss", note: "오크 마을의 우두머리. 울부짖음 한 번에 기가 꺾인다." },
+  { id: "spider_queen", name: "거미 여왕", hp: 56, attack: [4, 7], defense: 1, speed: 5, onHit: { status: "poison", chance: 1 }, poisonStack: 6, escort: ["cave_spider"], skills: ["m_web", "m_venom_spray"], abilities: [{ kind: "brood", into: "egg_sac", count: 2, every: 3 }], tags: ["insect"], rank: "dungeonBoss", note: "직접 때리는 힘은 약하지만 물 때마다 독이 쌓인다 (+6). 거미줄을 뿌려 한 사람을 1차례 묶고, 독액을 자주 뿜어 모두를 중독(+7)시키고 받는 회복을 2턴 동안 30% 줄인다. 독을 언제 풀지가 관건이다. 세 번째 차례마다 알 둘을 낳는다 (두 차례 뒤 동굴 거미가 깨어난다. 그전에 깨면 부화하지 않는다)." },
+  { id: "alpha_wolf", name: "우두머리 늑대", hp: 81, attack: [12, 19], defense: 1, speed: 7, onHit: bleed(0.5), escort: ["cave_wolf", "hungry_wolf"], skills: ["m_hunt_rush"], abilities: [{ kind: "pack", tag: "beast", bonus: 1 }, { kind: "summon", into: "cave_wolf", count: 1, below: 0.5, times: 1 }], tags: ["beast"], rank: "dungeonBoss", note: "곁의 짐승 하나당 공격 +1, 물면 출혈. \"사냥 돌진\"을 예고한 뒤 한 명에게 큰 피해. 체력이 절반 아래면 동굴 늑대 하나를 부른다." },
 ];
 
+// 2026-11-22 보스 재조정 (깨우기·스탯 곡선·레벨업 +5 반영, 보스마다 체력·공격만): scripts/sim/boss-tune.sim.ts → results/2026-11-22-boss.md
 export function getMonster(id: string): Monster | undefined {
   return MONSTERS.find((m) => m.id === id);
 }

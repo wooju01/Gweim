@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CURRENCY } from "@/data/economy";
-import { STAT_EFFECT, STAT_NAME, STAT_ORDER, TRAINING_COST, TRAINING_POINTS, nextPointGain, type CurveStat, type StatBlock, type StatKey } from "@/data/growth";
+import { STAT_EFFECT, STAT_NAME, STAT_ORDER, TRAINING_COST, TRAINING_POINTS, TRAINING_STEP, nextPointGain, trainingCost, type CurveStat, type StatBlock, type StatKey } from "@/data/growth";
 import { JOB_STATS } from "@/data/combat";
 import { trinketsBonus } from "@/data/trinkets";
 import { canPromote, xpToNext } from "@/game/merc/growth";
@@ -32,8 +32,8 @@ export function YardScreen({ day, gold, hired, progress, onTrain, onBack }: Prop
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold">단련장</h1>
         <p className="text-sm text-ash">
-          레벨이 오를 때마다 단련 기회가 한 번 생긴다. {CURRENCY} {TRAINING_COST}을(를) 내면 스탯 {TRAINING_POINTS}을(를) 원하는 대로 나눠 줄 수
-          있다. 레벨업 때 붙는 스탯은 직업에 따라 자동으로 오른다.
+          레벨이 오를 때마다 단련 기회가 한 번 생긴다. 금화를 내면 스탯 {TRAINING_POINTS}을(를) 원하는 대로 나눠 줄 수 있다. 비용은 {CURRENCY}{" "}
+          {TRAINING_COST}에서 시작해 그 용병이 단련할 때마다 {TRAINING_STEP}씩 오른다. 레벨업 때 붙는 스탯은 직업에 따라 자동으로 오른다.
         </p>
       </header>
 
@@ -108,6 +108,7 @@ export function YardScreen({ day, gold, hired, progress, onTrain, onBack }: Prop
               {picked === merc.id && p.trainable > 0 && (
                 <Allocate
                   gold={gold}
+                  cost={trainingCost(p.trainings ?? 0)}
                   points={{
                     defense: (JOB_STATS[merc.job ?? ""]?.defense ?? 0) + (p.stats.defense ?? 0) + (trinketsBonus(p.trinkets).defense ?? 0),
                     evade: p.stats.evade ?? 0,
@@ -128,7 +129,7 @@ export function YardScreen({ day, gold, hired, progress, onTrain, onBack }: Prop
 }
 
 /** 스탯 3점 배분 */
-function Allocate({ gold, points, onDone }: { gold: number; points: Record<CurveStat, number>; onDone: (alloc: StatBlock) => void }) {
+function Allocate({ gold, cost, points, onDone }: { gold: number; cost: number; points: Record<CurveStat, number>; onDone: (alloc: StatBlock) => void }) {
   const [alloc, setAlloc] = useState<StatBlock>({});
   const used = STAT_ORDER.reduce((s, k) => s + (alloc[k] ?? 0), 0);
   const left = TRAINING_POINTS - used;
@@ -158,8 +159,8 @@ function Allocate({ gold, points, onDone }: { gold: number; points: Record<Curve
           </div>
         ))}
       </div>
-      <Button variant="ember" className="self-start" disabled={left !== 0 || gold < TRAINING_COST} onClick={() => onDone(alloc)}>
-        {gold < TRAINING_COST ? `${CURRENCY}이 모자라다` : `${CURRENCY} ${TRAINING_COST} · 단련한다`}
+      <Button variant="ember" className="self-start" disabled={left !== 0 || gold < cost} onClick={() => onDone(alloc)}>
+        {gold < cost ? `${CURRENCY}이 모자라다 (${cost})` : `${CURRENCY} ${cost} · 단련한다`}
       </Button>
     </div>
   );

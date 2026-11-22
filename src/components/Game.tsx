@@ -458,6 +458,8 @@ export function Game() {
           relics={state.relics}
           salvage={state.salvage}
           onSellSalvage={(id, all) => dispatch({ type: "sellSalvage", id, all })}
+          materialBought={state.materialBought}
+          onBuyMaterial={(id) => dispatch({ type: "buyMaterial", id })}
           onBuy={(item) => dispatch({ type: "buy", item })}
           onSell={(index) => dispatch({ type: "sell", index })}
           storageLevel={state.storageLevel}

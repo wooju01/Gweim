@@ -79,12 +79,14 @@ export function describe(event: BattleEvent, b: Battle): string {
     case "fizzle":
       return `${name(event.actor)}의 부름에 정령이 답하지 않았다.`;
     case "downed":
-      return `${josa(name(event.target), "이", "가")} 쓰러졌다! ${event.turns}차례 안에 물약이나 회복 스킬로 일으키지 않으면 죽는다.`;
+      return `${josa(name(event.target), "이", "가")} 쓰러졌다! ${event.turns}차례 안에 물약·회복 스킬·깨우기로 일으키지 않으면 죽는다.`;
     case "rescue":
       return event.via === "potion"
         ? `당신이 ${name(event.target)}에게 물약을 먹였다. ${josa(name(event.target), "이", "가")} 일어났다.`
         : event.via === "miracle"
           ? `기적이 일어났다! ${josa(name(event.target), "이", "가")} 다시 일어났다.`
+          : event.via === "wake"
+            ? `${josa(name(event.by), "이", "가")} ${josa(name(event.target), "을", "를")} 흔들어 깨웠다. 간신히 일어섰다 (체력 1).`
           : `${josa(name(event.by), "이", "가")} ${josa(name(event.target), "을", "를")} 일으켰다.`;
     case "death":
       return `${josa(name(event.target), "이", "가")} 숨을 거두었다.`;

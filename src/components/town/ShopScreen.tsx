@@ -1,5 +1,5 @@
 import { SUPPLY, type SupplyKind } from "@/data/combat";
-import { CURRENCY, PACK_LIMIT, PRICE, storageCaps, storageCost } from "@/data/economy";
+import { CURRENCY, MATERIAL_SHOP, PACK_LIMIT, PRICE, materialPrice, storageCaps, storageCost } from "@/data/economy";
 import { getRelic } from "@/data/relics";
 import { getSalvage, sellable } from "@/data/loot";
 import { Button } from "@/components/common/parts";
@@ -15,6 +15,9 @@ type Props = {
   onBuy: (item: SupplyKind) => void;
   onSell: (index: number) => void;
   onSellSalvage: (id: string, all: boolean) => void;
+  /** 재료 사기 (계열 재료·기술 파편). bought: 이번 원정 사이에 산 개수 */
+  materialBought: Record<string, number>;
+  onBuyMaterial: (id: string) => void;
   /** 창고 확장 횟수와 확장하기 */
   storageLevel: number;
   onExpand: () => void;
@@ -26,7 +29,10 @@ type Props = {
 const SUPPLY_ORDER: SupplyKind[] = ["bandage", "antidote", "potion", "greaterPotion"];
 
 /** 상점: 원정 물자를 사서 짐에 넣고, 던전에서 가져온 유물을 판다 */
-export function ShopScreen({ day, gold, pack, stock, relics, salvage, onBuy, onSell, onSellSalvage, storageLevel, onExpand, prices, onBack }: Props) {
+/** 상점에서 파는 재료 (계열 재료 7종 + 기술 파편) */
+const MATERIAL_IDS = ["mat_whetstone", "mat_jelly", "mat_fang", "mat_venom", "mat_arrowhead", "mat_sap", "mat_mace", "tech_shard"];
+
+export function ShopScreen({ day, gold, pack, stock, relics, salvage, onBuy, onSell, onSellSalvage, materialBought, onBuyMaterial, storageLevel, onExpand, prices, onBack }: Props) {
   const caps = storageCaps(storageLevel);
   const expandCost = storageCost(storageLevel);
   // 전수관 재료(기술 파편·계열 재료 등)는 팔지 않는다
@@ -80,6 +86,29 @@ export function ShopScreen({ day, gold, pack, stock, relics, salvage, onBuy, onS
             </div>
           );
         })}
+      </section>
+
+      <section aria-label="재료" className="flex flex-col gap-2 rounded-sm border border-edge bg-panel p-4">
+        <div className="flex items-baseline justify-between">
+          <h2 className="font-bold">재료</h2>
+          <span className="text-[11px] text-ash">원정에서 돌아올 때마다 종류별 {MATERIAL_SHOP.perExpedition}개까지 · 전술 교본·종족 유물·보스 증표는 팔지 않는다</span>
+        </div>
+        <div className="grid gap-1.5 sm:grid-cols-2">
+          {MATERIAL_IDS.map((id) => {
+            const price = materialPrice(id)!;
+            const left = MATERIAL_SHOP.perExpedition - (materialBought[id] ?? 0);
+            return (
+              <div key={id} className="flex items-center justify-between gap-2 rounded-sm bg-ink/50 px-2.5 py-1.5 text-xs">
+                <span>
+                  <b>{getSalvage(id)?.name ?? id}</b> <span className="text-ash">가진 것 {salvage[id] ?? 0} · 남은 수량 {left}</span>
+                </span>
+                <Button className="!px-2.5 !py-0.5 text-xs" disabled={left <= 0 || gold < price} onClick={() => onBuyMaterial(id)}>
+                  {CURRENCY} {price}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
       </section>
 
       <section aria-label="유실물" className="flex flex-col gap-2 rounded-sm border border-edge bg-panel p-4">
