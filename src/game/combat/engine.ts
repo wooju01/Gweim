@@ -36,7 +36,7 @@ import {
 } from "@/data/combat";
 import { SKILL_SLOTS, type DamageEffect, type DmgCond, type Scaling, type Skill, type SkillDef, type SkillId, type StatusRoll } from "@/data/skills";
 import { BOND } from "@/data/bond";
-import { JOB_STAT, PER_POINT, type PowerStat, type StatKey } from "@/data/growth";
+import { JOB_STAT, PER_POINT, STAT_CURVE, curveBonus, type PowerStat, type StatKey } from "@/data/growth";
 import { DEATH, TEST_RULES, downedTurns } from "@/data/death";
 import { ELITE_TRAITS, MAX_ENEMIES, getMonster, type Ability, type EliteTrait, type Monster, type MonsterRank, type MonsterTag } from "@/data/monsters";
 import { scaleOf, type Region } from "@/data/regions";
@@ -415,8 +415,9 @@ export function mercUnit(merc: Merc): Unit {
     defense: stats.defense + g("defense") + (gear.defense ?? 0),
     speed: stats.speed + g("speed") + (gear.speed ?? 0),
     power: { str: g("str"), mag: g("mag") + (gear.mag ?? 0), faith: g("faith") },
-    critBonus: g("crit") + (gear.crit ?? 0),
-    evadeBonus: g("evade") + (gear.evade ?? 0),
+    // 치명·회피: 포인트는 체감 곡선, 장신구 퍼센트는 그대로 더한다 (상한은 쓸 때 자른다)
+    critBonus: curveBonus("crit", g("crit")) + (gear.crit ?? 0),
+    evadeBonus: curveBonus("evade", g("evade")) + (gear.evade ?? 0),
     ...(Object.keys(gear).length ? { gear } : {}),
     ...(gear.lastBreath ? { breath: gear.lastBreath } : {}),
     onHit: stats.onHit,
@@ -1165,7 +1166,7 @@ export type StrikeFactors = {
   /** 균열로 더 받는 피해 (없으면 0) */
   crack: number;
   guard: boolean;
-  /** 맞는 쪽 감소 (방어력, 바위의 뿌리, 고통 망각, 적응, 방어 강화·감소) */
+  /** 맞는 쪽 받는 피해 감소 % (방어 포인트 곡선: 방어력, 바위의 뿌리, 고통 망각, 적응, 결투, 방어 강화·감소 + 장신구 %) */
   reduce: number;
   /** 방어 무시 비율 (0~1) */
   pierce: number;
@@ -1233,13 +1234,16 @@ export function strikeFactors(b: Battle, actor: Unit, target: Unit, opts: Strike
     if (gearPower) multiplier *= 1 + gearPower;
   }
 
-  let reduce = target.defense + statusValue(target, "brace") + statusValue(target, "armorUp") - statusValue(target, "armorDown");
-  if (has(target, "rock_root")) reduce += PASSIVE.rockRootReduce;
-  if (has(target, "pain_oblivion")) reduce += Math.round(PASSIVE.painOblivionMax * lostRatio(target));
-  if (has(target, "adapt")) reduce += Math.min(PASSIVE.adaptMax, target.fx?.adapt?.[actor.id] ?? 0);
+  // 방어 포인트: 유닛 방어 + 버팀·방어 강화·감소 + 바위의 뿌리·고통 망각·적응 + 결투
+  let defense = target.defense + statusValue(target, "brace") + statusValue(target, "armorUp") - statusValue(target, "armorDown");
+  if (has(target, "rock_root")) defense += PASSIVE.rockRootReduce;
+  if (has(target, "pain_oblivion")) defense += Math.round(PASSIVE.painOblivionMax * lostRatio(target));
+  if (has(target, "adapt")) defense += Math.min(PASSIVE.adaptMax, target.fx?.adapt?.[actor.id] ?? 0);
   // 결투: 결투를 건 상대에게 받는 피해가 준다
   const duel = actor.statuses.find((x) => x.kind === "duel" && x.source === target.id);
-  if (duel) reduce += (duel.value ?? STATUS.duel.value ?? 0) + (target.gear?.duelReduce ?? 0);
+  if (duel) defense += (duel.value ?? STATUS.duel.value ?? 0) + (target.gear?.duelReduce ?? 0);
+  // 받는 피해 감소 % = 곡선(방어 포인트) + 장신구 % (상한)
+  const reduce = takenReduction(defense, target.gear?.defensePct ?? 0);
   // 장신구 회피: 첫 라운드(위장 망토), 노래 강화를 받는 동안(여행자의 류트끈)
   const tg = target.gear;
   const gearEvade = tg
@@ -1249,9 +1253,9 @@ export function strikeFactors(b: Battle, actor: Unit, target: Unit, opts: Strike
   return {
     bonus,
     multiplier,
-    critChance: critChanceOf(actor) + (opts.critBonus ?? 0) + execute + (opts.critIf ?? []).reduce((a, c) => a + (met(c.cond) ? c.pct : 0), 0),
+    critChance: Math.min(STAT_CURVE.crit.cap, critChanceOf(actor) + (opts.critBonus ?? 0) + execute + (opts.critIf ?? []).reduce((a, c) => a + (met(c.cond) ? c.pct : 0), 0)),
     critDamage: gear?.critDamage ?? 0,
-    evadeChance: evadeChance(target) + gearEvade,
+    evadeChance: Math.min(STAT_CURVE.evade.cap, evadeChance(target) + gearEvade),
     crack: statusValue(target, "crack"),
     guard: target.guarding,
     reduce,
@@ -1265,9 +1269,14 @@ export function strikeFactors(b: Battle, actor: Unit, target: Unit, opts: Strike
   };
 }
 
-/** 치명타 확률 (기본 + 예리한 눈 + 성장 + 집중) */
+/** 치명타 확률 (기본 + 예리한 눈 + 성장 곡선·장신구 + 집중). 상한 STAT_CURVE.crit.cap */
 function critChanceOf(u: Unit): number {
-  return CRIT_CHANCE + (has(u, "keen_eye") ? PASSIVE.keenEyeCrit : 0) + (u.critBonus ?? 0) + statusValue(u, "critUp");
+  return Math.min(STAT_CURVE.crit.cap, CRIT_CHANCE + (has(u, "keen_eye") ? PASSIVE.keenEyeCrit : 0) + (u.critBonus ?? 0) + statusValue(u, "critUp"));
+}
+
+/** 받는 피해 감소 % (방어 포인트의 체감 곡선 + 장신구 %, 상한 STAT_CURVE.defense.cap) */
+export function takenReduction(defense: number, pct = 0): number {
+  return Math.min(STAT_CURVE.defense.cap, curveBonus("defense", defense) + pct);
 }
 
 /** 보정값을 적용한 최종 피해 (보호막 전). base는 굴린 기본 피해 */
@@ -1278,9 +1287,9 @@ export function strikeAmount(base: number, f: StrikeFactors, crit: boolean): num
   amount += f.crack;
   if (f.guard) amount = Math.ceil(amount * GUARD_MULTIPLIER);
   if (f.taken !== 1) amount = Math.max(1, Math.round(amount * f.taken));
-  // 방어 무시: 방어(감소)의 그 비율만큼은 빼지 않는다
-  const reduce = f.reduce > 0 ? Math.round(f.reduce * (1 - f.pierce)) : f.reduce;
-  return reduce > 0 ? Math.max(1, amount - reduce) : amount;
+  // 받는 피해 감소 % × (1 - 방어 무시 %)
+  const reduce = f.reduce * (1 - f.pierce);
+  return reduce > 0 ? Math.max(1, Math.round(amount * (1 - reduce))) : amount;
 }
 
 /** 맞힌 뒤 패시브 기록을 갱신한다. log가 false면 미리보기용 (기록을 남기지 않는다) */
@@ -1304,7 +1313,9 @@ function consume(b: Battle, actor: Unit, target: Unit, f: StrikeFactors, log = t
 }
 
 function evadeChance(target: Unit): number {
-  return Math.max(
+  return Math.min(
+    STAT_CURVE.evade.cap,
+    Math.max(
     0,
     (has(target, "feather_step") ? PASSIVE.featherEvade : 0) +
       (has(target, "beast_reflex") ? PASSIVE.reflexEvade : 0) +
@@ -1312,6 +1323,7 @@ function evadeChance(target: Unit): number {
       (target.evadeBonus ?? 0) +
       statusValue(target, "evadeUp") -
       statusValue(target, "evadeDown"),
+    ),
   );
 }
 
@@ -1896,6 +1908,8 @@ export function unitStats(u: Unit) {
   return {
     attack: u.attack,
     defense: u.defense,
+    /** 받는 피해 감소 % (방어 포인트 곡선 + 장신구 %) */
+    damageReduction: takenReduction(u.defense, u.gear?.defensePct ?? 0),
     speed: speedOf(u),
     critChance: critChanceOf(u),
     evadeChance: evadeChance(u),

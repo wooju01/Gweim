@@ -14,14 +14,14 @@ export type Passive = {
 
 export const PASSIVES: Passive[] = [
   // 드워프
-  { id: "rock_root", race: "dwarf", name: "바위의 뿌리", description: "받는 피해 -1 (최소 1)" },
+  { id: "rock_root", race: "dwarf", name: "바위의 뿌리", description: "방어 +1 (받는 피해 감소 %는 방어 곡선으로)" },
   { id: "crafters_eye", race: "dwarf", name: "장인의 눈썰미", description: "공격 시 20% 확률로 적에게 균열 (받는 피해 +2, 2턴)" },
   { id: "steel_heart", race: "dwarf", name: "강철 심장", description: "출혈·중독에 걸릴 확률 절반" },
   { id: "deep_blood", race: "dwarf", name: "깊은 곳의 피", description: "탐험에서 지나온 칸 2칸마다 공격력 +1 (최대 +3)" },
   { id: "rising_cheer", race: "dwarf", name: "흥이 오른다", description: "맞을 때마다 흥 +1, 3이 되면 다음 공격 2배" },
   // 바바리안
   { id: "blood_thirst", race: "barbarian", name: "피의 갈증", description: "잃은 체력이 많을수록 공격력 증가 (최대 +5)" },
-  { id: "pain_oblivion", race: "barbarian", name: "고통 망각", description: "잃은 체력이 많을수록 받는 피해 감소 (최대 -3)" },
+  { id: "pain_oblivion", race: "barbarian", name: "고통 망각", description: "잃은 체력이 많을수록 방어 + (최대 +3)" },
   { id: "war_cry", race: "barbarian", name: "포효", description: "전투 시작 시 적 전체 회피 -10%, 공격력 -2 (2턴)" },
   { id: "peerless_spirit", race: "barbarian", name: "무쌍의 투혼", description: "살아 있는 적 1마리당 공격력 +1" },
   { id: "warrior_pride", race: "barbarian", name: "전사의 긍지", description: "자기 체력 60% 이상일 때 체력 30% 이하인 아군 대신 공격을 맞는다 (라운드당 1회)" },
@@ -42,7 +42,7 @@ export const PASSIVES: Passive[] = [
   { id: "solidarity", race: "human", name: "결속", description: "파티 4명이 모두 살아 있으면 공격 +1" },
   { id: "in_sync", race: "human", name: "손발이 맞는다", description: "길안내자가 건넨 물자 효과 +50%" },
   { id: "improvise", race: "human", name: "임기응변", description: "출혈·중독이 쌓이는 양 -1" },
-  { id: "adapt", race: "human", name: "적응", description: "같은 전투에서 같은 적에게 맞을 때마다 그 적에게 받는 피해 -1 (최대 -2)" },
+  { id: "adapt", race: "human", name: "적응", description: "같은 전투에서 같은 적에게 맞을 때마다 그 적을 상대로 방어 +1 (최대 +2)" },
 ];
 
 export function getPassive(id: string): Passive | undefined {

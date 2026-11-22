@@ -1,7 +1,7 @@
 // 용병 정보 (마을·숙소·길드에서 용병을 누르면 뜨는 창). 능력치·저항·패시브를 보고, 스킬과 장신구를 바로 바꿔 낀다.
 // 고용 전 용병(길드에 와 있는 떠돌이)은 보기만 한다 (스킬·능력치 확인, 말을 걸기).
 import { useEffect, useState } from "react";
-import { STAT_NAME, STAT_ORDER, type StatKey } from "@/data/growth";
+import { STAT_NAME, STAT_ORDER, nextPointGain, type StatKey } from "@/data/growth";
 import { getPassive } from "@/data/passives";
 import { RANKS, rankLabel } from "@/data/ranks";
 import { TRINKET_SLOTS, canWear, getTrinket, trinketFits, trinketText, trinketsBonus, type OwnedTrinket } from "@/data/trinkets";
@@ -110,10 +110,11 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
             <Box title="기본 능력치">
               <Row k="최대 체력" v={unit.maxHp} />
               <Row k="공격" v={`${stats.attack[0]}~${stats.attack[1]}`} />
-              <Row k="방어" v={stats.defense} />
+              <Row k="방어" v={`${stats.defense} · 받는 피해 -${pct(stats.damageReduction)}`} tip={gainTip(nextPointGain("defense", stats.defense))} />
               <Row k="속도" v={stats.speed} />
-              <Row k="치명타" v={pct(stats.critChance)} />
-              <Row k="회피" v={pct(stats.evadeChance)} />
+              <Row k="치명타" v={pct(stats.critChance)} tip={gainTip(nextPointGain("crit", p.stats.crit ?? 0))} />
+              <Row k="회피" v={pct(stats.evadeChance)} tip={gainTip(nextPointGain("evade", p.stats.evade ?? 0))} />
+              <p className="text-[11px] text-ash">방어·치명·회피는 찍을수록 오르는 폭이 줄어든다 (받는 피해 감소 최대 80%, 치명 80%, 회피 60%).</p>
               {(["str", "mag", "faith"] as const).map((k) => (unit.power?.[k] ?? 0) > 0 && <Row key={k} k={`${STAT_NAME[k]} 기술`} v={`+${unit.power![k]}`} />)}
             </Box>
 
@@ -241,11 +242,17 @@ function Box({ title, children }: { title: string; children: React.ReactNode }) 
   );
 }
 
-function Row({ k, v }: { k: string; v: React.ReactNode }) {
+/** "다음 1점의 효과 +x%" */
+const gainTip = (g: number) => `다음 1점의 효과 +${(g * 100).toFixed(1)}%`;
+
+function Row({ k, v, tip }: { k: string; v: React.ReactNode; tip?: string }) {
   return (
-    <p className="flex justify-between text-xs">
+    <p className="flex justify-between gap-2 text-xs" title={tip}>
       <span className="text-ash">{k}</span>
-      <span className="text-bone">{v}</span>
+      <span className="text-bone">
+        {v}
+        {tip && <span className="ml-1.5 text-[10px] text-ember">{tip.replace("다음 1점의 효과 ", "다음 1점 ")}</span>}
+      </span>
     </p>
   );
 }

@@ -807,7 +807,7 @@ function FoeStats({ unit, hp, preview, battle }: { unit: Unit; hp: number; previ
       <div className="flex flex-col gap-1 rounded-sm bg-ink/60 px-2.5 py-2 text-bone/80">
         {unit.note && <p className="text-ash">{unit.note}</p>}
         <p>
-          공격 {stats.attack[0]}~{stats.attack[1]} · 방어 {stats.defense} · 속도 {stats.speed} · 회피 {pct(stats.evadeChance)}
+          공격 {stats.attack[0]}~{stats.attack[1]} · 방어 {stats.defense} (받는 피해 -{pct(stats.damageReduction)}) · 속도 {stats.speed} · 회피 {pct(stats.evadeChance)}
         </p>
         {unit.charging && (
           <p className="font-bold text-blood">
@@ -864,7 +864,7 @@ function ActorStats({ battle, unit }: { battle: Battle; unit: Unit }) {
   return (
     <div className="flex flex-col gap-1 rounded-sm bg-ink/60 px-2.5 py-2 text-[11px] text-bone/80">
       <p>
-        공격 {stats.attack[0]}~{stats.attack[1]} · 방어 {stats.defense} · 속도 {stats.speed} · 치명타 {pct(stats.critChance)} · 회피 {pct(stats.evadeChance)}
+        공격 {stats.attack[0]}~{stats.attack[1]} · 방어 {stats.defense} (받는 피해 -{pct(stats.damageReduction)}) · 속도 {stats.speed} · 치명타 {pct(stats.critChance)} · 회피 {pct(stats.evadeChance)}
       </p>
       {(["str", "mag", "faith"] as const).some((k) => (unit.power?.[k] ?? 0) > 0) && (
         <p className="text-ember/90">

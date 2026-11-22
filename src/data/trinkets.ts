@@ -6,8 +6,8 @@ import type { Rng } from "@/game/random";
 
 /**
  * 장신구 효과 (낀 장신구들의 효과는 더한다). 확률·비율은 0~1.
- * 정수: attack 공격, maxHp 최대 체력, defense 방어(받는 피해 -), speed 속도, mag 마력, thornsFlat 반사 피해 +,
- * duelReduce 결투 상대에게 받는 피해 추가 -, poisonStack 거는 중독 +, debuffTurns 거는 약화 지속 +,
+ * 정수: attack 공격, maxHp 최대 체력, defense 방어 포인트(체감 곡선), speed 속도, mag 마력, thornsFlat 반사 피해 +,
+ * duelReduce 결투 상대에게 방어 포인트 추가, poisonStack 거는 중독 +, debuffTurns 거는 약화 지속 +,
  * downedTurns 쓰러져 버티는 차례 +, lastBreath 원정당 버팀 횟수, potionReviveFlat 쓰러진 채 받은 물약 회복 +
  */
 export type TrinketBonus = {
@@ -16,6 +16,9 @@ export type TrinketBonus = {
   defense?: number;
   speed?: number;
   mag?: number;
+  /** 받는 피해 감소 % (방어 곡선 값에 그대로 더한다) */
+  defensePct?: number;
+  /** 회피·치명 % (곡선 값에 그대로 더한다) */
   evade?: number;
   crit?: number;
   poisonRes?: number;
@@ -150,7 +153,8 @@ const pct = (v: number) => `${Math.round(v * 100)}%`;
 const BONUS_TEXT: { [K in keyof Required<TrinketBonus>]: (v: number) => string } = {
   attack: (v) => `공격 +${v}`,
   maxHp: (v) => `최대 체력 +${v}`,
-  defense: (v) => `받는 피해 -${v}`,
+  defense: (v) => `방어 +${v}`,
+  defensePct: (v) => `받는 피해 -${pct(v)}`,
   speed: (v) => `속도 +${v}`,
   mag: (v) => `마력 +${v}`,
   evade: (v) => `회피 +${pct(v)}`,
@@ -169,7 +173,7 @@ const BONUS_TEXT: { [K in keyof Required<TrinketBonus>]: (v: number) => string }
   counterPower: (v) => `반격 위력 +${pct(v)}`,
   thornsFlat: (v) => `반사 피해 +${v}`,
   coverTaken: (v) => `대신 맞을 때 받는 피해 -${pct(v)}`,
-  duelReduce: (v) => `결투 상대에게 받는 피해 추가 -${v}`,
+  duelReduce: (v) => `결투 상대에게 방어 +${v}`,
   poisonStack: (v) => `거는 중독 +${v}`,
   stunChance: (v) => `기절 확률 +${pct(v)}`,
   bleedChance: (v) => `출혈 확률 +${pct(v)}`,
@@ -232,7 +236,7 @@ const survival = (id: string, name: string, levels: [TrinketBonus, TrinketBonus,
 // 계열 재료(수액 mat_sap, 송곳니 mat_fang, 철퇴 mat_mace, 젤 mat_jelly, 숫돌 mat_whetstone, 독샘 mat_venom, 화살촉 mat_arrowhead)
 export const TRINKETS: Trinket[] = [
   // ── 기사 ──
-  job("t_oath_badge", "맹세의 성표", "knight", "saber", { defense: 3 }, [m("orc_tusk", 1), m("mat_sap", 2)], "맹세를 새긴 성표. 가슴에 달면 한 걸음도 물러서지 않게 된다."),
+  job("t_oath_badge", "맹세의 성표", "knight", "saber", { defensePct: 0.08 }, [m("orc_tusk", 1), m("mat_sap", 2)], "맹세를 새긴 성표. 가슴에 달면 한 걸음도 물러서지 않게 된다."),
   job("t_vow_cloak", "서약의 망토", "knight", "saber", { duelReduce: 2, defense: 2 }, [m("soft_pelt", 3)], "결투를 청할 때 펼쳐 드는 망토. 상대의 칼끝이 망토 자락에 걸린다."),
   job("t_blood_gauntlet", "핏빛 건틀릿", "knight", "dark_saber", { lifesteal: 0.08 }, [m("bat_wing", 3), m("mat_fang", 1)], "베어 낸 피를 빨아들이는 건틀릿. 끼고 나면 손이 따뜻하다."),
   job("t_cursed_helm", "저주받은 투구", "knight", "dark_saber", { attack: 3, lowHpPower: 0.1 }, [m("mat_mace", 2)], "벗을 수 없을 것 같은 투구. 피를 흘릴수록 눈앞이 붉게 맑아진다."),
@@ -265,7 +269,7 @@ export const TRINKETS: Trinket[] = [
   job("t_core_rosary", "슬라임 핵 묵주", "priest", "saint", { healPower: 0.15 }, [m("slime_core", 1), m("mat_sap", 2)], "투명한 구슬이 기도할 때마다 은은하게 빛난다."),
   job("t_silver_chalice", "은빛 성배", "priest", "saint", { reviveHeal: 0.25 }, [m("shiny_trinket", 1), m("mat_sap", 2)], "쓰러진 자의 입술을 적시는 작은 성배."),
   job("t_judgment_badge", "심판의 성표", "priest", "chastiser", { holyPower: 0.12 }, [m("mat_whetstone", 3)], "날을 세운 성표. 기도가 칼끝이 된다."),
-  job("t_penance_chain", "참회의 사슬", "priest", "chastiser", { defense: 2, witherChance: 0.1 }, [m("orc_tusk", 1)], "몸에 감은 사슬. 맞는 자도 때리는 자도 움츠러든다."),
+  job("t_penance_chain", "참회의 사슬", "priest", "chastiser", { defensePct: 0.05, witherChance: 0.1 }, [m("orc_tusk", 1)], "몸에 감은 사슬. 맞는 자도 때리는 자도 움츠러든다."),
   // ── 마법사 ──
   job("t_element_ring", "원소 결정 반지", "mage", "elementalist", { elementPower: 0.15 }, [m("mat_jelly", 2), m("mat_whetstone", 1)], "원소가 맺힌 결정을 박은 반지. 원소 주문이 한층 거세진다."),
   job("t_mana_necklace", "마력 순환 목걸이", "mage", "elementalist", { shieldPower: 0.3, maxHp: 9 }, [m("mat_sap", 3)], "수액이 고리를 따라 도는 목걸이. 방벽이 두꺼워진다."),

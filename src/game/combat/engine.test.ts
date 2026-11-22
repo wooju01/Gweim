@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { POTION_HEAL, START_SUPPLIES, STATUS } from "@/data/combat";
+import { curveBonus } from "@/data/growth";
 import { TEST_MERCS } from "@/test/fixtures";
 import { PASSIVES } from "@/data/passives";
 import { createRng } from "@/game/random";
@@ -16,6 +17,9 @@ import {
   startBattleFrom,
   startBattleWithUnits,
   strikeFactors,
+  strikeAmount,
+  takenReduction,
+  unitStats,
   hasStatus,
   living,
   resistOf,
@@ -156,6 +160,9 @@ function dummy(id: string, hp = 30, overrides: Partial<Unit> = {}): Unit {
     ...overrides,
   };
 }
+
+/** 방어 포인트 p인 대상이 받는 피해 (곡선, 최소 1) */
+const taken = (amount: number, p: number) => Math.max(1, Math.round(amount * (1 - curveBonus("defense", p))));
 
 /** 상태를 손으로 고친 복사본 */
 function edit(b: Battle, fn: (b: Battle) => void): Battle {
@@ -731,12 +738,12 @@ describe("종족 패시브", () => {
       ),
     );
   /** 적 e0(공격력 4)이 p1을 때린 피해 */
-  const enemyHit = (passives: string[], patch: Partial<Unit> = {}) =>
+  const enemyHit = (passives: string[], patch: Partial<Unit> = {}, atk = 4) =>
     plainHit(
       (seed) =>
         act(
           fix(
-            start([P(passives)], seed, [dummy("e0", 999, { attack: [4, 4] })]),
+            start([P(passives)], seed, [dummy("e0", 999, { attack: [atk, atk] })]),
             "p1",
             patch,
           ),
@@ -750,10 +757,10 @@ describe("종족 패시브", () => {
     expect(enemyHit([])).toBe(4);
   });
 
-  it("바위의 뿌리: 받는 피해 -1 / 고통 망각: 잃은 체력에 비례해 최대 -3", () => {
-    expect(enemyHit(["rock_root"])).toBe(3);
-    expect(enemyHit(["pain_oblivion"], { hp: 32 })).toBe(4);
-    expect(enemyHit(["pain_oblivion"], { hp: 2 })).toBe(1);
+  it("바위의 뿌리: 방어 +1 / 고통 망각: 잃은 체력에 비례해 방어 최대 +3 (방어 곡선)", () => {
+    expect(enemyHit(["rock_root"], {}, 20)).toBe(taken(20, 1));
+    expect(enemyHit(["pain_oblivion"], { hp: 32 }, 20)).toBe(20);
+    expect(enemyHit(["pain_oblivion"], { hp: 2 }, 20)).toBe(taken(20, 3));
   });
 
   it("피의 갈증·무쌍의 투혼·깊은 곳의 피·추격 본능·결속", () => {
@@ -874,14 +881,18 @@ describe("종족 패시브", () => {
     expect(left).toBe(hit ? 1 : 3);
   });
 
-  it("적응: 같은 적에게 맞을수록 받는 피해가 줄어든다 (최대 -2)", () => {
-    let b = start([P(["adapt"])], 3, [dummy("e0", 999, { attack: [6, 6] })]);
+  it("적응: 같은 적에게 맞을수록 그 적을 상대로 방어 + (최대 +2)", () => {
+    let b = start([P(["adapt"])], 3, [dummy("e0", 999, { attack: [30, 30] })]);
+    b = edit(b, (c) => {
+      unitById(c, "p1")!.hp = 999;
+      unitById(c, "p1")!.maxHp = 999;
+    });
     for (let i = 0; i < 5; i++) b = act(b, { type: "attack", target: "e0" });
     const plain = hitsBy(b, "e0")
       .filter((h) => !h.crit)
       .map((h) => h.damage);
-    expect(plain[0]).toBe(6);
-    expect(Math.min(...plain)).toBe(4);
+    expect(plain[0]).toBe(30);
+    expect(Math.min(...plain)).toBe(taken(30, 2));
   });
 
   it("흥이 오른다: 세 번 맞으면 다음 공격 2배", () => {
@@ -1064,7 +1075,7 @@ describe("종족 패시브", () => {
 });
 
 describe("방어력과 속도", () => {
-  it("방어력만큼 받는 피해가 줄고, 최소 1은 들어간다", () => {
+  it("방어 곡선만큼 받는 피해가 % 줄고 (70% × p / (p + 15)), 최소 1은 들어간다", () => {
     const hitOn = (defense: number, attack: number) => {
       for (let seed = 1; seed < 100; seed++) {
         const units = [
@@ -1079,9 +1090,11 @@ describe("방어력과 속도", () => {
         if (hit?.type === "attack" && !hit.crit) return hit.damage;
       }
     };
-    expect(hitOn(0, 6)).toBe(6);
-    expect(hitOn(2, 6)).toBe(4);
-    expect(hitOn(9, 6)).toBe(1);
+    expect(hitOn(0, 20)).toBe(20);
+    expect(hitOn(2, 20)).toBe(18);
+    expect(hitOn(15, 20)).toBe(13);
+    expect(hitOn(1000, 20)).toBe(6);
+    expect(hitOn(1000, 1)).toBe(1);
   });
 
   it("직업과 적의 능력치가 유닛에 실린다", () => {
@@ -1457,10 +1470,10 @@ describe("효과 규칙 (시험용 스킬)", () => {
   });
 
   it("버팀: 방어 +2 / 선제: 다음 라운드에 맨 먼저", () => {
-    let b = start([{ ...varn, job: "archer", kit: ["brace"] }], 1, [dummy("e0", 999, { attack: [6, 6] })]);
+    let b = start([{ ...varn, job: "archer", kit: ["brace"] }], 1, [dummy("e0", 999, { attack: [20, 20] })]);
     b = act(b, { type: "skill", skill: "brace" });
     const hit = b.log.find((e) => e.type === "attack" && e.actor === "e0");
-    if (hit?.type === "attack" && !hit.crit) expect(hit.damage).toBe(4);
+    if (hit?.type === "attack" && !hit.crit) expect(hit.damage).toBe(taken(20, 2));
 
     let h = start([varn, { ...kass, job: "archer", kit: ["haste"] }], 1, [dummy("e0", 999)]);
     h = act(h, { type: "attack", target: "e0" });
@@ -1489,10 +1502,11 @@ describe("조각 스킬 (엔진 1단계)", () => {
     const b = one(merc, [armored]);
     const id = unitById(b, varn.id)!.skills[0];
     const p = previewAction(b, { type: "skill", skill: id, target: "e0" })!.damage[0];
-    // (6~9 + 5) - 방어 10 × 0.8 = 3~6
-    expect([p.min, p.max]).toEqual([11 - 8, 14 - 8]);
+    // (6~9 + 5) × (1 - 받는 피해 감소(방어 10) × (1 - 0.2))
+    const red = curveBonus("defense", 10);
+    expect([p.min, p.max]).toEqual([Math.round(11 * (1 - red * 0.8)), Math.round(14 * (1 - red * 0.8))]);
     const plain = previewAction(b, { type: "attack", target: "e0" })!.damage[0];
-    expect(plain.min).toBe(1); // 기본 공격은 방어를 다 받는다
+    expect(plain.min).toBe(Math.round(5 * (1 - red))); // 기본 공격(6 × 0.8 = 5)은 방어를 다 받는다
   });
 
   it("다회 타격: 연격을 낀 검격은 두 번 친다", () => {
@@ -1558,7 +1572,9 @@ describe("조각 스킬 (엔진 1단계)", () => {
     const before = previewAction(d, { type: "attack", target: "e0" })!.damage[0].min;
     d = act(d, { type: "skill", skill: "knight_dwarf_main", target: "e0" });
     d = edit(d, (x) => (x.turn = x.order.indexOf(varn.id)));
-    expect(previewAction(d, { type: "attack", target: "e0" })!.damage[0].min).toBe(before + 2);
+    // 방어 3 → 1
+    expect(before).toBe(taken(5, 3));
+    expect(previewAction(d, { type: "attack", target: "e0" })!.damage[0].min).toBe(taken(5, 1));
   });
 
   it("자기 강화는 쓴 행동이 끝나도 남아 다음 행동까지 간다 (방벽 2턴 → 다음 두 번의 행동)", () => {
@@ -1742,20 +1758,20 @@ describe("조각 스킬 (엔진 1단계)", () => {
     expect(b.log.some((e) => e.type === "attack" && e.actor === varn.id && e.target === "e1")).toBe(true);
   });
 
-  it("결투 신청: 2턴 동안 그 적은 결투를 건 기사만 노리고, 기사가 그 적에게 받는 피해 -2", () => {
+  it("결투 신청: 2턴 동안 그 적은 결투를 건 기사만 노리고, 기사는 그 적을 상대로 방어 +2", () => {
     // 바른(기사)이 결투, 카스·엘케도 파티에 있다. 적은 아무나 노릴 수 있다
     for (let seed = 0; seed < 30; seed++) {
       let b = start([{ ...varn, job: "knight", skills: [build("knight_duel")] }, kass, elke], seed, [dummy("e0", 999, { attack: [10, 10] })]);
       b = act(b, { type: "skill", skill: "knight_duel", target: "e0" });
       const duel = unitById(b, "e0")!.statuses.find((x) => x.kind === "duel");
       expect(duel).toMatchObject({ source: varn.id, value: 2 });
-      // 두 라운드 동안 적의 공격은 모두 바른에게, 피해는 10 - 2 (치명타 15 - 2)
+      // 두 라운드 동안 적의 공격은 모두 바른에게, 피해는 방어 2의 곡선만큼 준다 (치명타 15)
       for (let i = 0; i < 6 && !b.outcome; i++) b = act(b, { type: "attack", target: "e0" });
       const hits = b.log.filter((e): e is Extract<BattleEvent, { type: "attack" }> => e.type === "attack" && e.actor === "e0").slice(0, 2);
       expect(hits).toHaveLength(2);
       for (const h of hits) {
         expect(h.target).toBe(varn.id);
-        expect([8, 13]).toContain(h.damage);
+        expect([taken(10, 2), taken(15, 2)]).toContain(h.damage);
       }
     }
   });
@@ -1986,8 +2002,9 @@ describe("성장 스탯", () => {
   it("체력·방어·속도는 능력치에, 힘·마법·신성은 위력에, 치명·회피는 확률에 더해진다", () => {
     const u = mercUnit({ ...varn, job: "knight", stats: { hp: 2, defense: 1, speed: 3, str: 2, mag: 1, faith: 4, crit: 5, evade: 2 } });
     expect(u).toMatchObject({ maxHp: 32 + 6, hp: 38, defense: 2 + 1, speed: 4 + 3, power: { str: 2, mag: 1, faith: 4 } });
+    // 치명·회피는 체감 곡선: 치명 5점 = 60% × 5 / 30 = 10%, 회피 2점 = 50% × 2 / 22
     expect(u.critBonus).toBeCloseTo(0.1);
-    expect(u.evadeBonus).toBeCloseTo(0.04);
+    expect(u.evadeBonus).toBeCloseTo(curveBonus("evade", 2));
   });
 
   it("힘은 기본 공격에, 마법은 마법 기술에만 더해진다 (스탯도 기술 배율만큼)", () => {
@@ -2125,17 +2142,19 @@ describe("장신구 효과 (2026-11-22 개편)", () => {
     expect(run({ thornsFlat: 4 }) - run({})).toBe(4);
   });
 
-  it("결투 상대에게 받는 피해 추가 -", () => {
+  it("결투 상대에게 방어 + (서약의 망토)", () => {
     const hit = (gear: Unit["gear"]) => {
-      let b = edit(geared(gear, [dummy("e0", 999, { attack: [10, 10] })]), (c) => {
+      let b = edit(geared(gear, [dummy("e0", 999, { attack: [40, 40] })]), (c) => {
         varnOf(c).defense = 0;
+        varnOf(c).hp = 999;
+        varnOf(c).maxHp = 999;
         unitById(c, "e0")!.statuses.push({ kind: "duel", turns: 2, value: 2, source: varn.id });
       });
       b = act(b, { type: "wait" });
       return varnOf(b).maxHp - varnOf(b).hp;
     };
-    expect(hit({})).toBe(8);
-    expect(hit({ duelReduce: 2 })).toBe(6);
+    expect(hit({})).toBe(taken(40, 2));
+    expect(hit({ duelReduce: 2 })).toBe(taken(40, 4));
   });
 
   it("독샘 반지: 거는 중독 +", () => {
@@ -2233,5 +2252,29 @@ describe("시험 규칙: 깨우기", () => {
     } finally {
       TEST_RULES.wake = false;
     }
+  });
+});
+
+describe("스탯 곡선 (방어·회피·치명)", () => {
+  it("장신구 %는 곡선 값에 더하고, 상한: 받는 피해 감소 80%, 회피 60%, 치명 80%", () => {
+    expect(takenReduction(3, 0.08)).toBeCloseTo(curveBonus("defense", 3) + 0.08);
+    expect(takenReduction(1000, 0.5)).toBe(0.8);
+    const u = mercUnit({ ...varn, job: "knight", stats: { evade: 1000, crit: 1000 }, gear: { evade: 0.3, crit: 0.3 } });
+    expect(unitStats(u).evadeChance).toBe(0.6);
+    expect(unitStats(u).critChance).toBe(0.8);
+    expect(unitStats(mercUnit({ ...varn, job: "knight", gear: { defensePct: 0.08 } })).damageReduction).toBeCloseTo(curveBonus("defense", 2) + 0.08);
+  });
+
+  it("몬스터 방어도 같은 곡선, 방어 무시는 감소 %에 (1 - 방어 무시)를 곱한다", () => {
+    const b = start([varn], 1, [dummy("e0", 999, { defense: 15 })]);
+    const v = unitById(b, varn.id)!;
+    const e = unitById(b, "e0")!;
+    expect(strikeFactors(b, v, e).reduce).toBeCloseTo(0.35);
+    const f = { ...strikeFactors(b, v, e, { pierce: 0.5 }), multiplier: 1, bonus: 0 };
+    expect(f.pierce).toBe(0.5);
+    // 100 × (1 - 0.35 × 0.5)
+    expect(strikeAmount(100, f, false)).toBe(83);
+    // 방어 무시는 모든 출처를 합해 100%까지
+    expect(strikeFactors(b, v, e, { pierce: 3 }).pierce).toBe(1);
   });
 });

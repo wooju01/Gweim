@@ -425,7 +425,7 @@ describe("성장 (상태)", () => {
     s = { ...s, expedition: { ...s.expedition!, xp: undefined, visited, room: { kind: "goal" } } };
     const back = gameReducer(s, { type: "endExpedition", seed: 1 });
     // 칸 수(레벨업에 딱 맞음) + 목적지 3 → 레벨 1, 3 남음
-    expect(back.progress["s-bran"]).toMatchObject({ lv: 1, xp: 3, trainable: 1, stats: { str: 1, defense: 1, hp: 1 } });
+    expect(back.progress["s-bran"]).toMatchObject({ lv: 1, xp: 3, trainable: 1, stats: { str: 2, defense: 1, hp: 2 } });
     expect(back.report!.growth.some((l) => l.includes("브란") && l.includes("레벨업 → 2단계"))).toBe(true);
   });
 

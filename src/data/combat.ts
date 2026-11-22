@@ -130,8 +130,8 @@ export const STATUS: Record<StatusKind, StatusInfo> = {
   /** 턴 시작에 회복 */
   regen: { name: "재생", damage: 0, turns: 2, debuff: false, value: 2, text: "턴마다 체력 {v} 회복" },
   /** 받는 회복량 감소 (저항 있음) */
-  /** 결투: 건 용병(source)만 공격하고, 그 용병이 받는 피해 -value */
-  duel: { name: "결투", damage: 0, turns: 2, debuff: true, value: 2, text: "결투 상대만 공격, 그 상대가 받는 피해 -{v}" },
+  /** 결투: 건 용병(source)만 공격하고, 그 용병의 방어 포인트 +value (그 상대에게서 받는 피해에만) */
+  duel: { name: "결투", damage: 0, turns: 2, debuff: true, value: 2, text: "결투 상대만 공격, 그 상대를 칠 때 상대 방어 +{v}" },
   /** 감싸기: 건 유닛(source)이 이 유닛 대신 공격을 맞는다 (적 하나를 노리는 공격만) */
   cover: { name: "보호받음", damage: 0, turns: 2, debuff: false, text: "다른 동료가 대신 맞아 준다" },
   healReduction: { name: "치유 감소", damage: 0, turns: 2, debuff: true, value: 0.5, pct: true, text: "받는 회복 -{v}" },

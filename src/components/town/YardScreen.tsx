@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { CURRENCY } from "@/data/economy";
-import { STAT_EFFECT, STAT_NAME, STAT_ORDER, TRAINING_COST, TRAINING_POINTS, type StatBlock, type StatKey } from "@/data/growth";
+import { STAT_EFFECT, STAT_NAME, STAT_ORDER, TRAINING_COST, TRAINING_POINTS, nextPointGain, type CurveStat, type StatBlock, type StatKey } from "@/data/growth";
+import { JOB_STATS } from "@/data/combat";
+import { trinketsBonus } from "@/data/trinkets";
 import { canPromote, xpToNext } from "@/game/merc/growth";
 import type { Merc } from "@/game/types";
 import { Button, Portrait } from "@/components/common/parts";
@@ -106,6 +108,11 @@ export function YardScreen({ day, gold, hired, progress, onTrain, onBack }: Prop
               {picked === merc.id && p.trainable > 0 && (
                 <Allocate
                   gold={gold}
+                  points={{
+                    defense: (JOB_STATS[merc.job ?? ""]?.defense ?? 0) + (p.stats.defense ?? 0) + (trinketsBonus(p.trinkets).defense ?? 0),
+                    evade: p.stats.evade ?? 0,
+                    crit: p.stats.crit ?? 0,
+                  }}
                   onDone={(alloc) => {
                     onTrain(merc.id, alloc);
                     setPicked(null);
@@ -121,7 +128,7 @@ export function YardScreen({ day, gold, hired, progress, onTrain, onBack }: Prop
 }
 
 /** 스탯 3점 배분 */
-function Allocate({ gold, onDone }: { gold: number; onDone: (alloc: StatBlock) => void }) {
+function Allocate({ gold, points, onDone }: { gold: number; points: Record<CurveStat, number>; onDone: (alloc: StatBlock) => void }) {
   const [alloc, setAlloc] = useState<StatBlock>({});
   const used = STAT_ORDER.reduce((s, k) => s + (alloc[k] ?? 0), 0);
   const left = TRAINING_POINTS - used;
@@ -135,6 +142,9 @@ function Allocate({ gold, onDone }: { gold: number; onDone: (alloc: StatBlock) =
           <div key={k} className="flex items-center justify-between gap-2 rounded-sm bg-ink/50 px-2.5 py-1.5 text-xs">
             <span>
               <b>{STAT_NAME[k]}</b> <span className="text-ash">{STAT_EFFECT[k]}</span>
+              {(k === "defense" || k === "evade" || k === "crit") && (
+                <span className="ml-1 text-ember">· 다음 1점 +{(nextPointGain(k, points[k] + (alloc[k] ?? 0)) * 100).toFixed(1)}%</span>
+              )}
             </span>
             <span className="flex items-center gap-1.5">
               <Button className="!px-2 !py-0 text-xs" disabled={!alloc[k]} onClick={() => change(k, -1)}>
