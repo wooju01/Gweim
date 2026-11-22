@@ -9,7 +9,7 @@ import type { MercProfile, MercSeed, MercTraits } from "@/lib/schemas";
 type Sample = {
   id: string;
   traits: MercTraits;
-  passives: string[];
+ 
   profile: MercProfile;
 };
 
@@ -22,7 +22,6 @@ const SAMPLES: Sample[] = [
       personalities: ["honorable"],
       background: "veteran",
     },
-    passives: ["solidarity"],
     profile: {
       name: "브란",
       title: "말수 적은 기사",
@@ -46,7 +45,6 @@ const SAMPLES: Sample[] = [
       personalities: ["jovial"],
       background: "deserter",
     },
-    passives: ["rising_cheer"],
     profile: {
       name: "두르강",
       title: "노래하는 대검사",
@@ -70,7 +68,6 @@ const SAMPLES: Sample[] = [
       personalities: ["proud"],
       background: "wanderer",
     },
-    passives: ["wind_blessing"],
     profile: {
       name: "엘로웬",
       title: "바람을 노래하는 바드",
@@ -95,7 +92,6 @@ const SAMPLES: Sample[] = [
       personalities: ["paranoid"],
       background: "ex_slave",
     },
-    passives: ["finishing_bite"],
     profile: {
       name: "케쉬",
       title: "등을 보이지 않는 암살자",
@@ -115,7 +111,6 @@ const SAMPLES: Sample[] = [
       personalities: ["reckless"],
       background: "war_orphan",
     },
-    passives: ["war_cry"],
     profile: {
       name: "라그나",
       title: "맹세 문신의 궁수",
@@ -136,7 +131,6 @@ const SAMPLES: Sample[] = [
       personalities: ["kind"],
       background: "plague_survivor",
     },
-    passives: [],
     profile: {
       name: "미렐",
       title: "다정한 떠돌이 수녀",
@@ -159,7 +153,6 @@ const SAMPLES: Sample[] = [
       personalities: ["cynical"],
       background: "fallen_noble",
     },
-    passives: ["first_strike"],
     profile: {
       name: "아이시네",
       title: "냉소하는 불꽃 술사",
@@ -183,7 +176,6 @@ const SAMPLES: Sample[] = [
       personalities: ["greedy"],
       background: "debtor",
     },
-    passives: ["wild_recovery"],
     profile: {
       name: "토브",
       title: "빚쟁이 무투가",
@@ -207,7 +199,6 @@ const SAMPLES: Sample[] = [
       personalities: ["honorable"],
       background: "wanderer",
     },
-    passives: ["warrior_pride"],
     profile: {
       name: "힐드",
       title: "맹세를 새긴 방패",
@@ -246,7 +237,6 @@ export function sampleSeeds(): MercSeed[] {
       willingness: SAMPLE_WILLINGNESS,
     },
     level: "bronze",
-    passives: s.passives,
     // 모집과 같은 규칙의 시작 스킬 (시드 고정이라 매번 같다)
     skills: rollStartSkills({ job: s.traits.job, race: s.traits.race, level: "bronze" }, seededRandom(2000 + i)),
     profile: s.profile,

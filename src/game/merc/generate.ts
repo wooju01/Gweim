@@ -1,9 +1,9 @@
 // 랜덤 용병 생성 규칙. 특성 뽑기, 반응표 합치기, 시작 수치 계산.
 // React/Next/AI에 의존하지 않는 순수 함수만 둔다. 난수는 주입받는다.
 import { BACKGROUNDS, JOBS, PERSONALITIES, RACES, getTrait } from "@/data/traits";
-import { getPassive, passivesOf } from "@/data/passives";
+import { fusionChoices, getPassive, jobPassive } from "@/data/passives";
 import { canBe, getBranch, jobTitle } from "@/data/jobs";
-import { RANKS, RANK_ORDER, RECRUIT_LEVEL, RECRUIT_PASSIVE_CHANCE } from "@/data/ranks";
+import { RANKS, RANK_ORDER, RECRUIT_LEVEL } from "@/data/ranks";
 import { RECRUIT_TOP_CHANCE } from "@/data/guild";
 import { FAME_EFFECT, fameRank, fameTier } from "@/data/fame";
 import { validateLoadout, validateUltimate } from "@/game/skills";
@@ -179,19 +179,37 @@ export function recruitLevel(guildGrade: MercLevel, rand: Rand, fame = 0, topBon
   return rand() < RECRUIT_TOP_CHANCE + fameRank(fameTier(fame)) * FAME_EFFECT.recruitTopPerTier + topBonus ? guildGrade : RANK_ORDER[i - 1];
 }
 
-/** 모집 시 패시브를 뽑는다: 50% 확률로 종족 패시브 하나 (등급과 상관없이) */
-export function rollPassives(race: string, level: MercLevel, rand: Rand): string[] {
-  const pool = passivesOf(race);
-  if (pool.length === 0 || RANKS[level].maxPassives < 1) return [];
-  if (rand() >= RECRUIT_PASSIVE_CHANCE) return [];
-  return [pool[Math.floor(rand() * pool.length)].id];
+/**
+ * 모집한 은 이상 용병의 융합 패시브 (승급을 거치지 않았으니 후보 둘 중 무작위). 동이면 없다
+ */
+export function rollPassives(job: string, race: string, level: MercLevel, rand: Rand): { passiveSilver?: string; passiveGold?: string } {
+  const out: { passiveSilver?: string; passiveGold?: string } = {};
+  const i = RANK_ORDER.indexOf(level);
+  if (i >= RANK_ORDER.indexOf("silver")) {
+    const xs = fusionChoices(job, race, "silver");
+    if (xs.length) out.passiveSilver = xs[Math.floor(rand() * xs.length)].id;
+  }
+  if (i >= RANK_ORDER.indexOf("gold")) {
+    const xs = fusionChoices(job, race, "gold");
+    if (xs.length) out.passiveGold = xs[Math.floor(rand() * xs.length)].id;
+  }
+  return out;
 }
 
-/** 패시브가 존재하고, 그 종족 것이고, 겹치지 않고, 등급 한도 안인가 */
-export function validPassives(race: string, level: MercLevel, passives: string[]): boolean {
-  if (passives.length > RANKS[level].maxPassives) return false;
-  if (new Set(passives).size !== passives.length) return false;
-  return passives.every((id) => getPassive(id)?.race === race);
+/** 고른 융합 패시브가 그 직업·종족·등급의 것인가 (은 패시브는 은부터, 금 패시브는 금부터) */
+export function validPassives(seed: Pick<MercSeed, "traits" | "level" | "passiveSilver" | "passiveGold">): boolean {
+  const i = RANK_ORDER.indexOf(seed.level);
+  const ok = (id: string | undefined, tier: "silver" | "gold") => {
+    if (!id) return true;
+    const p = getPassive(id);
+    return !!p && p.tier === tier && p.job === seed.traits.job && p.race === seed.traits.race && i >= RANK_ORDER.indexOf(tier);
+  };
+  return ok(seed.passiveSilver, "silver") && ok(seed.passiveGold, "gold");
+}
+
+/** 용병이 가진 패시브: 직업 패시브 + 고른 은·금 패시브 */
+export function passivesOfSeed(seed: Pick<MercSeed, "traits" | "passiveSilver" | "passiveGold">): string[] {
+  return [jobPassive(seed.traits.job), seed.passiveSilver, seed.passiveGold].filter((x): x is string => !!x);
 }
 
 /** 카드에 보이는 특성 이름: [종족, 직업, 성격..., 배경] */
@@ -206,7 +224,7 @@ export function traitTags(traits: Trait[]): string[] {
 export function buildMerc(seed: MercSeed): Merc | null {
   const traits = resolveTraits(seed.traits);
   if (!traits) return null;
-  if (!validPassives(seed.traits.race, seed.level, seed.passives)) return null;
+  if (!validPassives(seed)) return null;
   const owner = { job: seed.traits.job, race: seed.traits.race, level: seed.level, branch: seed.branch, elements: seed.elements };
   // 스킬: 조각 규칙 (직업·종족 조각만, 등급별 부 조각 수, 원소 규칙)
   if (validateLoadout(owner, seed.skills)) return null;
@@ -225,7 +243,7 @@ export function buildMerc(seed: MercSeed): Merc | null {
     job: seed.traits.job,
     traitIds: { personalities: seed.traits.personalities, background: seed.traits.background },
     level: seed.level,
-    passives: seed.passives,
+    passives: passivesOfSeed(seed),
     skills: seed.skills,
     ultimate: seed.ultimate,
     branch: seed.branch,

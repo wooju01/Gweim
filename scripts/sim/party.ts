@@ -5,6 +5,7 @@ import { fragmentsFor, normalize, validateLoadout } from "@/game/skills";
 import type { Merc } from "@/game/types";
 import type { MercLevel, SkillBuild } from "@/lib/schemas";
 import { MERCS } from "./lib";
+import { fusionChoices } from "@/data/passives";
 
 /** 재현 가능한 난수 (시드 → 0~1) */
 export function rng(seed: number) {
@@ -76,11 +77,22 @@ export function fourSkills(m: Merc, level: MercLevel, r: () => number): SkillBui
   return validateLoadout(owner, fixed) ? (m.skills ?? []) : fixed;
 }
 
-/** 무작위 4명 (시드 고정), 등급 단계에 맞춘 성장·스킬 */
+function randomPick<T>(xs: T[], r: () => number): T[] {
+  return xs.length ? [xs[Math.floor(r() * xs.length)]] : [];
+}
+
+/** 무작위 4명 (시드 고정), 등급 단계에 맞춘 성장·스킬·패시브 */
 export function gradeParty(seed: number, g: Grade): Merc[] {
   const r = rng(seed);
   const pool = [...MERCS];
   const picked: Merc[] = [];
   while (picked.length < 4) picked.push(pool.splice(Math.floor(r() * pool.length), 1)[0]);
-  return picked.map((m) => ({ ...m, level: g.level, stats: gradeStats(m, g), ...(g.four ? { skills: fourSkills(m, g.level, r) } : {}) }));
+  return picked.map((m) => ({
+    ...m,
+    level: g.level,
+    stats: gradeStats(m, g),
+    // 패시브: 직업 패시브(동부터) + 은이면 은 A/B 중 무작위
+    passives: [...(m.passives ?? []), ...(g.level !== "bronze" ? randomPick(fusionChoices(m.job!, m.race!, "silver").map((p) => p.id), r) : [])],
+    ...(g.four ? { skills: fourSkills(m, g.level, r) } : {}),
+  }));
 }

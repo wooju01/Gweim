@@ -326,7 +326,9 @@ function campaign(c: number, retreat: boolean, cfg: Config) {
     for (const m of party) {
       const cost = RANKS.silver.promoteCost!;
       if (m.seed.level !== "bronze" || !canPromote(m.growth) || !m.bossWin || !guildSilver || gold < cost) continue;
-      const next = promote(m.seed, { passive: promotionChoices(m.seed).passives[0] });
+      // 승급 패시브는 A/B 중 무작위
+      const choices = promotionChoices(m.seed).passives;
+      const next = promote(m.seed, { passive: choices[Math.floor(r() * choices.length)] });
       if (!next) continue;
       pay("용병 승급", cost, m);
       m.seed = next;

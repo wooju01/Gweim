@@ -1,6 +1,6 @@
 import { getPassive } from "@/data/passives";
 import { rollStartSkills } from "@/game/skills";
-import { recruitLevel, resolveTraits, rollPassives, rollRecruitCount, rollStart, rollTraits } from "@/game/merc/generate";
+import { passivesOfSeed, recruitLevel, resolveTraits, rollPassives, rollRecruitCount, rollStart, rollTraits } from "@/game/merc/generate";
 import {
   MercProfile,
   RecruitRequest,
@@ -78,19 +78,20 @@ async function recruitOne(
 ): Promise<{ seed: MercSeed; mode: AIMode }> {
   const traits = resolveTraits(traitIds)!;
   const start = rollStart(traits, Math.random);
-  const passives = rollPassives(traitIds.race, level, Math.random);
+  // 은 이상으로 모집되면 융합 패시브를 무작위로 (승급 때처럼 A/B 중 하나)
+  const passives = rollPassives(traitIds.job, traitIds.race, level, Math.random);
   const skills = rollStartSkills({ job: traitIds.job, race: traitIds.race, level }, Math.random);
   const id = `r-${crypto.randomUUID().slice(0, 8)}`;
 
   const ai = getMercAI();
-  const input = { traits, gender: traitIds.gender, passives: passives.map((id) => getPassive(id)!), avoidNames };
+  const input = { traits, gender: traitIds.gender, passives: passivesOfSeed({ traits: traitIds, ...passives }).map((id) => getPassive(id)!), avoidNames };
   try {
     const profile = MercProfile.parse(await ai.createProfile(input));
-    return { seed: { id, traits: traitIds, start, level, passives, skills, profile }, mode: ai.mode };
+    return { seed: { id, traits: traitIds, start, level, ...passives, skills, profile }, mode: ai.mode };
   } catch (error) {
     if (ai.mode === "mock") throw error;
     console.error("[ai] 용병 프로필 생성 실패, mock으로 대체:", error);
     const profile = await getMockAI().createProfile(input);
-    return { seed: { id, traits: traitIds, start, level, passives, skills, profile }, mode: "fallback" };
+    return { seed: { id, traits: traitIds, start, level, ...passives, skills, profile }, mode: "fallback" };
   }
 }

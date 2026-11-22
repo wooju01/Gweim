@@ -7,7 +7,7 @@ import { DEATH } from "@/data/death";
 import { MEMORY_MAX_CHARS } from "@/game/merc/memory";
 import { applyTone, clampStat, getStage } from "@/game/merc/affinity";
 import { createRng, rollInt, type Rng } from "@/game/random";
-import { CURRENCY, GREATER_POTION_GRADE, PACK_LIMIT, PACK_ORDER, PRICE, START_GOLD, START_PACK, START_STOCK, STOCK_RANGE, MATERIAL_SHOP, materialPrice, storageCaps, storageCost } from "@/data/economy";
+import { CURRENCY, GREATER_POTION_GRADE, PACK_ORDER, PRICE, START_GOLD, START_PACK, START_STOCK, STOCK_RANGE, MATERIAL_SHOP, materialPrice, storageCaps, storageCost } from "@/data/economy";
 import { getRelic } from "@/data/relics";
 import { SALVAGE, addSalvage, getSalvage, salvageCount, sellable } from "@/data/loot";
 import { WAGE } from "@/data/wages";

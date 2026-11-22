@@ -32,7 +32,7 @@ export type DamageEffect = {
   multiplier?: number;
   /** 두 스탯 이상을 섞는 피해. 있으면 multiplier·stat 대신 쓴다 */
   scaling?: Scaling[];
-  /** 고정 피해 (배율과 상관없이 더한다) */
+  /** 고정 피해 (몬스터 스킬만. 2026-11-22: 용병 조각에서는 고정 피해를 없앴다) */
   bonus?: number;
   /** 공격력 대신 이 범위 (몬스터 스킬) */
   fixed?: readonly [number, number];
@@ -47,6 +47,8 @@ export type DamageEffect = {
   stat?: PowerStat;
   /** 대상 방어를 이 비율만큼 무시 (0~1) */
   pierce?: number;
+  /** 오러률 (인간 기사): 준 피해 중 이 비율은 대상의 받는 피해 감소를 무시한다 (방어 무시와 같은 공식) */
+  aura?: number;
   /** 준 피해의 이 비율만큼 회복 */
   lifesteal?: number;
   /** 타격마다 거는 상태이상 */
@@ -186,6 +188,7 @@ export function describeSkill(def: SkillDef): string {
         const extras = [
           e.critBonus ? `치명 +${pct(e.critBonus)}` : "",
           e.pierce ? `방어 ${pct(e.pierce)} 무시` : "",
+          e.aura ? `오러 ${pct(e.aura)}` : "",
           e.lifesteal ? `준 피해 ${pct(e.lifesteal)} 회복` : "",
           e.perHit ? `타격마다 ${statusText(e.perHit)}` : "",
           ...(e.bonusIf ?? []).map((c) => `${DMG_COND_TEXT[c.cond]} 위력 +${pct(c.pct)}`),

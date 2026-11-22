@@ -12,7 +12,7 @@ import { nodeById } from "@/game/dungeon/map";
 import { getStage } from "@/game/merc/affinity";
 import { DialogueScreen } from "@/components/dialogue/DialogueScreen";
 import { GuildScreen } from "@/components/guild/GuildScreen";
-import { canHire, entryId, facilityBlock, facilitySlots, forgeDiscounted, gameReducer, questSlots, shopPrice, guildPromotionBlocks, hiredCount, promotionBlocks, initialState, mercOf, type TownPlace } from "@/game/state/state";
+import { canHire, entryId, facilityBlock, facilitySlots, forgeDiscounted, gameReducer, questSlots, shopPrice, guildPromotionBlocks, promotionBlocks, initialState, mercOf, type TownPlace } from "@/game/state/state";
 import { FACILITIES, bagSlots, type FacilityId } from "@/data/facilities";
 import { GateScreen } from "@/components/town/GateScreen";
 import { ReportScreen } from "@/components/town/ReportScreen";

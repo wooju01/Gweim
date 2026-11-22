@@ -14,7 +14,6 @@ import {
   mercUnit,
   neighbors,
   previewAction,
-  startBattleFrom,
   startBattleWithUnits,
   strikeFactors,
   strikeAmount,
@@ -426,7 +425,7 @@ describe("승패", () => {
     console.info(`[밸런스] 4인 파티 승률 ${((wins / 2000) * 100).toFixed(1)}%`);
     // 전투 한 번은 쉽게. 난이도는 던전에서 체력·물자가 이어지며 깎이는 데서 나온다
     expect(wins / 2000).toBeGreaterThan(0.9);
-  });
+  }, 30_000);
 });
 
 describe("스킬", () => {
@@ -694,383 +693,114 @@ describe("반동·실패·보호막 (시험용 스킬)", () => {
   });
 });
 
-describe("종족 패시브", () => {
-  type AttackEvent = Extract<BattleEvent, { type: "attack" }>;
-  const P = (passives: string[], id = "p1", job = "knight"): Merc => ({
-    ...varn,
-    id,
-    job,
-    passives,
-  });
-  const hitsBy = (b: Battle, actor: string) =>
-    b.log.filter(
-      (e): e is AttackEvent => e.type === "attack" && e.actor === actor,
-    );
-  const fix = (b: Battle, id: string, patch: Partial<Unit>) =>
-    edit(b, (c) => Object.assign(unitById(c, id)!, patch));
+describe("패시브 (2026-11-22 개편)", () => {
+  /** 직업·패시브를 지정한 바른 */
+  const P = (job: string, passives: string[], id = varn.id): Merc => ({ ...varn, id, job, passives });
+  const factors = (b: Battle, from: string, to: string, opts: Parameters<typeof strikeFactors>[3] = {}) => strikeFactors(b, unitById(b, from)!, unitById(b, to)!, opts);
 
-  /** 시드를 바꿔 가며 치명타가 아닌 첫 공격 피해를 찾는다 */
-  function plainHit(make: (seed: number) => Battle, actor = "p1"): number {
-    for (let seed = 1; seed < 200; seed++) {
-      const hit = hitsBy(make(seed), actor).find((h) => !h.crit);
-      if (hit) return hit.damage;
-    }
-    throw new Error("치명타가 아닌 공격이 없다");
-  }
-  /** 용병 p1이 공격력 5로 e0를 한 번 때린 피해 */
-  const myHit = (
-    passives: string[],
-    enemies: Unit[] = [dummy("e0", 999)],
-    patch: Partial<Unit> = {},
-    depth = 1,
-    extra: Merc[] = [],
-  ) =>
-    plainHit((seed) =>
-      act(
-        fix(start([P(passives), ...extra], seed, enemies, depth), "p1", {
-          attack: [6, 6],
-          ...patch,
-        }),
-        {
-          type: "attack",
-          target: "e0",
-        },
-      ),
-    );
-  /** 적 e0(공격력 4)이 p1을 때린 피해 */
-  const enemyHit = (passives: string[], patch: Partial<Unit> = {}, atk = 4) =>
-    plainHit(
-      (seed) =>
-        act(
-          fix(
-            start([P(passives)], seed, [dummy("e0", 999, { attack: [atk, atk] })]),
-            "p1",
-            patch,
-          ),
-          { type: "attack", target: "e0" },
-        ),
-      "e0",
-    );
-
-  it("패시브가 없으면 공격력 5는 5 피해", () => {
-    expect(myHit([])).toBe(5);
-    expect(enemyHit([])).toBe(4);
+  it("오러률: 실제 감소 = 대상 감소 × (1 - 오러) × (1 - 방어 무시). 100 피해, 오러 80%, 감소 30% → 94", () => {
+    const f = { bonus: 0, multiplier: 1, critChance: 0, critDamage: 0, evadeChance: 0, crack: 0, guard: false, reduce: 0.3, pierce: 0, aura: 0.8, taken: 1 };
+    expect(strikeAmount(100, f, false)).toBe(94);
+    // 방어 무시와 함께: 0.3 × 0.2 × 0.5 = 3%
+    expect(strikeAmount(100, { ...f, pierce: 0.5 }, false)).toBe(97);
+    // 오러 숙련(인간 기사 금 A): 오러률 +20%
+    const b = start([P("knight", ["knight_human_gA"])], 1, [dummy("e0", 999, { defense: 15 })]);
+    expect(factors(b, varn.id, "e0", { aura: 0.3 }).aura).toBeCloseTo(0.5);
   });
 
-  it("바위의 뿌리: 방어 +1 / 고통 망각: 잃은 체력에 비례해 방어 최대 +3 (방어 곡선)", () => {
-    expect(enemyHit(["rock_root"], {}, 20)).toBe(taken(20, 1));
-    expect(enemyHit(["pain_oblivion"], { hp: 32 }, 20)).toBe(20);
-    expect(enemyHit(["pain_oblivion"], { hp: 2 }, 20)).toBe(taken(20, 3));
+  it("직업 패시브: 단련된 몸(받는 피해 -5%), 거리 감각(첫 라운드 치명 +10%), 무게 실린 일격(대기 2 이상 +10%), 급소 감각(50% 이하 적 치명 +10%)", () => {
+    const monk = start([P("monk", ["monk_job"])], 1, [dummy("e0", 999)]);
+    expect(factors(monk, "e0", varn.id).taken).toBeCloseTo(0.95);
+    const archer = start([P("archer", ["archer_job"])], 1, [dummy("e0", 999)]);
+    const plain = start([P("archer", [])], 1, [dummy("e0", 999)]);
+    expect(factors(archer, varn.id, "e0").critChance - factors(plain, varn.id, "e0").critChance).toBeCloseTo(0.1);
+    expect(factors({ ...archer, round: 2 }, varn.id, "e0").critChance).toBeCloseTo(factors(plain, varn.id, "e0").critChance);
+    const gs = start([P("greatsword", ["greatsword_job"])], 1, [dummy("e0", 999)]);
+    expect(factors(gs, varn.id, "e0", { skillWait: 2 }).multiplier).toBeCloseTo(1.1);
+    expect(factors(gs, varn.id, "e0", { skillWait: 1 }).multiplier).toBeCloseTo(1);
+    const as = fix2(start([P("assassin", ["assassin_job"])], 1, [dummy("e0", 100)]), "e0", { hp: 40 });
+    expect(factors(as, varn.id, "e0").critChance - factors(start([P("assassin", [])], 1, [dummy("e0", 100)]), varn.id, "e0").critChance).toBeCloseTo(0.1);
   });
 
-  it("피의 갈증·무쌍의 투혼·깊은 곳의 피·추격 본능·결속", () => {
-    expect(myHit(["blood_thirst"], undefined, { hp: 1 })).toBe(5 + 5);
-    expect(
-      myHit(
-        ["peerless_spirit"],
-        [dummy("e0", 999), dummy("e1", 999), dummy("e2", 999)],
-      ),
-    ).toBe(5 + 3);
-    const walkedHit = (walked: number) =>
-      plainHit((seed) => {
-        const units = [
-          {
-            ...mercUnit(P(["deep_blood"])),
-            attack: [6, 6] as const,
-            defense: 0,
-            speed: 100,
-          },
-          dummy("e0", 999),
-        ];
-        const b = startBattleFrom(units, seed, {
-          depth: 1,
-          supplies: START_SUPPLIES,
-          walked,
-          enemies: [],
-        });
-        return act(b, { type: "attack", target: "e0" });
+  it("기사도: 바로 옆 아군이 받는 피해 -5%", () => {
+    const b = start([P("priest", [], "a"), P("knight", ["knight_job"], "k"), P("mage", [], "c")], 1, [dummy("e0", 999)]);
+    expect(factors(b, "e0", "a").taken).toBeCloseTo(0.95);
+    expect(factors(b, "e0", "k").taken).toBeCloseTo(1);
+  });
+
+  it("치명·회피 %는 곡선 없이 그대로, 최대 체력 %, 전투 시작 보호막", () => {
+    const u = mercUnit(P("knight", ["knight_elf_sB"]));
+    expect(u.critBonus).toBeCloseTo(0.1);
+    const tough = mercUnit({ ...P("guardian", ["guardian_barbarian_sA"]), level: "silver" });
+    expect(tough.maxHp).toBe(Math.round(38 * 1.1));
+    const b = start([P("knight", ["knight_dwarf_sA"])], 1, [dummy("e0", 999)]);
+    const v = unitById(b, varn.id)!;
+    expect(v.shield).toBe(Math.round(v.maxHp * 0.1));
+  });
+
+  it("기사의 의지: 체력이 처음 30% 아래로 떨어지면 2턴 받는 피해 -10% (한 번)", () => {
+    let b = edit(start([P("knight", ["knight_human_sA"])], 1, [dummy("e0", 999, { attack: [5, 5] })]), (c) => {
+      unitById(c, varn.id)!.hp = 12;
+    });
+    b = act(b, { type: "wait" });
+    expect(statusValue(unitById(b, varn.id)!, "toughen")).toBeCloseTo(0.1);
+    expect(unitById(b, varn.id)!.fx?.lastStandDone).toBe(true);
+  });
+
+  it("피에 굶주림: 적을 쓰러뜨리면 최대 체력 5% 회복", () => {
+    let b = edit(start([P("greatsword", ["greatsword_beastfolk_sA"])], 1, [dummy("e0", 1), dummy("e1", 999)]), (c) => {
+      unitById(c, varn.id)!.hp = 10;
+    });
+    b = act(b, { type: "attack", target: "e0" });
+    const v = unitById(b, varn.id)!;
+    expect(b.log.some((e) => e.type === "heal" && e.target === varn.id)).toBe(true);
+    expect(v.hp).toBeGreaterThan(10);
+  });
+
+  it("불굴의 깃발: 가디언이 서 있는 동안 아군 기절 저항 +10%", () => {
+    const b = start([P("guardian", ["guardian_human_sA"], "g"), P("mage", [], "m")], 1, [dummy("e0", 999)]);
+    expect(resistOf(unitById(b, "m")!, "stun")).toBeCloseTo(0.1);
+  });
+
+  it("노래: 울림(직업)·대륙의 노래(효과 +10%, 지속 +1턴), 격려(받은 아군 기절 저항 +10%)", () => {
+    const song: Skill = { id: "courage", name: "용기의 노래", cooldown: 1, target: "none", description: "", effects: [{ kind: "applyStatus", status: "evadeUp", value: 0.1, turns: 2, who: "allies" }] };
+    const cast = (passives: string[]) => {
+      let b = edit(start([P("minstrel", passives)], 1, [dummy("e0", 999)]), (c) => {
+        const v = unitById(c, varn.id)!;
+        v.skills = ["courage"];
+        v.book = { courage: song };
       });
-    expect(walkedHit(0)).toBe(5);
-    expect(walkedHit(5)).toBe(5 + 2);
-    expect(walkedHit(20)).toBe(5 + 3);
-    expect(myHit(["chase_instinct"], [dummy("e0", 999, { hp: 10 })])).toBe(
-      5 + 3,
-    );
-    const others = [kass, elke, { ...varn, id: "v4" }];
-    expect(myHit(["solidarity"], undefined, {}, 1, others)).toBe(5 + 1);
-    expect(myHit(["solidarity"], undefined, {}, 1, others.slice(0, 2))).toBe(5);
-  });
-
-  it("선제 일격: 첫 공격만 1.5배", () => {
-    // 평타 0.8배: 8 → 6
-    let b = fix(start([P(["first_strike"])], 4, [dummy("e0", 999)]), "p1", {
-      attack: [8, 8],
-    });
-    b = act(b, { type: "attack", target: "e0" });
-    b = act(b, { type: "attack", target: "e0" });
-    const [first, second] = hitsBy(b, "p1");
-    if (!first.crit) expect(first.damage).toBe(9);
-    if (!second.crit) expect(second.damage).toBe(6);
-    expect(
-      b.log.filter((e) => e.type === "passive" && e.passive === "first_strike"),
-    ).toHaveLength(1);
-  });
-
-  it("사냥꾼의 집념: 같은 적을 연속으로 때리면 +1씩 (최대 +3), 대상을 바꾸면 초기화", () => {
-    let b = fix(
-      start([P(["hunters_focus"])], 2, [dummy("e0", 999), dummy("e1", 999)]),
-      "p1",
-      { attack: [6, 6] },
-    );
-    for (const t of ["e0", "e0", "e0", "e0", "e0", "e1"])
-      b = act(b, { type: "attack", target: t });
-    const plain = hitsBy(b, "p1").map((h) => (h.crit ? null : h.damage));
-    expect(plain).toEqual(
-      [5, 6, 7, 8, 8, 5].map((d, i) => (plain[i] === null ? null : d)),
-    );
-  });
-
-  it("예리한 눈: 치명타 확률이 오른다", () => {
-    const rate = (passives: string[]) => {
-      let crits = 0;
-      for (let seed = 0; seed < 1500; seed++) {
-        const b = act(start([P(passives)], seed, [dummy("e0", 999)]), {
-          type: "attack",
-          target: "e0",
-        });
-        if (hitsBy(b, "p1")[0].crit) crits++;
-      }
-      return crits / 1500;
+      b = act(b, { type: "skill", skill: "courage" });
+      return unitById(b, varn.id)!;
     };
-    expect(rate(["keen_eye"]) - rate([])).toBeGreaterThan(0.04);
+    const plain = cast([]);
+    const strong = cast(["minstrel_job", "minstrel_human_gA", "minstrel_human_sB"]);
+    expect(statusValue(strong, "evadeUp")).toBeCloseTo(Math.round(0.1 * 1.15 * 100) / 100);
+    expect(strong.statuses.find((x) => x.kind === "evadeUp")!.turns).toBe(plain.statuses.find((x) => x.kind === "evadeUp")!.turns + 1);
+    expect(statusValue(strong, "stunResUp")).toBeCloseTo(0.1);
   });
 
-  it("강철 심장: 출혈에 걸릴 확률 절반 / 임기응변: 쌓이는 양 -1", () => {
-    const bleedRate = (passives: string[]) => {
-      let n = 0;
-      for (let seed = 0; seed < 600; seed++) {
-        const b = act(
-          start([P(passives)], seed, [
-            dummy("e0", 999, { onHit: { status: "bleed", chance: 1 } }),
-          ]),
-          { type: "attack", target: "e0" },
-        );
-        if (
-          b.log.some(
-            (e) =>
-              e.type === "status" && e.target === "p1" && e.kind === "bleed",
-          )
-        )
-          n++;
-      }
-      return n / 600;
-    };
-    expect(bleedRate([])).toBe(1);
-    expect(bleedRate(["steel_heart"])).toBeGreaterThan(0.35);
-    expect(bleedRate(["steel_heart"])).toBeLessThan(0.65);
-
-    const b = act(
-      start([P(["improvise"])], 1, [
-        dummy("e0", 999, { onHit: { status: "bleed", chance: 1 } }),
-      ]),
-      { type: "attack", target: "e0" },
-    );
-    // 쌓일 때 1 줄어든다 (4 → 3). 차례가 끝나며 한 번 피해를 입었으면 절반
-    const left = unitById(b, "p1")!.statuses.find((s) => s.kind === "bleed")?.value;
-    const hit = b.log.some((e) => e.type === "tick" && e.target === "p1");
-    expect(left).toBe(hit ? 1 : 3);
-  });
-
-  it("적응: 같은 적에게 맞을수록 그 적을 상대로 방어 + (최대 +2)", () => {
-    let b = start([P(["adapt"])], 3, [dummy("e0", 999, { attack: [30, 30] })]);
-    b = edit(b, (c) => {
-      unitById(c, "p1")!.hp = 999;
-      unitById(c, "p1")!.maxHp = 999;
+  it("여운: 노래 강화가 끝날 때 그 노래를 받은 아군이 최대 체력 5% 회복 (부를 때가 아니라)", () => {
+    const song: Skill = { id: "courage", name: "용기의 노래", cooldown: 9, target: "none", description: "", effects: [{ kind: "applyStatus", status: "attackUp", value: 2, turns: 1, who: "allies" }] };
+    let b = edit(start([P("minstrel", ["minstrel_elf_sB"])], 1, [dummy("e0", 999)]), (c) => {
+      const v = unitById(c, varn.id)!;
+      v.skills = ["courage"];
+      v.book = { courage: song };
+      v.hp = 10;
     });
-    for (let i = 0; i < 5; i++) b = act(b, { type: "attack", target: "e0" });
-    const plain = hitsBy(b, "e0")
-      .filter((h) => !h.crit)
-      .map((h) => h.damage);
-    expect(plain[0]).toBe(30);
-    expect(Math.min(...plain)).toBe(taken(30, 2));
+    b = act(b, { type: "skill", skill: "courage" });
+    const healsAtCast = b.log.filter((e) => e.type === "heal" && e.target === varn.id).length;
+    expect(unitById(b, varn.id)!.statuses.find((x) => x.kind === "attackUp")?.endHeal).toBe(0.05);
+    for (let i = 0; i < 4 && hasStatus(unitById(b, varn.id)!, "attackUp"); i++) b = act(b, { type: "wait" });
+    expect(hasStatus(unitById(b, varn.id)!, "attackUp")).toBe(false);
+    expect(b.log.filter((e) => e.type === "heal" && e.target === varn.id).length).toBe(healsAtCast + 1);
   });
 
-  it("흥이 오른다: 세 번 맞으면 다음 공격 2배", () => {
-    let b = fix(
-      start([P(["rising_cheer"])], 5, [dummy("e0", 999, { attack: [1, 1] })]),
-      "p1",
-      { attack: [6, 6] },
-    );
-    for (let i = 0; i < 5; i++) b = act(b, { type: "attack", target: "e0" });
-    expect(
-      b.log.some((e) => e.type === "passive" && e.passive === "rising_cheer"),
-    ).toBe(true);
-    const idx = b.log.findIndex(
-      (e) => e.type === "passive" && e.passive === "rising_cheer",
-    );
-    const boosted = b.log
-      .slice(idx)
-      .find((e): e is AttackEvent => e.type === "attack" && e.actor === "p1")!;
-    expect(boosted.damage).toBe(boosted.crit ? 15 : 10);
-  });
-
-  it("사선 돌파: 체력 25% 이하로 떨어지면 한 번 각성해 공격 +4", () => {
-    let b = fix(
-      start([P(["last_stand"])], 1, [dummy("e0", 999, { attack: [2, 2] })]),
-      "p1",
-      { hp: 9, attack: [6, 6] },
-    );
-    b = act(b, { type: "attack", target: "e0" }); // 적에게 맞아 7 → 각성
-    expect(hasStatus(unitById(b, "p1")!, "awaken")).toBe(true);
-    b = act(b, { type: "attack", target: "e0" });
-    const second = hitsBy(b, "p1")[1];
-    expect(second.damage).toBe(second.crit ? 14 : 9);
-    expect(
-      b.log.filter((e) => e.type === "passive" && e.passive === "last_stand"),
-    ).toHaveLength(1);
-  });
-
-  it("포효: 전투 시작 시 적이 위축돼 공격력 -2", () => {
-    const b = start([P(["war_cry"])], 1, [
-      dummy("e0", 999, { attack: [4, 4] }),
-    ]);
-    expect(hasStatus(unitById(b, "e0")!, "weaken")).toBe(true);
-    expect(enemyHit(["war_cry"])).toBe(2);
-  });
-
-  it("장인의 눈썰미: 가끔 균열을 걸고, 균열 난 적은 피해 +2", () => {
-    let cracked = 0;
-    for (let seed = 0; seed < 500; seed++) {
-      const b = act(start([P(["crafters_eye"])], seed, [dummy("e0", 999)]), {
-        type: "attack",
-        target: "e0",
-      });
-      if (b.log.some((e) => e.type === "status" && e.kind === "crack"))
-        cracked++;
-    }
-    expect(cracked / 500).toBeGreaterThan(0.12);
-    expect(cracked / 500).toBeLessThan(0.28);
-    expect(
-      myHit(
-        [],
-        [dummy("e0", 999, { statuses: [{ kind: "crack", turns: 2 }] })],
-      ),
-    ).toBe(7);
-  });
-
-  it("손발이 맞는다: 길안내자가 건넨 물약이 1.5배", () => {
-    let b = fix(start([P(["in_sync"])], 1, [dummy("e0", 999)]), "p1", {
-      hp: 5,
-    });
-    b = act(b, { type: "guide", item: "potion", target: "p1" });
-    expect(b.log).toContainEqual({
-      type: "heal",
-      target: "p1",
-      amount: 18,
-      by: "guide",
-    });
-  });
-
-  it("야생의 회복력: 라운드 시작마다 체력 1 회복", () => {
-    let b = fix(start([P(["wild_recovery"])], 1, [dummy("e0", 999)]), "p1", {
-      hp: 10,
-    });
-    b = act(b, { type: "attack", target: "e0" });
-    expect(b.log).toContainEqual({
-      type: "heal",
-      target: "p1",
-      amount: 1,
-      by: "p1",
-    });
-  });
-
-  it("깃털의 발걸음: 가끔 피한다 / 바람의 춤: 피하면 다음 공격 +3 / 야수의 반사신경: 피하면 반격", () => {
-    let evades = 0;
-    let danced = false;
-    let countered = false;
-    for (let seed = 0; seed < 400; seed++) {
-      let b = fix(
-        start([P(["feather_step", "wind_dance", "beast_reflex"])], seed, [
-          dummy("e0", 999),
-        ]),
-        "p1",
-        { attack: [6, 6] },
-      );
-      b = act(b, { type: "attack", target: "e0" });
-      const evaded = b.log.some((e) => e.type === "evade");
-      if (!evaded) continue;
-      evades++;
-      if (
-        b.log.some((e) => e.type === "passive" && e.passive === "beast_reflex")
-      )
-        countered = true;
-      b = act(b, { type: "attack", target: "e0" });
-      const next = hitsBy(b, "p1").at(-1)!;
-      if (!next.crit && next.damage === 8) danced = true;
-    }
-    expect(evades / 400).toBeGreaterThan(0.1);
-    expect(evades / 400).toBeLessThan(0.26);
-    expect(danced).toBe(true);
-    expect(countered).toBe(true);
-  });
-
-  it("전사의 긍지: 체력 30% 이하 아군 대신 공격을 맞는다", () => {
-    // 적이 위태로운 아군을 고른 라운드에만 발동한다. 여러 라운드 동안 약한 아군은 한 번도 맞지 않는다
-    let b = start([P([], "weak"), P(["warrior_pride"], "barb")], 1, [
-      dummy("e0", 999, { attack: [1, 1] }),
-    ]);
-    b = fix(b, "weak", { hp: 5 });
-    for (let i = 0; i < 16; i++) b = act(b, { type: "attack", target: "e0" });
-    expect(b.log).toContainEqual({
-      type: "passive",
-      unit: "barb",
-      passive: "warrior_pride",
-      target: "weak",
-    });
-    expect(hitsBy(b, "e0").some((h) => h.target === "weak")).toBe(false);
-  });
-
-  it("숨통 끊기: 적을 쓰러뜨리면 라운드당 한 번 바로 다시 행동", () => {
-    let b = fix(
-      start([P(["finishing_bite"]), P([], "p2")], 1, [
-        dummy("e0", 1),
-        dummy("e1", 1),
-        dummy("e2", 999),
-      ]),
-      "p1",
-      { attack: [6, 6] },
-    );
-    b = act(b, { type: "attack", target: "e0" });
-    expect(currentActor(b)!.id).toBe("p1");
-    b = act(b, { type: "attack", target: "e1" }); // 같은 라운드 두 번째 처치는 추가 행동 없음
-    expect(currentActor(b)!.id).toBe("p2");
-  });
-
-  it("바람 정령의 가호: 속도 +3, 같은 직업이면 대개 먼저 행동한다", () => {
-    let first = 0;
-    for (let seed = 0; seed < 300; seed++) {
-      const b = startBattle(
-        [P([], "slow"), P(["wind_blessing"], "fast")],
-        seed,
-        [dummy("e0", 999)],
-      );
-      if (b.order.indexOf("fast") < b.order.indexOf("slow")) first++;
-    }
-    expect(first / 300).toBeGreaterThan(0.75);
-  });
-
-  it("기도는 출혈·중독만 씻고 각성 같은 강화는 남긴다", () => {
-    let b = start([{ ...elke, job: "priest" }], 1, [dummy("e0", 999)]);
-    b = edit(b, (c) => {
-      unitById(c, elke.id)!.statuses = [
-        { kind: "bleed", turns: 2 },
-        { kind: "awaken", turns: 2 },
-      ];
-    });
-    b = act(b, { type: "skill", target: elke.id });
-    expect(unitById(b, elke.id)!.statuses.map((s) => s.kind)).toEqual([
-      "awaken",
-    ]);
+  it("상대 조건 피해: 독의 왕(중독된 적 +15%), 거인 사냥(정예·보스 +20%)", () => {
+    const b = edit(start([P("assassin", ["assassin_human_gB"])], 1, [dummy("e0", 999)]), (c) => unitById(c, "e0")!.statuses.push({ kind: "poison", turns: 1, value: 2 }));
+    expect(factors(b, varn.id, "e0").multiplier).toBeCloseTo(1.15);
+    const g = start([P("greatsword", ["greatsword_barbarian_gA"])], 1, [dummy("e0", 999, { rank: "dungeonBoss" })]);
+    expect(factors(g, varn.id, "e0").multiplier).toBeCloseTo(1.2);
   });
 });
 
@@ -1371,7 +1101,7 @@ describe("호감 단계", () => {
     ).toBe(5);
   });
 
-  it("호의 이상: 건네받은 물약 +25%, 손발이 맞는다와 겹친다", () => {
+  it("호의 이상: 건네받은 물약 +25%", () => {
     const potion = (bond: Unit["bond"], passives: string[] = []) => {
       const b = act(withBond(bond, { hp: 1, passives }), {
         type: "guide",
@@ -1384,7 +1114,6 @@ describe("호감 단계", () => {
     expect(potion("neutral")).toBe(12);
     expect(potion("warm")).toBe(15);
     expect(potion("trusted")).toBe(15);
-    expect(potion("warm", ["in_sync"])).toBe(23);
   });
 
   it("적대: 가끔(약 10%) 명령을 무시하고 아무 적이나 공격한다", () => {
@@ -1496,18 +1225,20 @@ describe("조각 스킬 (엔진 1단계)", () => {
     expect([p.min, p.max]).toEqual([8 + 7, 12 + 7]);
   });
 
-  it("고정 피해와 방어 무시: 오러 블레이드(방어 20% 무시) + 오러 Lv3(고정 +5)", () => {
+  it("오러률: 오러 블레이드(오러 30%) + 오러 Lv3(+20%) = 50%, 기본 공격은 방어를 다 받는다", () => {
     const merc = { job: "knight", race: "human", skills: [build("knight_human_main", "knight_human_sub")], subLevels: { knight_human_sub: 3 } };
     const armored = dummy("e0", 999, { defense: 10 });
     const b = one(merc, [armored]);
     const id = unitById(b, varn.id)!.skills[0];
+    expect(skillDef(unitById(b, varn.id)!, id)!.effects[0]).toMatchObject({ aura: 0.5 });
     const p = previewAction(b, { type: "skill", skill: id, target: "e0" })!.damage[0];
-    // (6~9 + 5) × (1 - 받는 피해 감소(방어 10) × (1 - 0.2))
+    // (6~9) × (1 - 받는 피해 감소(방어 10) × (1 - 0.5)), 고정 피해는 없다
     const red = curveBonus("defense", 10);
-    expect([p.min, p.max]).toEqual([Math.round(11 * (1 - red * 0.8)), Math.round(14 * (1 - red * 0.8))]);
+    expect([p.min, p.max]).toEqual([Math.round(6 * (1 - red * 0.5)), Math.round(9 * (1 - red * 0.5))]);
     const plain = previewAction(b, { type: "attack", target: "e0" })!.damage[0];
-    expect(plain.min).toBe(Math.round(5 * (1 - red))); // 기본 공격(6 × 0.8 = 5)은 방어를 다 받는다
+    expect(plain.min).toBe(Math.round(5 * (1 - red)));
   });
+
 
   it("다회 타격: 연격을 낀 검격은 두 번 친다", () => {
     let b = one({ job: "knight", skills: [build("knight_slash", "knight_combo")] }, [dummy("e0", 999)]);
@@ -2133,13 +1864,27 @@ describe("장신구 효과 (2026-11-22 개편)", () => {
     expect(varnOf(act(down, { type: "guide", item: "potion", target: varn.id })).hp).toBe(Math.round(POTION_HEAL * 1.6) + 10);
   });
 
-  it("반사 피해 +: 가시 상태에서 되돌리는 피해에 더한다", () => {
+  it("반사 피해 +%: 가시 상태의 반사 비율에 더한다 (가시 방패테 3단계 15%)", () => {
     const run = (gear: Unit["gear"]) => {
-      let b = edit(geared(gear, [dummy("e0", 999, { attack: [10, 10] })]), (c) => varnOf(c).statuses.push({ kind: "thorns", turns: 2, value: 0.3 }));
+      let b = edit(geared(gear, [dummy("e0", 999, { attack: [40, 40] })]), (c) => {
+        varnOf(c).statuses.push({ kind: "thorns", turns: 2, value: 0.3 });
+        varnOf(c).hp = 999;
+        varnOf(c).maxHp = 999;
+        varnOf(c).defense = 0;
+      });
       b = act(b, { type: "wait" });
-      return 999 - unitById(b, "e0")!.hp;
+      const taken = 999 - varnOf(b).hp;
+      return { back: 999 - unitById(b, "e0")!.hp, taken };
     };
-    expect(run({ thornsFlat: 4 }) - run({})).toBe(4);
+    const plain = run({});
+    const rim = run({ thornsPct: 0.15 });
+    expect(plain.back).toBe(Math.round(plain.taken * 0.3));
+    expect(rim.back).toBe(Math.round(rim.taken * 0.45));
+  });
+
+  it("균열: 받는 피해 +10% (고정 피해가 아니다)", () => {
+    const b = edit(geared({}), (c) => unitById(c, "e0")!.statuses.push({ kind: "crack", turns: 2, value: 0.1 }));
+    expect(strikeFactors(b, varnOf(b), unitById(b, "e0")!).taken).toBeCloseTo(1.1);
   });
 
   it("결투 상대에게 방어 + (서약의 망토)", () => {

@@ -8,7 +8,7 @@ import { RANK_ORDER } from "./ranks";
 
 /**
  * 장신구 효과 (낀 장신구들의 효과는 더한다). 확률·비율은 0~1.
- * 정수: attack 공격, maxHp 최대 체력, defense 방어 포인트(체감 곡선), speed 속도, mag 마력, thornsFlat 반사 피해 +,
+ * 정수: attack 공격, maxHp 최대 체력, defense 방어 포인트(체감 곡선), speed 속도, mag 마력, 
  * duelReduce 결투 상대에게 방어 포인트 추가, poisonStack 거는 중독 +, debuffTurns 거는 약화 지속 +,
  * downedTurns 쓰러져 버티는 차례 +, lastBreath 원정당 버팀 횟수, potionReviveFlat 쓰러진 채 받은 물약 회복 +
  */
@@ -43,7 +43,8 @@ export type TrinketBonus = {
   elementPower?: number;
   /** 반격(반격 태세·되받아치기 등) 위력 + */
   counterPower?: number;
-  thornsFlat?: number;
+  /** 가시(반사) 비율 + */
+  thornsPct?: number;
   /** 감싸기로 대신 맞을 때 받는 피해 - */
   coverTaken?: number;
   duelReduce?: number;
@@ -125,7 +126,7 @@ export const SURVIVAL_LIMIT = 1;
 export const LEVEL_SHARE = [0, 1 / 3, 2 / 3, 1] as const;
 
 /** 정수로 다루는 효과 (나머지는 비율이라 1% 단위로 반올림) */
-const INT_KEYS = new Set<keyof TrinketBonus>(["attack", "maxHp", "defense", "speed", "mag", "thornsFlat", "duelReduce", "poisonStack", "debuffTurns", "downedTurns", "lastBreath", "potionReviveFlat"]);
+const INT_KEYS = new Set<keyof TrinketBonus>(["attack", "maxHp", "defense", "speed", "mag", "duelReduce", "poisonStack", "debuffTurns", "downedTurns", "lastBreath", "potionReviveFlat"]);
 
 /** 3단계 효과를 lv단계 값으로 */
 export function scaleBonus(full: TrinketBonus, lv: number): TrinketBonus {
@@ -178,7 +179,7 @@ const BONUS_TEXT: { [K in keyof Required<TrinketBonus>]: (v: number) => string }
   holyPower: (v) => `신성 피해 +${pct(v)}`,
   elementPower: (v) => `원소 스킬 위력 +${pct(v)}`,
   counterPower: (v) => `반격 위력 +${pct(v)}`,
-  thornsFlat: (v) => `반사 피해 +${v}`,
+  thornsPct: (v) => `반사 피해 +${pct(v)}`,
   coverTaken: (v) => `대신 맞을 때 받는 피해 -${pct(v)}`,
   duelReduce: (v) => `결투 상대에게 방어 +${v}`,
   poisonStack: (v) => `거는 중독 +${v}`,
@@ -252,7 +253,7 @@ export const TRINKETS: Trinket[] = [
   // ── 가디언 ──
   job("t_rampart_stud", "성벽의 징", "guardian", "rampart", { defense: 3 }, [m("crude_iron", 3)], "방패 가장자리에 박은 굵은 징. 웬만한 칼날은 미끄러진다."),
   job("t_guard_chain", "수호자의 쇠사슬", "guardian", "rampart", { coverTaken: 0.15 }, [m("spider_silk", 3)], "동료와 방패를 잇는 가는 사슬. 대신 맞을 때 충격을 나눠 받는다."),
-  job("t_thorn_rim", "가시 방패테", "guardian", "avenger", { thornsFlat: 4 }, [m("mat_fang", 3)], "송곳니를 촘촘히 박은 방패테. 방패를 치는 자가 먼저 피를 본다."),
+  job("t_thorn_rim", "가시 방패테", "guardian", "avenger", { thornsPct: 0.15 }, [m("mat_fang", 3)], "송곳니를 촘촘히 박은 방패테. 방패를 치는 자가 먼저 피를 본다."),
   job("t_vengeance_crest", "복수의 문장", "guardian", "avenger", { counterPower: 0.2, maxHp: 9 }, [m("orc_tusk", 1)], "맞은 만큼 돌려주라는 문장. 방패 안쪽에 새겨 둔다."),
   // ── 대검사 ──
   job("t_heavy_sheath", "무거운 칼집", "greatsword", "crusher", { singlePower: 0.12 }, [m("mat_mace", 2)], "철퇴 조각을 녹여 두른 칼집. 뽑아 내리칠 때 무게가 실린다."),

@@ -20,7 +20,7 @@ import {
   RANK_DOT,
   isDot,
   type DotKind,
-  PASSIVE,
+  HASTE_SPEED,
   JOB_STATS,
   POTION_HEAL,
   POTION_POWER,
@@ -46,11 +46,13 @@ import { createRng, rollInt, type Rng } from "@/game/random";
 import { basicBuild, getSkill, resolveSkill, skillKey, validateUltimate } from "@/game/skills";
 import type { Merc } from "@/game/types";
 import type { TrinketBonus } from "@/data/trinkets";
+import { getPassive, mergeFx, type PassiveCond, type PassiveFx } from "@/data/passives";
 
 export type Side = "merc" | "enemy";
 /** value: 수치 (공격 -2, 회피 +15% 등). 없으면 STATUS의 기본값 */
 /** source: 이 상태를 건 유닛 (결투 상대) */
-export type Status = { kind: StatusKind; turns: number; value?: number; source?: string };
+/** endHeal: 이 상태가 끝날 때 최대 체력의 이 비율만큼 회복 (여운: 노래가 끝날 때) */
+export type Status = { kind: StatusKind; turns: number; value?: number; source?: string; endHeal?: number };
 
 export type Unit = {
   id: string;
@@ -79,6 +81,8 @@ export type Unit = {
   resist?: { poison?: number; bleed?: number; stun?: number };
   /** 용병만: 낀 장신구 효과 합 (data/trinkets.ts) */
   gear?: TrinketBonus;
+  /** 용병만: 패시브 효과 합 (data/passives.ts). 장신구와 겹치는 숫자 효과는 gear에 더해 둔다 */
+  pfx?: PassiveFx;
   /** 용병만: 마지막 숨결 펜던트 남은 횟수 (원정 동안 이어진다) */
   breath?: number;
   /** 적만: 출혈·중독을 걸 때 쌓이는 양 (없으면 등급 기본값) */
@@ -128,27 +132,20 @@ export type PassiveState = {
   age?: number;
   splitStage?: number;
   summoned?: number;
-  /** 흥이 오른다: 맞은 횟수 */
-  cheer?: number;
-  /** 사냥꾼의 집념: 마지막으로 때린 적과 연속 횟수 */
-  focus?: { target: string; stacks: number };
-  /** 선제 일격을 이미 썼나 */
-  firstDone?: boolean;
-  /** 사선 돌파를 이미 썼나 */
+  /** 패시브: 기사의 의지를 이미 썼나, 처음 받는 공격을 받았나, 상처의 대가로 쌓인 피해, 그림자 발톱 대기, 피의 맹세가 이어지는 라운드 */
   lastStandDone?: boolean;
-  /** 바람의 춤: 다음 공격 강화 대기 */
-  dance?: boolean;
-  /** 적응: 적 id별로 맞은 횟수 */
-  adapt?: Record<string, number>;
+  hitOnce?: boolean;
+  wound?: number;
+  evadeStrike?: boolean;
+  avengeUntil?: number;
+  /** 불굴의 깃발: 아군에게서 받는 기절 저항 */
+  allyStunRes?: number;
   /** 이번 전투에서 궁극기를 썼나 */
   ultimateUsed?: boolean;
   /** 기절에 걸린 횟수 (걸릴 때마다 기절 저항이 쌓인다) */
   stunCount?: number;
   /** 지난 자기 차례 뒤로 불 피해를 받았다 (재생이 막힌다) */
   scorched?: boolean;
-  /** 숨통 끊기·전사의 긍지를 마지막으로 쓴 라운드 */
-  biteRound?: number;
-  prideRound?: number;
   /** 장신구: 버팀 팔찌를 이번 전투에 썼나, 이번 전투에 마지막 숨결을 쓴 횟수 */
   braceUsed?: boolean;
   breathUsed?: number;
@@ -337,7 +334,7 @@ export function validate(b: Battle, action: BattleAction): string | null {
 
 /** 길안내자가 건넨 물약의 효과 배율 (손발이 맞는다, 호의·신뢰) */
 export function potionMultiplier(u: Unit): number {
-  return (has(u, "in_sync") ? PASSIVE.inSyncMultiplier : 1) * (u.bond === "warm" || u.bond === "trusted" ? BOND.supplyMultiplier : 1);
+  return u.bond === "warm" || u.bond === "trusted" ? BOND.supplyMultiplier : 1;
 }
 
 /** 이 전투에서 길안내자에게 물자를 받은 횟수 (용병 id별) */
@@ -394,13 +391,21 @@ export function neighbors(b: Battle, unit: Unit): Unit[] {
   return [side[i - 1], side[i + 1]].filter((u): u is Unit => !!u && u.hp > 0);
 }
 
+/** 장신구와 패시브가 같은 뜻으로 쓰는 숫자 효과 (mercUnit에서 gear에 더한다) */
+const SHARED_FX = ["lifesteal", "critDamage", "singlePower", "areaPower", "holyPower", "elementPower", "counterPower", "stunChance", "bleedChance", "poisonStack", "debuffTurns", "healPower", "reviveHeal"] as const;
+
 export function mercUnit(merc: Merc): Unit {
   const stats = (merc.job && JOB_STATS[merc.job]) || DEFAULT_STATS;
   // 성장 스탯 (레벨업·단련장)
   const g = (k: StatKey) => (merc.stats?.[k] ?? 0) * PER_POINT[k];
+  // 패시브 (data/passives.ts): 장신구와 겹치는 숫자 효과는 장신구 효과에 더한다 (엔진은 gear로 읽는다)
+  const passives = merc.passives ?? [];
+  const pfx = mergeFx(passives.flatMap((id) => (getPassive(id) ? [getPassive(id)!.effects] : [])));
   // 장신구 (data/trinkets.ts)
-  const gear = merc.gear ?? {};
-  const maxHp = stats.hp + g("hp") + (gear.maxHp ?? 0);
+  const gear: TrinketBonus = { ...(merc.gear ?? {}) };
+  for (const k of SHARED_FX) if (pfx[k]) gear[k] = Math.round(((gear[k] ?? 0) + pfx[k]!) * 1000) / 1000;
+  const maxHp = Math.round((stats.hp + g("hp") + (gear.maxHp ?? 0)) * (1 + (pfx.maxHpPct ?? 0)));
+  const stunRes = (gear.stunRes ?? 0) + (pfx.stunRes ?? 0);
   const kit = loadout(merc);
   return {
     id: merc.id,
@@ -410,14 +415,15 @@ export function mercUnit(merc: Merc): Unit {
     hp: maxHp,
     maxHp,
     attack: gear.attack ? [stats.attack[0] + gear.attack, stats.attack[1] + gear.attack] : stats.attack,
-    ...(gear.poisonRes || gear.stunRes || gear.bleedRes ? { resist: { poison: gear.poisonRes, bleed: gear.bleedRes, stun: gear.stunRes } } : {}),
+    ...(gear.poisonRes || stunRes || gear.bleedRes ? { resist: { poison: gear.poisonRes, bleed: gear.bleedRes, stun: stunRes || undefined } } : {}),
     defense: stats.defense + g("defense") + (gear.defense ?? 0),
-    speed: stats.speed + g("speed") + (gear.speed ?? 0),
+    speed: stats.speed + g("speed") + (gear.speed ?? 0) + (pfx.speed ?? 0),
     power: { str: g("str"), mag: g("mag") + (gear.mag ?? 0), faith: g("faith") },
-    // 치명·회피: 포인트는 체감 곡선, 장신구 퍼센트는 그대로 더한다 (상한은 쓸 때 자른다)
-    critBonus: curveBonus("crit", g("crit")) + (gear.crit ?? 0),
-    evadeBonus: curveBonus("evade", g("evade")) + (gear.evade ?? 0),
+    // 치명·회피: 포인트는 체감 곡선, 장신구·패시브 퍼센트는 그대로 더한다 (상한은 쓸 때 자른다)
+    critBonus: curveBonus("crit", g("crit")) + (gear.crit ?? 0) + (pfx.crit ?? 0),
+    evadeBonus: curveBonus("evade", g("evade")) + (gear.evade ?? 0) + (pfx.evade ?? 0),
     ...(Object.keys(gear).length ? { gear } : {}),
+    ...(Object.keys(pfx).length ? { pfx } : {}),
     ...(gear.lastBreath ? { breath: gear.lastBreath } : {}),
     onHit: stats.onHit,
     statuses: [],
@@ -426,7 +432,7 @@ export function mercUnit(merc: Merc): Unit {
     ultimate: kit.ultimate,
     cooldowns: {},
     guarding: false,
-    passives: merc.passives ?? [],
+    passives,
     level: merc.level,
     fx: {},
     job: merc.job,
@@ -639,11 +645,8 @@ function begin(units: Unit[], rng: Rng, depth: number, supplies: Record<SupplyKi
   };
   // 싸울 용병이 없으면 바로 끝난다
   checkOutcome(b);
-  // 포효: 전투 시작 시 적 전체 위축
-  for (const u of b.units.filter((x) => x.hp > 0 && has(x, "war_cry"))) {
-    b.log.push({ type: "passive", unit: u.id, passive: "war_cry" });
-    for (const foe of foes(b, u)) applyStatus(b, foe, "weaken");
-  }
+  // 룬 새김 갑옷 (패시브): 전투 시작 때 최대 체력 % 보호막
+  for (const u of b.units.filter((x) => x.hp > 0 && x.pfx?.battleShield)) giveShield(b, u, Math.round(u.maxHp * u.pfx!.battleShield!), u.id);
   advance(b, rng);
   b.rng = rng.state();
   return b;
@@ -662,7 +665,6 @@ export function act(battle: Battle, action: BattleAction): Battle {
   const b = structuredClone(battle);
   const rng = createRng(b.rng);
   const actor = currentActor(b)!;
-  const enemiesBefore = foes(b, actor).length;
 
   // 적대 단계: 가끔 명령을 무시하고 아무 적이나 공격한다
   if (action.type !== "guide" && action.type !== "wait" && actor.bond === "hostile" && rng.next() < BOND.disobeyChance) {
@@ -715,14 +717,7 @@ export function act(battle: Battle, action: BattleAction): Battle {
 
   if (action.type !== "guide") {
     endTurn(b, actor);
-    // 숨통 끊기: 적을 쓰러뜨리면 라운드당 한 번 즉시 다시 행동
-    const killed = foes(b, actor).length < enemiesBefore;
-    if (killed && !b.outcome && actor.hp > 0 && has(actor, "finishing_bite") && actor.fx!.biteRound !== b.round) {
-      actor.fx!.biteRound = b.round;
-      b.log.push({ type: "passive", unit: actor.id, passive: "finishing_bite" });
-    } else {
-      advance(b, rng);
-    }
+    advance(b, rng);
   }
 
   b.rng = rng.state();
@@ -742,7 +737,23 @@ function checkOutcome(b: Battle) {
   }
 }
 
+/** 용병이 쓰러졌다: 최후의 명령 (아군 1턴 받는 피해 -), 피의 맹세 (아군 2턴 반격 위력 +) */
+function onMercDown(b: Battle, fallen: Unit) {
+  const allies = living(b, fallen.side).filter((u) => u !== fallen);
+  if (fallen.pfx?.downGuard) for (const u of allies) applyStatus(b, u, "toughen", { value: Math.max(statusValue(u, "toughen"), fallen.pfx.downGuard), turns: 1 });
+  for (const u of allies)
+    if (u.pfx?.avengeCounter) {
+      u.fx ??= {};
+      u.fx.avengeUntil = b.round + 2;
+    }
+}
+
 function damage(b: Battle, target: Unit, amount: number) {
+  // 상처의 대가 (패시브): 받은 피해의 일부를 다음 공격에
+  if (target.pfx?.woundPower && amount > 0) {
+    target.fx ??= {};
+    target.fx.wound = (target.fx.wound ?? 0) + Math.round(Math.min(amount, target.hp) * target.pfx.woundPower);
+  }
   // 마지막 숨결 펜던트: 쓰러질 피해를 받으면 체력 1로 버틴다 (원정당 횟수)
   if (target.side === "merc" && !target.dead && target.hp > 0 && amount >= target.hp && (target.breath ?? 0) > 0) {
     target.breath! -= 1;
@@ -773,6 +784,7 @@ function damage(b: Battle, target: Unit, amount: number) {
         target.downedFresh = true;
         b.log.push({ type: "downed", target: target.id, turns });
       }
+      onMercDown(b, target);
     }
     // 몬스터: 쓰러지면 갈라지거나, 부리는 쪽이 다시 부른다 (승패 판정 전에)
     if (target.side === "enemy") onMonsterDown(b, target);
@@ -947,9 +959,6 @@ function downedTurn(b: Battle, u: Unit) {
   if (u.downedTurnsLeft <= 0) kill(b, u);
 }
 
-function has(u: Unit, passive: string): boolean {
-  return u.passives?.includes(passive) ?? false;
-}
 
 /** 걸려 있는 상태의 수치 (없으면 0) */
 export function statusValue(u: Unit, kind: StatusKind): number {
@@ -961,10 +970,10 @@ export function statusValue(u: Unit, kind: StatusKind): number {
  * 상태이상을 건다. 다시 걸리면 지속 시간은 새로 고치고 수치는 큰 쪽.
  * self: 자기 행동 중에 자신에게 건다 (그 행동이 끝날 때 줄지 않도록 1을 더한다)
  */
-function applyStatus(b: Battle, target: Unit, kind: StatusKind, opts: { value?: number; turns?: number; self?: boolean; source?: string } = {}) {
+function applyStatus(b: Battle, target: Unit, kind: StatusKind, opts: { value?: number; turns?: number; self?: boolean; source?: string; endHeal?: number } = {}) {
   // 출혈·중독: 수치가 쌓인다 (임기응변: 쌓이는 양 -1)
   if (isDot(kind)) {
-    const add = Math.max(1, (opts.value ?? DOT[kind].stack) - (has(target, "improvise") ? 1 : 0));
+    const add = Math.max(1, opts.value ?? DOT[kind].stack);
     const now = target.statuses.find((s) => s.kind === kind);
     if (now) now.value = (now.value ?? 0) + add;
     else target.statuses.push({ kind, turns: 1, value: add });
@@ -977,8 +986,15 @@ function applyStatus(b: Battle, target: Unit, kind: StatusKind, opts: { value?: 
     existing.turns = turns;
     if (opts.value !== undefined) existing.value = Math.max(existing.value ?? STATUS[kind].value ?? 0, opts.value);
     if (opts.source) existing.source = opts.source;
+    if (opts.endHeal) existing.endHeal = Math.max(existing.endHeal ?? 0, opts.endHeal);
   } else {
-    target.statuses.push({ kind, turns, ...(opts.value !== undefined ? { value: opts.value } : {}), ...(opts.source ? { source: opts.source } : {}) });
+    target.statuses.push({
+      kind,
+      turns,
+      ...(opts.value !== undefined ? { value: opts.value } : {}),
+      ...(opts.source ? { source: opts.source } : {}),
+      ...(opts.endHeal ? { endHeal: opts.endHeal } : {}),
+    });
   }
   b.log.push({ type: "status", target: target.id, kind });
 }
@@ -991,7 +1007,8 @@ export function resistOf(u: Unit, kind: ResistKind): number {
         (u.side === "enemy" ? (RESIST.stunBase[u.rank ?? "normal"] ?? 0) : 0) +
         (u.fx?.stunCount ?? 0) * RESIST.stunStep +
         statusValue(u, "stunResUp") +
-        (u.resist?.stun ?? 0) -
+        (u.resist?.stun ?? 0) +
+        (u.fx?.allyStunRes ?? 0) -
         statusValue(u, "shaken") -
         (u.charging ? RESIST.chargingOpen : 0)
       );
@@ -1012,25 +1029,41 @@ function isResistKind(kind: StatusKind): kind is ResistKind {
 export function statusChance(target: Unit, roll: StatusRoll): number {
   const chance = roll.chance ?? 1;
   if (roll.sure || !isResistKind(roll.status)) return chance;
-  const steel = HARMFUL.includes(roll.status) && has(target, "steel_heart") ? PASSIVE.steelHeartFactor : 1;
-  return Math.max(0, Math.min(1, chance * steel - resistOf(target, roll.status)));
+  return Math.max(0, Math.min(1, chance - resistOf(target, roll.status)));
 }
 
 /** 확률을 굴려 상태이상을 건다. 기절은 걸릴 때마다 기절 저항이 쌓인다 (확정 기절과 자기에게 건 기절은 빼고) */
-function tryStatus(b: Battle, rng: Rng, actor: Unit, target: Unit, roll: StatusRoll) {
+/** 상태이상을 거는 스킬 정보 (패시브 조건): 메인 조각 id, 신성 스킬인가, 노래(아군 강화)인가 */
+type StatusCtx = { mainId?: string; holy?: boolean; song?: boolean };
+
+function tryStatus(b: Battle, rng: Rng, actor: Unit, target: Unit, roll: StatusRoll, ctx: StatusCtx = {}) {
   if (target.hp <= 0) return;
   const self = target === actor;
   const foe = target.side !== actor.side;
-  // 장신구: 거는 기절·출혈 확률 +, 비율 약화 수치 +, 약화 효과 ×, 약화 지속 +, 재생(회복) ×
+  // 장신구·패시브: 거는 기절·출혈 확률 +, 비율 약화 수치 +, 약화 효과 ×, 약화 지속 +, 재생(회복) ×
   const gear = actor.gear;
   if (gear && !self) roll = gearRoll(roll, gear, foe);
+  // 패시브: 노래는 자기에게 거는 것도 (부른 사람도 노래를 받는다)
+  if (actor.pfx && (!self || ctx.song)) roll = passiveRoll(roll, actor.pfx, foe, ctx);
+  // 바위의 발걸음 (패시브): 둔화 저항
+  if (foe && roll.status === "slow" && target.pfx?.slowRes && rng.next() < target.pfx.slowRes) {
+    b.log.push({ type: "resist", target: target.id, kind: roll.status });
+    return;
+  }
   const chance = self ? 1 : statusChance(target, roll);
   if (chance < 1 && rng.next() >= chance) {
     b.log.push({ type: "resist", target: target.id, kind: roll.status });
     return;
   }
-  const value = roll.value ?? (isDot(roll.status) ? dotStack(actor, roll.status) : undefined);
-  applyStatus(b, target, roll.status, { value, turns: roll.turns, self, ...(roll.status === "duel" || roll.status === "cover" ? { source: actor.id } : {}) });
+  const value = roll.value ?? (isDot(roll.status) ? dotStack(actor, roll.status) + (roll.status === "poison" && ctx.mainId ? (actor.pfx?.skillMods?.[ctx.mainId]?.poison ?? 0) : 0) : undefined);
+  applyStatus(b, target, roll.status, {
+    value,
+    turns: roll.turns,
+    self,
+    ...(roll.status === "duel" || roll.status === "cover" ? { source: actor.id } : {}),
+    // 여운 (패시브): 노래 강화가 끝날 때 회복
+    ...(ctx.song && !foe && !STATUS[roll.status].debuff && actor.pfx?.songHeal ? { endHeal: actor.pfx.songHeal } : {}),
+  });
   // 불협 피리: 상태이상을 건 적은 기절 저항도 떨어진다
   if (foe && gear?.songStunResDown && roll.status !== "shaken")
     applyStatus(b, target, "shaken", { value: Math.max(statusValue(target, "shaken"), gear.songStunResDown), turns: STATUS.shaken.turns });
@@ -1047,6 +1080,27 @@ const SONG_BUFFS: StatusKind[] = ["attackUp", "armorUp", "speedUp"];
 
 /** 비율로 거는 약화 (사냥꾼의 활시위가 +%p) */
 const PCT_DEBUFFS: StatusKind[] = ["mark", "bleedVuln", "poisonVuln", "evadeDown", "arcaneMark", "shaken"];
+
+/** 패시브가 바꾸는 상태이상 굴림: 거는 효과 수치 × (종류별·스킬별·노래), 지속 + (노래·둔화·스킬별·신성 방어 감소) */
+function passiveRoll(roll: StatusRoll, pf: PassiveFx, foe: boolean, ctx: StatusCtx): StatusRoll {
+  const out = { ...roll };
+  const info = STATUS[roll.status];
+  if (isDot(roll.status)) return out;
+  let mul = pf.statusPower?.[roll.status] ?? 0;
+  if (ctx.mainId) mul += pf.skillMods?.[ctx.mainId]?.statusPower ?? 0;
+  if (!foe && ctx.song && !info.debuff) mul += pf.songPower ?? 0;
+  if (foe && info.debuff) mul += pf.debuffSongPower ?? 0;
+  if (!foe && roll.status === "regen") mul += (pf.regenPower ?? 0) + (ctx.mainId ? (pf.skillMods?.[ctx.mainId]?.heal ?? 0) : 0);
+  const base = roll.value ?? info.value;
+  if (mul && base !== undefined) out.value = info.pct ? Math.round(base * (1 + mul) * 100) / 100 : Math.round(base * (1 + mul) * 10) / 10;
+  let turns = 0;
+  if (!foe && ctx.song && !info.debuff) turns += pf.songTurns ?? 0;
+  if (foe && roll.status === "slow") turns += pf.slowTurns ?? 0;
+  if (foe && roll.status === "armorDown" && ctx.holy) turns += pf.holyArmorDownTurns ?? 0;
+  if (ctx.mainId) turns += pf.skillMods?.[ctx.mainId]?.turns ?? 0;
+  if (turns) out.turns = (roll.turns ?? info.turns) + turns;
+  return out;
+}
 
 /** 장신구가 바꾸는 상태이상 굴림 (거는 쪽 장신구) */
 function gearRoll(roll: StatusRoll, gear: TrinketBonus, foe: boolean): StatusRoll {
@@ -1105,6 +1159,16 @@ type StrikeOptions = {
   flat?: number;
   /** 피할 수 없다 (반드시 반격) */
   sure?: boolean;
+  /** 오러률 (스킬·부 조각) */
+  aura?: number;
+  /** 스킬 정보 (패시브 조건): 원소, 불·흙을 함께 달았나, 대기, 자기 체력을 쓰나, 몇 번째 타격, 다타 공격, 메인 조각 id */
+  element?: string;
+  fireEarth?: boolean;
+  skillWait?: number;
+  selfCost?: boolean;
+  hitIndex?: number;
+  multi?: boolean;
+  mainId?: string;
   /** 미리보기 최대치: 행동 중에 바뀔 수 있는 대상 조건(출혈·체력 50% 이하)이 맞는다고 본다 */
   assumeConds?: boolean;
   /** 감싸기로 대신 맞는 타격 (수호자의 쇠사슬) */
@@ -1143,42 +1207,31 @@ function takeTempo(actor: Unit): number {
   return v;
 }
 
-/** 잃은 체력 비율 (0~1) */
-function lostRatio(u: Unit): number {
-  return (u.maxHp - u.hp) / u.maxHp;
-}
 
 /**
  * 한 번의 타격에 들어가는 보정값. 상태를 읽기만 한다.
  * 실제 타격(strike)과 미리보기(previewAction)가 같은 함수를 쓰므로 둘이 어긋나지 않는다.
  */
 export type StrikeFactors = {
-  /** 공격자 쪽 덧셈 보정 (종족 패시브, 각성, 위축, 스탯) */
+  /** 공격자 쪽 덧셈 보정 (각성, 위축, 스탯, 상처의 대가) */
   bonus: number;
-  /** 공격자 쪽 곱셈 보정 (선제 일격, 흥이 오른다, 응축) */
+  /** 공격자 쪽 곱셈 보정 (응축, 장신구·패시브 위력) */
   multiplier: number;
   critChance: number;
   /** 치명타 피해 배율 추가 (처형인의 장갑) */
   critDamage: number;
   /** 맞는 쪽이 피할 확률 */
   evadeChance: number;
-  /** 균열로 더 받는 피해 (없으면 0) */
-  crack: number;
+
   guard: boolean;
-  /** 맞는 쪽 받는 피해 감소 % (방어 포인트 곡선: 방어력, 바위의 뿌리, 고통 망각, 적응, 결투, 방어 강화·감소 + 장신구 %) */
+  /** 맞는 쪽 받는 피해 감소 % (방어 포인트 곡선: 방어력, 결투, 방어 강화·감소, 패시브 + 장신구 %) */
   reduce: number;
   /** 방어 무시 비율 (0~1) */
   pierce: number;
-  /** 맞는 쪽 받는 피해 배율 (표적 +, 단단함 -) */
+  /** 오러률 (0~1): 방어 무시와 같은 공식으로 따로 곱한다 (인간 기사) */
+  aura: number;
+  /** 맞는 쪽 받는 피해 배율 (표적 +, 단단함 -, 패시브 받는 피해 -) */
   taken: number;
-  /** 맞히면 소모·갱신되는 패시브 기록 */
-  uses: {
-    firstStrike: boolean;
-    cheer: boolean;
-    dance: boolean;
-    focus: { target: string; stacks: number } | null;
-    adapt: boolean;
-  };
 };
 
 /** 스탯 배율에서 오는 피해 (성장 스탯 × 배율) */
@@ -1187,90 +1240,159 @@ function scalingBonus(actor: Unit, scaling: Scaling[] | undefined): number {
 }
 
 export function strikeFactors(b: Battle, actor: Unit, target: Unit, opts: StrikeOptions = {}): StrikeFactors {
-  const fx = actor.fx ?? {};
   let bonus = 0;
-  if (has(actor, "blood_thirst")) bonus += Math.round(PASSIVE.bloodThirstMax * lostRatio(actor));
-  if (has(actor, "peerless_spirit")) bonus += opts.enemiesAtStart ?? foes(b, actor).length;
-  // 깊은 곳의 피: 층 구조가 생기기 전까지는 지나온 칸 2칸마다 +1 (최대 +3)
-  if (has(actor, "deep_blood")) bonus += Math.min(PASSIVE.deepBloodMax, Math.floor(b.walked / PASSIVE.deepBloodStep));
-  if (has(actor, "solidarity") && friends(b, actor).length >= 4) bonus += PASSIVE.solidarityBonus;
   // 성장 스탯: 이 공격이 따르는 스탯(힘·마법·신성) × 배율만큼 피해 +
   bonus += scalingBonus(actor, opts.scaling);
   bonus += statusValue(actor, "awaken") + statusValue(actor, "attackUp") - statusValue(actor, "weaken");
   if (actor.abilities) bonus += monsterBonus(b, actor);
   if (actor.side === "enemy") bonus += leaderBonus(b, actor);
   if (actor.bond === "trusted") bonus += BOND.trustAttack;
-  if (has(actor, "chase_instinct") && target.hp <= target.maxHp * PASSIVE.chaseRatio) bonus += PASSIVE.chaseBonus;
-  let focus: StrikeFactors["uses"]["focus"] = null;
-  if (has(actor, "hunters_focus") && !opts.aoe) {
-    const stacks = fx.focus?.target === target.id ? Math.min(PASSIVE.huntersFocusMax, fx.focus.stacks + 1) : 0;
-    focus = { target: target.id, stacks };
-    bonus += stacks;
-  }
-  const dance = has(actor, "wind_dance") && !!fx.dance;
-  if (dance) bonus += PASSIVE.windDanceBonus;
+  // 상처의 대가: 받은 피해의 일부를 다음 공격 한 번에 (첫 타격에만)
+  const firstHit = (opts.hitIndex ?? 0) === 0;
+  if (firstHit) bonus += actor.fx?.wound ?? 0;
 
-  bonus += opts.flat ?? 0;
   // 조건부 위력 (광폭·피 냄새·투혼·룬 각인 대검), 마무리 (체력 50% 이하 적에게), 마지막 타격
   const met = (c: DmgCond) => condMet(c, actor, target) || (!!opts.assumeConds && (c === "targetBleeding" || c === "targetLowHp"));
   const condPower = (opts.bonusIf ?? []).reduce((a, c) => a + (met(c.cond) ? c.pct : 0), 0);
   const execute = target.hp <= target.maxHp * 0.5 || opts.assumeConds ? statusValue(actor, "execute") : 0;
   let multiplier = (1 + (opts.charge ?? 0)) * (1 + condPower + execute + (opts.power ?? 0));
-  const firstStrike = has(actor, "first_strike") && !fx.firstDone;
-  if (firstStrike) multiplier *= PASSIVE.firstStrikeMultiplier;
-  const cheer = has(actor, "rising_cheer") && (fx.cheer ?? 0) >= PASSIVE.cheerMax;
-  if (cheer) multiplier *= PASSIVE.cheerMultiplier;
-  // 장신구 위력: 단일·범위, 체력 50% 이하, 신성, 원소, 반격
+  const holy = (opts.scaling ?? []).some((x) => x.stat === "faith");
+  const magic = (opts.scaling ?? []).some((x) => x.stat === "mag");
+  // 장신구 위력 (패시브의 같은 효과가 더해져 있다): 단일·범위, 체력 50% 이하, 신성, 원소, 반격
   const gear = actor.gear;
   if (gear) {
     const gearPower =
       (!opts.aoe && !opts.counter ? (gear.singlePower ?? 0) : 0) +
       (opts.aoe ? (gear.areaPower ?? 0) : 0) +
       (actor.hp <= actor.maxHp * 0.5 ? (gear.lowHpPower ?? 0) : 0) +
-      ((opts.scaling ?? []).some((x) => x.stat === "faith") ? (gear.holyPower ?? 0) : 0) +
+      (holy ? (gear.holyPower ?? 0) : 0) +
       (opts.elemental ? (gear.elementPower ?? 0) : 0) +
       (opts.counter ? (gear.counterPower ?? 0) : 0);
     if (gearPower) multiplier *= 1 + gearPower;
   }
+  // 패시브 위력 (data/passives.ts)
+  const pf = actor.pfx;
+  let critPlus = 0;
+  if (pf) {
+    let p = (pf.power ?? 0) + (magic ? (pf.magPower ?? 0) : 0) + (opts.element === "fire" ? (pf.firePower ?? 0) : 0) + (opts.fireEarth ? (pf.fireEarthPower ?? 0) : 0);
+    if ((opts.skillWait ?? 0) >= 2) p += pf.bigSkillPower ?? 0;
+    if (opts.selfCost) p += pf.selfCostPower ?? 0;
+    if ((opts.hitIndex ?? 0) >= 2) p += pf.multiHitPower ?? 0;
+    if (opts.aoe && pf.areaStack) p += Math.min(3, opts.enemiesAtStart ?? foes(b, actor).length) * pf.areaStack;
+    if (opts.mainId) p += pf.skillMods?.[opts.mainId]?.power ?? 0;
+    for (const l of pf.lowHp ?? []) if (actor.hp <= actor.maxHp * l.below) p += (l.power ?? 0) + (opts.counter ? (l.counter ?? 0) : 0);
+    if (opts.counter) {
+      if (isCovering(b, actor)) p += pf.coverCounterPower ?? 0;
+      if ((actor.fx?.avengeUntil ?? -1) >= b.round) p += pf.avengeCounter ?? 0;
+    }
+    for (const v of pf.vs ?? []) if ((!pf.holyOnlyVs || holy) && passiveCond(v.cond, actor, target)) p += v.pct;
+    if (p) multiplier *= 1 + p;
+    if (b.round === 1) critPlus += pf.firstRoundCrit ?? 0;
+    for (const v of pf.critVs ?? []) if (passiveCond(v.cond, actor, target)) critPlus += v.pct;
+    if (firstHit && actor.fx?.evadeStrike) critPlus += pf.evadeStrike?.crit ?? 0;
+  }
+  // 노래 강화: 위력 % (전쟁의 함성), 광전사의 북 (노래 강화를 받는 체력 50% 이하 아군)
+  multiplier *= 1 + statusValue(actor, "empower");
+  if (actor.side === "merc" && actor.hp <= actor.maxHp * 0.5 && SONG_BUFFS.some((k) => hasStatus(actor, k))) {
+    const berserk = Math.max(0, ...friends(b, actor).map((u) => u.pfx?.songBerserk ?? 0));
+    if (berserk) multiplier *= 1 + berserk;
+  }
 
-  // 방어 포인트: 유닛 방어 + 버팀·방어 강화·감소 + 바위의 뿌리·고통 망각·적응 + 결투
+  // 방어 포인트: 유닛 방어 + 버팀·방어 강화·감소 + 결투 + 패시브 (수호 중 방어, 옆 아군 방어)
   let defense = target.defense + statusValue(target, "brace") + statusValue(target, "armorUp") - statusValue(target, "armorDown");
-  if (has(target, "rock_root")) defense += PASSIVE.rockRootReduce;
-  if (has(target, "pain_oblivion")) defense += Math.round(PASSIVE.painOblivionMax * lostRatio(target));
-  if (has(target, "adapt")) defense += Math.min(PASSIVE.adaptMax, target.fx?.adapt?.[actor.id] ?? 0);
   // 결투: 결투를 건 상대에게 받는 피해가 준다
   const duel = actor.statuses.find((x) => x.kind === "duel" && x.source === target.id);
   if (duel) defense += (duel.value ?? STATUS.duel.value ?? 0) + (target.gear?.duelReduce ?? 0);
+  const tp = target.pfx;
+  if (tp?.guardDefense && isGuarding(b, target)) defense += tp.guardDefense;
+  defense += neighbors(b, target).reduce((a, u) => a + (u.pfx?.neighborDefense ?? 0), 0);
   // 받는 피해 감소 % = 곡선(방어 포인트) + 장신구 % (상한)
   const reduce = takenReduction(defense, target.gear?.defensePct ?? 0);
-  // 장신구 회피: 첫 라운드(위장 망토), 노래 강화를 받는 동안(여행자의 류트끈)
+  // 장신구 회피: 첫 라운드(위장 망토), 노래 강화를 받는 동안(여행자의 류트끈). 패시브: 처음 받는 공격, 체력 낮을 때
   const tg = target.gear;
-  const gearEvade = tg
+  let gearEvade = tg
     ? (b.round === 1 ? (tg.firstRoundEvade ?? 0) : 0) + (tg.songEvade && SONG_BUFFS.some((k) => hasStatus(target, k)) ? tg.songEvade : 0)
     : 0;
+  if (tp) {
+    if (!target.fx?.hitOnce) gearEvade += tp.firstHitEvade ?? 0;
+    for (const l of tp.lowHp ?? []) if (target.hp <= target.maxHp * l.below) gearEvade += l.evade ?? 0;
+  }
+  // 패시브 받는 피해 -: 자기, 체력 낮을 때, 반격 태세 중, 받는 마법 피해, 옆 아군의 기사도
+  let takenCut = 0;
+  if (tp) {
+    takenCut += tp.takenReduce ?? 0;
+    for (const l of tp.lowHp ?? []) if (target.hp <= target.maxHp * l.below) takenCut += l.taken ?? 0;
+    if (hasStatus(target, "counter")) takenCut += tp.counterTaken ?? 0;
+    if (magic) takenCut += tp.magicTaken ?? 0;
+  }
+  takenCut += neighbors(b, target).reduce((a, u) => a + (u.pfx?.neighborTaken ?? 0), 0);
 
   return {
     bonus,
     multiplier,
-    critChance: Math.min(STAT_CURVE.crit.cap, critChanceOf(actor) + (opts.critBonus ?? 0) + execute + (opts.critIf ?? []).reduce((a, c) => a + (met(c.cond) ? c.pct : 0), 0)),
+    critChance: Math.min(STAT_CURVE.crit.cap, critChanceOf(actor) + critPlus + (opts.critBonus ?? 0) + execute + (opts.critIf ?? []).reduce((a, c) => a + (met(c.cond) ? c.pct : 0), 0)),
     critDamage: gear?.critDamage ?? 0,
     evadeChance: Math.min(STAT_CURVE.evade.cap, evadeChance(target) + gearEvade),
-    crack: statusValue(target, "crack"),
     guard: target.guarding,
     reduce,
-    pierce: Math.min(1, (opts.pierce ?? 0) + statusValue(actor, "pierceUp")),
+    // 방어 무시: 스킬·부 조각 + 꿰뚫는 눈 + 패시브 (신성 공격·스킬별 포함), 합쳐 최대 100%
+    pierce: Math.min(
+      1,
+      (opts.pierce ?? 0) + statusValue(actor, "pierceUp") + (pf?.pierce ?? 0) + (holy ? (pf?.holyPierce ?? 0) : 0) + (opts.mainId ? (pf?.skillMods?.[opts.mainId]?.pierce ?? 0) : 0),
+    ),
+    // 오러률: 방어 무시와 같은 공식 (따로 곱한다)
+    aura: Math.min(1, (opts.aura ?? 0) + (pf?.aura ?? 0)),
     // 비전 각인: 마법을 따르는 공격이면 더 받는다
     taken:
-      (1 + statusValue(target, "mark") + ((opts.scaling ?? []).some((x) => x.stat === "mag") ? statusValue(target, "arcaneMark") : 0)) *
+      // 표적·균열(받는 피해 %)·비전 각인
+      (1 + statusValue(target, "mark") + statusValue(target, "crack") + (magic ? statusValue(target, "arcaneMark") : 0)) *
       (1 - statusValue(target, "toughen")) *
-      (opts.covered ? 1 - (tg?.coverTaken ?? 0) : 1),
-    uses: { firstStrike, cheer, dance, focus, adapt: has(target, "adapt") },
+      (opts.covered ? 1 - (tg?.coverTaken ?? 0) : 1) *
+      (1 - Math.min(0.8, takenCut)),
   };
+}
+
+/** 패시브 조건 (상대 상태) */
+function passiveCond(c: PassiveCond, actor: Unit, target: Unit): boolean {
+  switch (c) {
+    case "poisoned":
+      return hasStatus(target, "poison");
+    case "bleeding":
+      return hasStatus(target, "bleed");
+    case "poisonBleed":
+      return hasStatus(target, "poison") && hasStatus(target, "bleed");
+    case "stunned":
+      return hasStatus(target, "stun");
+    case "marked":
+      return ["mark", "weaken", "evadeDown", "bleedVuln", "poisonVuln", "arcaneMark"].some((k) => hasStatus(target, k as StatusKind));
+    case "weakened":
+      return hasStatus(target, "weaken");
+    case "armorDown":
+      return hasStatus(target, "armorDown");
+    case "debuffed":
+      return target.statuses.some((x) => STATUS[x.kind].debuff && !isDot(x.kind));
+    case "eliteBoss":
+      return target.rank === "elite" || target.rank === "floorBoss" || target.rank === "dungeonBoss";
+    case "lowHp":
+      return target.hp <= target.maxHp * 0.5;
+    case "duel":
+      return target.statuses.some((x) => x.kind === "duel" && x.source === actor.id);
+  }
+}
+
+/** 다른 동료를 감싸고 있나 (감싸기 상태의 건 쪽) */
+function isCovering(b: Battle, u: Unit): boolean {
+  return b.units.some((x) => x !== u && x.side === u.side && x.statuses.some((s) => s.kind === "cover" && s.source === u.id));
+}
+
+/** 수호 중인가: 막아서기, 감싸기, 수호 선언(적에게 도발당함을 걸었다), 최후의 보루 */
+function isGuarding(b: Battle, u: Unit): boolean {
+  return u.guarding || hasStatus(u, "riposte") || isCovering(b, u) || b.units.some((x) => x.side !== u.side && x.statuses.some((s) => s.kind === "provoked" && s.source === u.id));
 }
 
 /** 치명타 확률 (기본 + 예리한 눈 + 성장 곡선·장신구 + 집중). 상한 STAT_CURVE.crit.cap */
 function critChanceOf(u: Unit): number {
-  return Math.min(STAT_CURVE.crit.cap, CRIT_CHANCE + (has(u, "keen_eye") ? PASSIVE.keenEyeCrit : 0) + (u.critBonus ?? 0) + statusValue(u, "critUp"));
+  return Math.min(STAT_CURVE.crit.cap, CRIT_CHANCE + (u.critBonus ?? 0) + statusValue(u, "critUp"));
 }
 
 /** 받는 피해 감소 % (방어 포인트의 체감 곡선 + 장신구 %, 상한 STAT_CURVE.defense.cap) */
@@ -1283,42 +1405,19 @@ export function strikeAmount(base: number, f: StrikeFactors, crit: boolean): num
   let amount = Math.max(1, base + f.bonus);
   amount = Math.round(amount * f.multiplier);
   if (crit) amount = Math.round(amount * (CRIT_MULTIPLIER + (f.critDamage ?? 0)));
-  amount += f.crack;
   if (f.guard) amount = Math.ceil(amount * GUARD_MULTIPLIER);
   if (f.taken !== 1) amount = Math.max(1, Math.round(amount * f.taken));
-  // 받는 피해 감소 % × (1 - 방어 무시 %)
-  const reduce = f.reduce * (1 - f.pierce);
+  // 받는 피해 감소 % × (1 - 오러률) × (1 - 방어 무시 %)
+  const reduce = f.reduce * (1 - (f.aura ?? 0)) * (1 - f.pierce);
   return reduce > 0 ? Math.max(1, Math.round(amount * (1 - reduce))) : amount;
 }
 
-/** 맞힌 뒤 패시브 기록을 갱신한다. log가 false면 미리보기용 (기록을 남기지 않는다) */
-function consume(b: Battle, actor: Unit, target: Unit, f: StrikeFactors, log = true) {
-  actor.fx ??= {};
-  if (f.uses.firstStrike) {
-    actor.fx.firstDone = true;
-    if (log) b.log.push({ type: "passive", unit: actor.id, passive: "first_strike" });
-  }
-  if (f.uses.cheer) {
-    actor.fx.cheer = 0;
-    if (log) b.log.push({ type: "passive", unit: actor.id, passive: "rising_cheer" });
-  }
-  if (f.uses.dance) actor.fx.dance = false;
-  if (f.uses.focus) actor.fx.focus = f.uses.focus;
-  if (f.uses.adapt) {
-    target.fx ??= {};
-    const seen = target.fx.adapt?.[actor.id] ?? 0;
-    target.fx.adapt = { ...target.fx.adapt, [actor.id]: seen + 1 };
-  }
-}
 
 function evadeChance(target: Unit): number {
   return Math.min(
     STAT_CURVE.evade.cap,
     Math.max(
     0,
-    (has(target, "feather_step") ? PASSIVE.featherEvade : 0) +
-      (has(target, "beast_reflex") ? PASSIVE.reflexEvade : 0) +
-      (has(target, "wind_dance") ? PASSIVE.windDanceEvade : 0) +
       (target.evadeBonus ?? 0) +
       statusValue(target, "evadeUp") -
       statusValue(target, "evadeDown"),
@@ -1349,7 +1448,10 @@ function strike(b: Battle, rng: Rng, actor: Unit, target: Unit, base: number, op
   const { onHit = true, counter = false } = opts;
   const f = strikeFactors(b, actor, target, opts);
 
-  // 회피 (깃털의 발걸음, 야수의 반사신경, 바람의 춤, 회피 강화). 반드시 맞는 반격은 피할 수 없다
+  // 패시브: 처음 받는 공격 (정령의 가호) — 회피 판정을 마치면 처음이 아니다
+  target.fx ??= {};
+  target.fx.hitOnce = true;
+  // 회피 (회피 강화·패시브). 반드시 맞는 반격은 피할 수 없다
   if (!opts.sure && f.evadeChance > 0 && rng.next() < f.evadeChance) {
     b.log.push({ type: "evade", actor: actor.id, target: target.id });
     // 회피(엘프): 피하면 다음 공격 강화 / 회피(수인): 피하면 반격
@@ -1358,21 +1460,20 @@ function strike(b: Battle, rng: Rng, actor: Unit, target: Unit, base: number, op
       const basic = basicAttack(target);
       strike(b, rng, target, actor, rollBase(rng, target, basic), { counter: true, scaling: [{ stat: "str", mult: basic.multiplier ?? 1 }] });
     }
-    if (has(target, "wind_dance")) {
-      target.fx ??= {};
-      target.fx.dance = true;
-    }
-    if (has(target, "beast_reflex") && !counter && actor.hp > 0 && target.hp > 0) {
-      b.log.push({ type: "passive", unit: target.id, passive: "beast_reflex", target: actor.id });
-      const basic = basicAttack(target);
-      strike(b, rng, target, actor, rollBase(rng, target, basic), { counter: true, scaling: [{ stat: "str", mult: basic.multiplier ?? 1 }] });
-    }
+    // 패시브: 회피하면 다음 공격 위력 + (그림자 검·야생의 반사), 다음 공격에 출혈·치명 (그림자 발톱)
+    if (target.pfx?.evadePower) applyStatus(b, target, "charge", { value: Math.max(statusValue(target, "charge"), target.pfx.evadePower) });
+    if (target.pfx?.evadeStrike) target.fx.evadeStrike = true;
     return 0;
   }
 
-  consume(b, actor, target, f);
   const crit = rng.next() < f.critChance;
   let amount = strikeAmount(base, f, crit);
+  // 상처의 대가·그림자 발톱: 이번 공격에 썼다
+  const evadeStrike = actor.fx?.evadeStrike ? (actor.pfx?.evadeStrike?.bleed ?? 0) : 0;
+  if (actor.fx) {
+    actor.fx.wound = 0;
+    actor.fx.evadeStrike = false;
+  }
 
   const absorbed = Math.min(target.shield ?? 0, amount);
   if (absorbed > 0) {
@@ -1388,23 +1489,48 @@ function strike(b: Battle, rng: Rng, actor: Unit, target: Unit, base: number, op
     ...(absorbed > 0 ? { absorbed } : {}),
   });
   damage(b, target, amount);
-  // 흡혈: 준 피해(보호막 포함)의 비율만큼
+  // 흡혈: 준 피해(보호막 포함)의 비율만큼 (장신구·패시브)
   const lifesteal = (opts.lifesteal ?? 0) + (actor.gear?.lifesteal ?? 0);
   if (lifesteal && actor.hp > 0) {
     const gain = Math.round((amount + absorbed) * lifesteal);
     if (gain > 0 && actor.hp < actor.maxHp) heal(b, actor, gain, actor.id);
   }
+  // 전투 기도: 준 피해의 일부로 가장 약한 아군 회복
+  if (actor.pfx?.attackHealAlly && actor.side !== target.side && amount + absorbed > 0) {
+    const weakest = living(b, actor.side).sort((x, y) => x.hp / x.maxHp - y.hp / y.maxHp)[0];
+    const gain = Math.round((amount + absorbed) * actor.pfx.attackHealAlly);
+    if (weakest && gain > 0 && weakest.hp < weakest.maxHp) heal(b, weakest, gain, actor.id);
+  }
   if (!counter && actor.side !== target.side) reactToHit(b, rng, actor, target, amount + absorbed);
-  if (target.hp <= 0) return amount;
+  if (target.hp <= 0) {
+    // 처치: 회복 (피에 굶주림), 다음 차례 속도 (회오리 사냥)
+    if (actor.side !== target.side && actor.hp > 0 && actor.pfx) {
+      if (actor.pfx.killHeal) heal(b, actor, Math.max(1, Math.round(actor.maxHp * actor.pfx.killHeal)), actor.id);
+      if (actor.pfx.killSpeed) applyStatus(b, actor, "speedUp", { value: actor.pfx.killSpeed, turns: 1, self: true });
+    }
+    return amount;
+  }
 
-  afterHit(b, target, amount);
-  // 장인의 눈썰미: 20% 확률로 균열
-  if (has(actor, "crafters_eye") && rng.next() < PASSIVE.crackChance) applyStatus(b, target, "crack");
+  afterHit(b, target);
   if (onHit && actor.onHit && rng.next() < onHitChance(actor, target))
     applyStatus(b, target, actor.onHit.status, isDot(actor.onHit.status) ? { value: dotStack(actor, actor.onHit.status) } : {});
   if (opts.perHit) tryStatus(b, rng, actor, target, opts.perHit);
-  // 참회의 사슬: 맞히면 확률로 위축
-  if (actor.gear?.witherChance && target.hp > 0 && actor.side !== target.side && rng.next() < actor.gear.witherChance) applyStatus(b, target, "weaken");
+  if (actor.side !== target.side && target.hp > 0) {
+    // 참회의 사슬: 맞히면 확률로 위축
+    if (actor.gear?.witherChance && rng.next() < actor.gear.witherChance) applyStatus(b, target, "weaken");
+    // 패시브: 맞히면 확률로 상태이상 (신성·범위·다타·원소 조건)
+    const holy = (opts.scaling ?? []).some((x) => x.stat === "faith");
+    for (const h of actor.pfx?.onHit ?? []) {
+      if ((h.holy && !holy) || (h.aoe && !opts.aoe) || (h.multi && !opts.multi) || (h.element && h.element !== opts.element)) continue;
+      if (h.status === "stun") tryStatus(b, rng, actor, target, { status: "stun", chance: h.chance });
+      else if (rng.next() < h.chance) applyStatus(b, target, h.status, isDot(h.status) ? { value: h.value ?? dotStack(actor, h.status as DotKind) } : {});
+    }
+    // 야성의 리듬: 노래를 받은 아군의 공격에 출혈 확률
+    const edge = statusValue(actor, "bleedEdge");
+    if (edge && target.hp > 0 && rng.next() < edge) applyStatus(b, target, "bleed", { value: dotStack(actor, "bleed") });
+    // 그림자 발톱: 회피한 뒤 다음 공격에 출혈
+    if (evadeStrike && target.hp > 0) applyStatus(b, target, "bleed", { value: evadeStrike });
+  }
   return amount;
 }
 
@@ -1416,7 +1542,8 @@ function reactToHit(b: Battle, rng: Rng, actor: Unit, target: Unit, taken: numbe
   if (b.outcome || actor.hp <= 0) return;
   const thorns = statusValue(target, "thorns");
   if (thorns && taken > 0) {
-    const back = Math.max(1, Math.round(taken * thorns)) + (target.gear?.thornsFlat ?? 0);
+    // 반사 비율: 가시 + 장신구(가시 방패테) + 패시브(심판의 방패·가시 룬)
+    const back = Math.max(1, Math.round(taken * (thorns + (target.gear?.thornsPct ?? 0) + (target.pfx?.thornsPct ?? 0))));
     b.log.push({ type: "attack", actor: target.id, target: actor.id, damage: back, crit: false });
     damage(b, actor, back);
   }
@@ -1431,17 +1558,13 @@ function reactToHit(b: Battle, rng: Rng, actor: Unit, target: Unit, taken: numbe
   if (riposte) strike(b, rng, target, actor, Math.max(1, Math.round(target.maxHp * riposte)), { counter: true, sure: true });
 }
 
-/** 맞고 살아남은 뒤: 흥이 오른다, 사선 돌파 */
-function afterHit(b: Battle, target: Unit, amount: number) {
-  if (amount > 0 && has(target, "rising_cheer")) {
-    target.fx ??= {};
-    target.fx.cheer = Math.min(PASSIVE.cheerMax, (target.fx.cheer ?? 0) + 1);
-  }
-  if (has(target, "last_stand") && !target.fx?.lastStandDone && target.hp <= target.maxHp * PASSIVE.lastStandRatio) {
+/** 맞고 살아남은 뒤: 기사의 의지 (체력이 처음 30% 아래로 떨어지면 2턴 받는 피해 -) */
+function afterHit(b: Battle, target: Unit) {
+  const guard = target.pfx?.lastStandGuard;
+  if (guard && !target.fx?.lastStandDone && target.hp > 0 && target.hp <= target.maxHp * 0.3) {
     target.fx ??= {};
     target.fx.lastStandDone = true;
-    b.log.push({ type: "passive", unit: target.id, passive: "last_stand" });
-    applyStatus(b, target, "awaken");
+    applyStatus(b, target, "toughen", { value: guard, turns: 2 });
   }
 }
 
@@ -1500,15 +1623,18 @@ function attack(b: Battle, rng: Rng, actor: Unit, aimed: Unit) {
   const covered = target !== aimed;
   const basic = basicAttack(actor);
   const hits = 1 + extraHits(actor);
-  const flat = takeTempo(actor);
+  // 박자: 다음 공격 한 번의 위력 % (2026-11-22: 고정 피해 → 위력)
+  const tempo = takeTempo(actor);
   const enemiesAtStart = foes(b, actor).length;
   for (let h = 0; h < hits && target.hp > 0 && !b.outcome; h++)
     strike(b, rng, actor, target, rollBase(rng, actor, basic), {
       enemiesAtStart,
       scaling: [{ stat: "str", mult: basic.multiplier ?? 1 }],
       charge: h === 0 ? charge : 0,
-      flat: h === 0 ? flat : 0,
+      power: h === 0 ? tempo : 0,
       covered,
+      hitIndex: h,
+      multi: hits > 1,
     });
 }
 
@@ -1549,8 +1675,14 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
   // 응축은 이 스킬이 공격일 때만 쓴다
   const charge = skill.effects.some((e) => e.kind === "damage") ? takeCharge(actor) : 0;
   const healPower = actor.power?.faith ?? 0;
-  // 장신구: 주는 회복 ×, 일으킬 때 +, 보호막 +
+  // 장신구·패시브: 주는 회복 ×, 일으킬 때 +, 보호막 +
   const healMul = 1 + (actor.gear?.healPower ?? 0);
+  // 패시브 조건에 쓰는 스킬 정보: 메인 조각, 원소, 불·흙, 대기, 자기 체력 소모, 신성, 노래(아군 강화)
+  const mainId = skill.id.split("+")[0];
+  const pf = actor.pfx;
+  const holySkill = skill.stat === "faith" || (actor.job ? JOB_STAT[actor.job] === "faith" : false);
+  const song = skill.target === "none" && skill.effects.some((x) => x.kind === "applyStatus" && x.who === "allies" && !STATUS[x.status].debuff);
+  const ctx: StatusCtx = { mainId, holy: holySkill, song };
 
   for (const e of skill.effects) {
     switch (e.kind) {
@@ -1574,18 +1706,25 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
           bonusIf: e.bonusIf,
           critIf: e.critIf,
           elemental: !!skill.element,
+          aura: e.aura,
+          element: skill.element,
+          fireEarth: skill.id.includes("mg_fire") && skill.id.includes("mg_earth"),
+          skillWait: skill.cooldown,
+          selfCost: skill.effects.some((x) => x.kind === "selfCost"),
+          mainId,
         };
         // 덮치기: 조건이 맞으면 타격 수가 바뀐다. 연타·연계로 +
         const aimed = target && target.side !== actor.side ? target : undefined;
         const base = e.hitsIf && aimed && condMet(e.hitsIf.cond, actor, aimed) ? e.hitsIf.hits : (e.hits ?? 1);
         const hits = base + extraHits(actor);
-        // 박자: 이 스킬의 첫 타격 피해 +
+        // 박자: 이 스킬의 첫 타격 위력 +
         const tempo = takeTempo(actor);
-        /** h번째 타격의 보정: 첫 타격 박자, 마지막 타격 보너스 (야성의 리듬) */
+        /** h번째 타격의 보정: 첫 타격 박자, 마지막 타격 보너스 (야성의 리듬), 몇 번째 타격 (야수의 연타) */
         const at = (h: number): StrikeOptions => ({
           ...opts,
-          ...(h === 0 && tempo ? { flat: tempo } : {}),
-          ...(e.lastHit && hits >= e.lastHit.minHits && h === hits - 1 ? { power: e.lastHit.pct } : {}),
+          power: (h === 0 ? tempo : 0) + (e.lastHit && hits >= e.lastHit.minHits && h === hits - 1 ? e.lastHit.pct : 0),
+          hitIndex: h,
+          multi: hits > 1,
         });
         if (e.area === "all") {
           for (const enemy of foes(b, actor)) {
@@ -1629,7 +1768,7 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
         const list = e.area === "all" ? foes(b, actor) : recipients(b, actor, target, e.who);
         // 방패 강타: 스킬 스탯에 비례해 확률 +
         const roll = e.chancePerPower ? { ...e, chance: Math.min(1, (e.chance ?? 1) + (actor.power?.[statOf(skill, undefined, actor)] ?? 0) * e.chancePerPower) } : e;
-        for (const t of list) tryStatus(b, rng, actor, t, roll);
+        for (const t of list) tryStatus(b, rng, actor, t, roll, ctx);
         break;
       }
       case "provoke":
@@ -1662,7 +1801,10 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
         }
         // 기적으로 일으켰으면 아군 전체 회복은 건너뛴다
         if (e.who === "allies" && revived) break;
-        for (let h = 0; h < rest; h++) for (const t of recipients(b, actor, target, e.who)) heal(b, t, Math.round((e.amount + healPower) * healMul), actor.id);
+        const healed = recipients(b, actor, target, e.who);
+        for (let h = 0; h < rest; h++) for (const t of healed) heal(b, t, Math.round((e.amount + healPower) * healMul), actor.id);
+        // 패시브: 회복받은 아군 (상태이상 해제 확률, 1턴 받는 피해 -, 1턴 방어 +)
+        if (pf) for (const t of healed) afterHealed(b, rng, actor, t);
         break;
       }
       case "revive": {
@@ -1679,6 +1821,8 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
         const kinds = e.count ? DEBUFFS : (e.kinds ?? HARMFUL);
         const found = t.statuses.filter((x) => kinds.includes(x.kind)).slice(0, e.count ?? Infinity);
         for (const s of found) cure(b, t, s.kind, actor.id, "skill");
+        // 정령의 합창 (패시브): 상태이상을 풀어 주면 추가 회복
+        if (found.length && pf?.cureHeal && t.hp > 0) heal(b, t, Math.max(1, Math.round(t.maxHp * pf.cureHeal)), actor.id);
         break;
       }
       case "shield":
@@ -1715,6 +1859,48 @@ function castSkill(b: Battle, rng: Rng, actor: Unit, skillId: SkillId, target: U
         break;
     }
   }
+  if (pf) afterSkill(b, rng, actor, skill, skillId, mainId, song);
+}
+
+/** 스킬을 쓴 뒤 (패시브): 노래(받은 아군에게 더 거는 것·잔향 회복·공포의 울음), 마력 순환(대기 -1), 바람의 검무 */
+function afterSkill(b: Battle, rng: Rng, actor: Unit, _skill: Skill, skillId: SkillId, mainId: string, song: boolean) {
+  const pf = actor.pfx!;
+  if (song) {
+    const allies = living(b, actor.side);
+    const buff = pf.songBuff;
+    if (buff)
+      for (const u of allies) {
+        if (buff.stunRes) applyStatus(b, u, "stunResUp", { value: Math.max(statusValue(u, "stunResUp"), buff.stunRes), turns: 2 });
+        if (buff.evade) applyStatus(b, u, "evadeUp", { value: Math.max(statusValue(u, "evadeUp"), buff.evade), turns: 2 });
+        if (buff.crit) applyStatus(b, u, "critUp", { value: Math.max(statusValue(u, "critUp"), buff.crit), turns: 2 });
+        if (buff.power) applyStatus(b, u, "empower", { value: buff.power, turns: 2 });
+        if (buff.taken) applyStatus(b, u, "toughen", { value: Math.max(statusValue(u, "toughen"), buff.taken), turns: 2 });
+        if (buff.bleedChance) applyStatus(b, u, "bleedEdge", { value: buff.bleedChance, turns: 2 });
+      }
+    if (pf.songFear) {
+      const pool = foes(b, actor);
+      if (pool.length) tryStatus(b, rng, actor, pool[Math.floor(rng.next() * pool.length)], { status: "stun", chance: pf.songFear, turns: 1 });
+    }
+  }
+  // 마력 순환: 확률로 그 스킬 대기 -1
+  if (pf.cooldownSkip && (actor.cooldowns[skillId] ?? 0) > 0 && rng.next() < pf.cooldownSkip) actor.cooldowns[skillId] -= 1;
+  // 바람의 검무: 정해진 스킬을 쓴 뒤 다음 차례까지 속도·회피 +
+  if (pf.afterSkill && pf.afterSkill.skill === mainId) {
+    applyStatus(b, actor, "speedUp", { value: pf.afterSkill.speed, turns: 1, self: true });
+    applyStatus(b, actor, "evadeUp", { value: pf.afterSkill.evade, turns: 1, self: true });
+  }
+}
+
+/** 회복받은 아군 (패시브): 생명의 이슬(상태이상 해제), 빛의 가호(1턴 받는 피해 -), 화로의 온기(1턴 방어 +) */
+function afterHealed(b: Battle, rng: Rng, actor: Unit, t: Unit) {
+  const pf = actor.pfx!;
+  if (t.hp <= 0) return;
+  if (pf.healCure && rng.next() < pf.healCure) {
+    const bad = t.statuses.find((x) => DEBUFFS.includes(x.kind) || HARMFUL.includes(x.kind));
+    if (bad) cure(b, t, bad.kind, actor.id, "skill");
+  }
+  if (pf.healGuard) applyStatus(b, t, "toughen", { value: Math.max(statusValue(t, "toughen"), pf.healGuard), turns: 1, self: t === actor });
+  if (pf.healDefense) applyStatus(b, t, "armorUp", { value: Math.max(statusValue(t, "armorUp"), pf.healDefense), turns: 1, self: t === actor });
 }
 
 // ── 미리보기 ────────────────────────────────────────────
@@ -1803,8 +1989,21 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
             charge: skill || h === 0 ? charge : 0,
             bonusIf: e.bonusIf,
             critIf: e.critIf,
-            ...(h === 0 && tempo ? { flat: tempo } : {}),
-            ...(e.lastHit && hits >= e.lastHit.minHits && h === hits - 1 ? { power: e.lastHit.pct } : {}),
+            // 실제 처리(castSkill·attack)와 같은 스킬 정보 (장신구·패시브 조건)
+            power: (h === 0 ? tempo : 0) + (e.lastHit && hits >= e.lastHit.minHits && h === hits - 1 ? e.lastHit.pct : 0),
+            hitIndex: h,
+            multi: hits > 1,
+            ...(skill
+              ? {
+                  elemental: !!skill.element,
+                  aura: e.aura,
+                  element: skill.element,
+                  fireEarth: skill.id.includes("mg_fire") && skill.id.includes("mg_earth"),
+                  skillWait: skill.cooldown,
+                  selfCost: skill.effects.some((x) => x.kind === "selfCost"),
+                  mainId: skill.id.split("+")[0],
+                }
+              : {}),
           };
           const f = strikeFactors(b, actor, t, opts);
           const hp0 = t.hp;
@@ -1827,11 +2026,9 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
           const toughness = t.hp + (t.shield ?? 0);
           p.kill = p.min >= toughness && p.hitChance >= 1 ? "sure" : p.critMax >= toughness ? "maybe" : "no";
           if ((e.onHit ?? true) && actor.onHit) p.statuses.push({ kind: actor.onHit.status, chance: onHitChance(actor, t) });
-          if (has(actor, "crafters_eye")) p.statuses.push({ kind: "crack", chance: PASSIVE.crackChance });
           if (e.perHit) p.statuses.push({ kind: e.perHit.status, chance: statusChance(t, e.perHit) });
           out.damage.push(p);
           dealt[t.id] = (dealt[t.id] ?? 0) + p.critMax;
-          consume(b, actor, t, f, false);
         }
         break;
       }
@@ -1868,43 +2065,15 @@ export function previewAction(battle: Battle, action: BattleAction): ActionPrevi
   return out;
 }
 
-/** 패시브가 지금 어떤 상태인지 짧게 (화면 표시용). 조건이 안 맞아 꺼져 있으면 null */
+/** 패시브가 지금 켜져 있는지 짧게 (화면 표시용). 조건부 효과가 지금 켜져 있으면 그 상태, 아니면 null */
 export function passiveNote(b: Battle, u: Unit, passive: string): string | null {
-  const fx = u.fx ?? {};
-  switch (passive) {
-    case "blood_thirst": {
-      const n = Math.round(PASSIVE.bloodThirstMax * lostRatio(u));
-      return n > 0 ? `공격 +${n}` : null;
-    }
-    case "pain_oblivion": {
-      const n = Math.round(PASSIVE.painOblivionMax * lostRatio(u));
-      return n > 0 ? `피해 -${n}` : null;
-    }
-    case "peerless_spirit":
-      return `공격 +${foes(b, u).length}`;
-    case "deep_blood": {
-      const n = Math.min(PASSIVE.deepBloodMax, Math.floor(b.walked / PASSIVE.deepBloodStep));
-      return n > 0 ? `공격 +${n}` : null;
-    }
-    case "solidarity":
-      return friends(b, u).length >= 4 ? "공격 +1" : null;
-    case "first_strike":
-      return fx.firstDone ? null : "준비됨";
-    case "rising_cheer":
-      return `흥 ${fx.cheer ?? 0}/${PASSIVE.cheerMax}`;
-    case "wind_dance":
-      return fx.dance ? "다음 공격 +3" : null;
-    case "hunters_focus":
-      return fx.focus ? `연속 ${fx.focus.stacks + 1}` : null;
-    case "last_stand":
-      return fx.lastStandDone ? null : "대기";
-    case "finishing_bite":
-      return fx.biteRound === b.round ? null : "준비됨";
-    case "warrior_pride":
-      return fx.prideRound === b.round ? null : "준비됨";
-    default:
-      return "상시";
-  }
+  const fx = getPassive(passive)?.effects;
+  if (!fx) return null;
+  if (fx.lowHp?.some((l) => u.hp <= u.maxHp * l.below)) return "켜짐";
+  if (fx.lastStandGuard) return u.fx?.lastStandDone ? "썼다" : "대기";
+  if (fx.firstHitEvade) return u.fx?.hitOnce ? null : "준비됨";
+  if (fx.avengeCounter && (u.fx?.avengeUntil ?? -1) >= b.round) return "켜짐";
+  return null;
 }
 
 /** 화면 표시용 능력치 (속도는 보여 주되, 행동 순서는 보여 주지 않는다) */
@@ -1937,7 +2106,7 @@ function ticks(kind: StatusKind): boolean {
 /** 출혈·중독을 걸 때 쌓이는 양: 적은 몬스터 값 → 등급 기본값, 용병(조각 수치가 없을 때)은 기본값 */
 export function dotStack(u: Unit, kind: DotKind): number {
   // 독샘 반지: 거는 중독 +
-  if (u.side !== "enemy") return DOT[kind].stack + (kind === "poison" ? (u.gear?.poisonStack ?? 0) : 0);
+  if (u.side !== "enemy") return DOT[kind].stack + (kind === "poison" ? (u.gear?.poisonStack ?? 0) : (u.pfx?.bleedStack ?? 0));
   return u.dot?.[kind] ?? RANK_DOT[u.rank ?? "normal"][kind];
 }
 
@@ -1976,16 +2145,20 @@ function tick(b: Battle, unit: Unit) {
 /** 행동을 마칠 때: 출혈·중독 피해, 강화·약화 지속 1턴 감소 */
 function endTurn(b: Battle, unit: Unit) {
   dotTick(b, unit);
+  // 야생의 회복 (패시브): 차례 끝에 자기 최대 체력 % 회복
+  if (unit.hp > 0 && unit.pfx?.selfRegen && unit.hp < unit.maxHp) heal(b, unit, Math.max(1, Math.round(unit.maxHp * unit.pfx.selfRegen)), unit.id);
   for (const s of unit.statuses) if (!ticks(s.kind) && !isDot(s.kind)) s.turns--;
+  // 여운: 끝나는 노래 강화가 있으면 한 번 회복 (여럿이면 큰 쪽)
+  const endHeal = Math.max(0, ...unit.statuses.filter((s) => s.turns <= 0 && s.endHeal).map((s) => s.endHeal!));
   unit.statuses = unit.statuses.filter((s) => s.turns > 0);
+  if (endHeal && unit.hp > 0 && unit.hp < unit.maxHp) heal(b, unit, Math.max(1, Math.round(unit.maxHp * endHeal)), unit.id);
 }
 
-/** 속도 (바람 정령의 가호, 선제, 가속·둔화 포함) */
+/** 속도 (선제, 가속·둔화 포함) */
 export function speedOf(u: Unit): number {
   return (
     u.speed +
-    (has(u, "wind_blessing") ? PASSIVE.windBlessingSpeed : 0) +
-    (hasStatus(u, "haste") ? PASSIVE.hasteSpeed : 0) +
+    (hasStatus(u, "haste") ? HASTE_SPEED : 0) +
     statusValue(u, "speedUp") -
     statusValue(u, "slow")
   );
@@ -2008,26 +2181,11 @@ function newRound(b: Battle, rng: Rng) {
   b.turn = -1;
   b.guideUsed = false;
   b.log.push({ type: "round", round: b.round });
-  // 야생의 회복력: 라운드 시작마다 체력 회복
+  // 불굴의 깃발 (패시브): 그 용병이 서 있는 동안 아군 기절 저항 + (라운드마다 다시 본다)
   for (const u of b.units) {
-    if (u.hp > 0 && has(u, "wild_recovery") && u.hp < u.maxHp) heal(b, u, PASSIVE.wildRecovery, u.id);
+    const aura = Math.max(0, ...b.units.filter((x) => x !== u && x.side === u.side && x.hp > 0).map((x) => x.pfx?.allyStunRes ?? 0));
+    if (aura || u.fx?.allyStunRes) u.fx = { ...u.fx, allyStunRes: aura };
   }
-}
-
-/** 전사의 긍지: 위태로운 아군 대신 맞아 줄 바바리안이 있으면 그쪽으로 */
-function protector(b: Battle, target: Unit): Unit {
-  if (target.hp > target.maxHp * PASSIVE.prideAllyRatio) return target;
-  const guard = friends(b, target).find(
-    (u) =>
-      u !== target &&
-      has(u, "warrior_pride") &&
-      u.hp >= u.maxHp * PASSIVE.prideSelfRatio &&
-      u.fx!.prideRound !== b.round,
-  );
-  if (!guard) return target;
-  guard.fx!.prideRound = b.round;
-  b.log.push({ type: "passive", unit: guard.id, passive: "warrior_pride", target: target.id });
-  return guard;
 }
 
 /** 적이 노릴 용병: 막아선 용병이 있으면 그쪽, 없으면 무작위 (전사의 긍지가 가로챌 수 있다) */
@@ -2043,7 +2201,7 @@ function pickVictim(b: Battle, rng: Rng, unit: Unit): Unit | null {
   const guards = foes(b, unit).filter((u) => u.guarding);
   const targets = guards.length > 0 ? guards : foes(b, unit);
   if (targets.length === 0) return null;
-  return protector(b, targets[Math.floor(rng.next() * targets.length)]);
+  return targets[Math.floor(rng.next() * targets.length)];
 }
 
 /**
@@ -2058,7 +2216,7 @@ function enemyTurn(b: Battle, rng: Rng, unit: Unit) {
     const skill = skillDef(unit, id);
     if (skill) {
       const was = aimed ? unitById(b, aimed) : undefined;
-      const target = skill.target === "enemy" ? (was && was.hp > 0 ? protector(b, was) : pickVictim(b, rng, unit)) : undefined;
+      const target = skill.target === "enemy" ? (was && was.hp > 0 ? was : pickVictim(b, rng, unit)) : undefined;
       if (skill.target !== "enemy" || target) {
         castSkill(b, rng, unit, id, target ?? undefined);
         return;

@@ -96,13 +96,24 @@ describe("조각 합치기", () => {
     expect(dmg("knight_slash", ["knight_combo"])).toMatchObject({ hits: 2, multiplier: 0.6 });
   });
 
-  it("고정 피해·치명·방어 무시는 레벨을 따르고 더해진다", () => {
-    expect(dmg("knight_human_main", ["knight_human_sub"])).toMatchObject({ bonus: 2, pierce: 0.2 });
-    expect(dmg("knight_human_main", ["knight_human_sub"], { knight_human_sub: 3 }).bonus).toBe(5);
-    expect(dmg("gs_human_main", ["gs_human_sub"], { gs_human_sub: 3 })).toMatchObject({ bonus: 3, critBonus: 0.2 });
+  it("오러률·치명·방어 무시는 레벨을 따르고 더해진다 (고정 피해는 없다)", () => {
+    // 오러 블레이드(오러 30%) + 오러 Lv1(+10%) / Lv3(+20%)
+    expect(dmg("knight_human_main", ["knight_human_sub"])).toMatchObject({ aura: 0.4 });
+    expect(dmg("knight_human_main", ["knight_human_sub"], { knight_human_sub: 3 }).aura).toBeCloseTo(0.5);
+    // 검기 날리기(방어 무시 15%) + 정확한 자세 Lv3
+    expect(dmg("gs_human_main", ["gs_human_sub"], { gs_human_sub: 3 })).toMatchObject({ pierce: 0.15, critBonus: 0.2 });
+    expect(dmg("gs_human_main", ["gs_human_sub"]).bonus).toBeUndefined();
   });
 
-  it("상한: 같은 종류 부 조각 효과의 합은 잘린다 (위력 25%, 치명 30%, 고정 15)", () => {
+  it("고정 피해 잔재 없음: 용병 조각에는 고정 피해(bonus)·고정 피해 부 조각이 없고, 상한에도 없다", () => {
+    for (const f of FRAGMENTS) {
+      if (f.kind === "main") for (const e of f.effects) expect((e as { bonus?: number }).bonus, f.id).toBeUndefined();
+      else for (const m of f.mods) expect(m.kind, f.id).not.toBe("flat");
+    }
+    expect(Object.keys(SUB_CAPS)).not.toContain("flat");
+  });
+
+  it("상한: 같은 종류 부 조각 효과의 합은 잘린다 (위력 25%, 치명 30%, 방어 무시 25%)", () => {
     // 합치기는 직업 제한을 보지 않는다 (제한은 validateSkill). 그래서 여러 직업의 조각으로 상한을 시험한다
     const twoPower = resolveSkill({ main: "gs_strike", subs: ["gs_recoil", "gs_pierce"] })!;
     expect((twoPower.effects[0] as DamageEffect).multiplier).toBeCloseTo(1.4 * 1.2);
@@ -115,8 +126,8 @@ describe("조각 합치기", () => {
     expect(power.multiplier).toBeCloseTo(0.6 * (1 + SUB_CAPS.power));
     const withCost = dmg("monk_punch", ["monk_vital", "as_aim"]);
     expect(withCost.multiplier).toBeCloseTo(0.6 * (1 + 0.2 - 0.1));
-    // 고정: 오러 Lv3(5) + 정밀 화살촉 Lv3(4) = 9 (상한 아래)
-    expect(dmg("knight_slash", ["knight_human_sub", "ar_human_sub"], { knight_human_sub: 3, ar_human_sub: 3 }).bonus).toBe(9);
+    // 방어 무시: 정밀 화살촉 Lv3(20%) + 바람 Lv3(20%) = 40% → 25%
+    expect(dmg("knight_slash", ["ar_human_sub", "mg_wind"], { ar_human_sub: 3, mg_wind: 3 }).pierce).toBeCloseTo((dmg("knight_slash", []).pierce ?? 0) + SUB_CAPS.pierce);
   });
 
   it("덧붙는 상태: 공격 스킬에만 붙는 것, 대상이 따라가는 것", () => {

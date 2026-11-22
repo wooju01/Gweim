@@ -230,7 +230,7 @@ function combine(main: MainFragment, subs: SubFragment[], levels: SubLevels, id:
   };
 
   // ── 수치 합산 (상한은 양수 쪽만) ──
-  const sum = { powerUp: resonance, powerDown: 0, crit: 0, flat: 0, pierce: 0, lifesteal: 0, cooldown: 0, duration: 0, effect: 0, heal: 0 };
+  const sum = { powerUp: resonance, powerDown: 0, crit: 0, aura: 0, pierce: 0, lifesteal: 0, cooldown: 0, duration: 0, effect: 0, heal: 0 };
   const added: SkillEffect[] = [];
   let shieldFromHeal = 0;
   // 조건부 위력·마지막 타격·튀는 피해 (피해 효과마다 붙인다)
@@ -248,8 +248,8 @@ function combine(main: MainFragment, subs: SubFragment[], levels: SubLevels, id:
       case "crit":
         sum.crit += val(m.pct, sub);
         break;
-      case "flat":
-        sum.flat += val(m.amount, sub);
+      case "aura":
+        sum.aura += val(m.pct, sub);
         break;
       case "pierce":
         sum.pierce += val(m.pct, sub);
@@ -328,14 +328,15 @@ function combine(main: MainFragment, subs: SubFragment[], levels: SubLevels, id:
   }
   const power = Math.min(sum.powerUp, SUB_CAPS.power) + sum.powerDown;
   const crit = Math.min(sum.crit, SUB_CAPS.crit);
-  const flat = Math.min(sum.flat, SUB_CAPS.flat);
+  const aura = Math.min(sum.aura, SUB_CAPS.aura);
   const pierce = Math.min(sum.pierce, SUB_CAPS.pierce);
 
   effects = [...effects, ...added].map((e): SkillEffect => {
     switch (e.kind) {
       case "damage": {
         let d = power ? scaleDamage(e, 1 + power) : { ...e };
-        if (flat && !d.fixed) d = { ...d, bonus: (d.bonus ?? 0) + Math.round(flat) };
+        // 오러률 (인간 기사): 메인의 오러률에 더한다 (합쳐 100%까지)
+        if (aura) d = { ...d, aura: Math.min(1, round3((d.aura ?? 0) + aura)) };
         if (crit) d = { ...d, critBonus: round3((d.critBonus ?? 0) + crit) };
         if (pierce) d = { ...d, pierce: Math.min(1, round3((d.pierce ?? 0) + pierce)) };
         if (sum.lifesteal) d = { ...d, lifesteal: round3((d.lifesteal ?? 0) + sum.lifesteal) };
@@ -477,8 +478,8 @@ export function describeFragment(f: Fragment, lv = 1): string {
           return `위력 ${signed(v(m.pct), pctText)}`;
         case "cooldown":
           return `대기 ${signed(m.turns)}`;
-        case "flat":
-          return `고정 피해 +${v(m.amount)}`;
+        case "aura":
+          return `오러률 +${pctText(v(m.pct))}`;
         case "crit":
           return `치명 +${pctText(v(m.pct))}`;
         case "pierce":

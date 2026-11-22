@@ -34,8 +34,8 @@ export type SubMod =
   | { kind: "power"; pct: Scaled }
   /** 대기 ± */
   | { kind: "cooldown"; turns: number }
-  /** 고정 피해 + */
-  | { kind: "flat"; amount: Scaled }
+  /** 오러률 + (인간 기사 전용 이름. 방어 무시와 같은 공식) */
+  | { kind: "aura"; pct: Scaled }
   /** 치명 확률 + */
   | { kind: "crit"; pct: Scaled }
   /** 방어 무시 + */
@@ -123,9 +123,9 @@ export const MAX_SUB_LEVEL = 3;
 
 /**
  * 한 스킬 안 부 조각 효과 상한 (효과 종류별 합). 지금은 단순 합산 후 자른다.
- * power·pierce는 퍼센트 효과, crit은 치명 확률, flat은 고정 피해. 대가(음수)는 자르지 않는다
+ * power·pierce·aura는 퍼센트 효과, crit은 치명 확률. 대가(음수)는 자르지 않는다 (2026-11-22: 고정 피해 상한은 고정 피해와 함께 없앴다)
  */
-export const SUB_CAPS = { power: 0.25, pierce: 0.25, crit: 0.3, flat: 15 } as const;
+export const SUB_CAPS = { power: 0.25, pierce: 0.25, aura: 0.25, crit: 0.3 } as const;
 
 /** 조립 비용 (금화) */
 export const CRAFT_COST = 20;
@@ -283,8 +283,8 @@ const KNIGHT = jobSet("knight", {
   ],
   races: {
     human: [
-      { id: "knight_human_main", name: "오러 블레이드", target: "enemy", wait: 1, effects: [hit(1, { pierce: 0.2 })] },
-      { id: "knight_human_sub", name: "오러", word: "오러", mods: [{ kind: "flat", amount: [2, 5] }] },
+      { id: "knight_human_main", name: "오러 블레이드", target: "enemy", wait: 1, effects: [hit(1, { aura: 0.3 })] },
+      { id: "knight_human_sub", name: "오러", word: "오러", mods: [{ kind: "aura", pct: [0.1, 0.2] }] },
     ],
     elf: [
       { id: "knight_elf_main", name: "정령 검격", target: "enemy", wait: 1, effects: [mixed(["str", 1], ["mag", 0.3])] },
@@ -388,7 +388,7 @@ const GREATSWORD = jobSet("greatsword", {
   mains: [
     { id: "gs_strike", name: "대검 일섬", target: "enemy", wait: 1, effects: [hit(1.4)] },
     { id: "gs_whirl", name: "회전 베기", target: "none", wait: 3, effects: [hit(0.7, { area: "all" })] },
-    { id: "gs_breaker", name: "갑옷 부수기", target: "enemy", wait: 2, effects: [hit(1), st("crack", { value: 2, turns: 3 })] },
+    { id: "gs_breaker", name: "갑옷 부수기", target: "enemy", wait: 2, effects: [hit(1), st("crack", { value: 0.1, turns: 3 })] },
     { id: "gs_stance", name: "자세 잡기", target: "none", wait: 2, effects: [st("charge", { value: 1, turns: 1, who: "self" })] },
   ],
   subs: [
@@ -399,7 +399,7 @@ const GREATSWORD = jobSet("greatsword", {
   ],
   races: {
     human: [
-      { id: "gs_human_main", name: "검기 날리기", target: "enemy", wait: 1, effects: [hit(1, { bonus: 3 })] },
+      { id: "gs_human_main", name: "검기 날리기", target: "enemy", wait: 1, effects: [hit(1, { pierce: 0.15 })] },
       { id: "gs_human_sub", name: "정확한 자세", word: "정확한", mods: [{ kind: "crit", pct: [0.1, 0.2] }] },
     ],
     dwarf: [
@@ -467,7 +467,7 @@ const ASSASSIN = jobSet("assassin", {
   ],
   races: {
     human: [
-      { id: "as_human_main", name: "약점 찌르기", target: "enemy", wait: 1, effects: [hit(0.8, { bonus: 4 })] },
+      { id: "as_human_main", name: "약점 찌르기", target: "enemy", wait: 1, effects: [hit(1, { pierce: 0.2 })] },
       { id: "as_human_sub", name: "이어지는 칼끝", word: "이어지는", mods: [{ kind: "status", roll: { status: "charge", turns: 1 }, lv: [0.1, 0.2], to: "self" }] },
     ],
     elf: [
@@ -511,7 +511,7 @@ const MONK = jobSet("monk", {
   ],
   races: {
     human: [
-      { id: "monk_human_main", name: "발경", target: "enemy", wait: 1, effects: [hit(0.9, { bonus: 4 })] },
+      { id: "monk_human_main", name: "발경", target: "enemy", wait: 1, effects: [hit(1, { pierce: 0.25 })] },
       {
         id: "monk_human_sub",
         name: "경락 타격", word: "경락",
@@ -574,7 +574,7 @@ const ARCHER = jobSet("archer", {
   races: {
     human: [
       { id: "ar_human_main", name: "다리 쏘기", target: "enemy", wait: 1, effects: [hit(0.9), st("slow", { value: 3, turns: 2 })] },
-      { id: "ar_human_sub", name: "정밀 화살촉", word: "정밀", mods: [{ kind: "flat", amount: [2, 4] }] },
+      { id: "ar_human_sub", name: "정밀 화살촉", word: "정밀", mods: [{ kind: "pierce", pct: [0.1, 0.2] }] },
     ],
     elf: [
       {
@@ -635,7 +635,7 @@ const PRIEST = jobSet("priest", {
   ],
   races: {
     human: [
-      { id: "pr_human_main", name: "신성한 심판", target: "enemy", wait: 1, stat: "faith", effects: [hit(0.8, { bonus: 4 })] },
+      { id: "pr_human_main", name: "신성한 심판", target: "enemy", wait: 1, stat: "faith", effects: [hit(1, { pierce: 0.2 })] },
       {
         id: "pr_human_sub",
         name: "수호의 축언", word: "수호의",
@@ -724,7 +724,7 @@ const MAGE = jobSet("mage", {
   ],
   races: {
     human: [
-      { id: "mg_human_main", name: "마력 화살", target: "enemy", wait: 1, effects: [hit(0.7, { bonus: 5 })] },
+      { id: "mg_human_main", name: "마력 화살", target: "enemy", wait: 1, effects: [hit(1, { pierce: 0.25 })] },
       { id: "mg_human_sub", name: "비전 각인", word: "비전", mods: [{ kind: "status", roll: { status: "arcaneMark", turns: 2 }, lv: [0.1, 0.2], to: "foe", when: "attack" }, { kind: "cooldown", turns: 1 }] },
     ],
     elf: [
@@ -772,7 +772,7 @@ const MINSTREL = jobSet("minstrel", {
   races: {
     human: [
       { id: "mn_human_main", name: "행진곡", target: "none", wait: 1, effects: [st("speedUp", { value: 2, turns: 2, who: "allies" })] },
-      { id: "mn_human_sub", name: "박자 맞추기", word: "박자 맞춘", mods: [{ kind: "status", roll: { status: "tempo", turns: 2 }, lv: [2, 4], to: "auto" }, { kind: "cooldown", turns: 1 }] },
+      { id: "mn_human_sub", name: "박자 맞추기", word: "박자 맞춘", mods: [{ kind: "status", roll: { status: "tempo", turns: 2 }, lv: [0.1, 0.2], to: "auto" }, { kind: "cooldown", turns: 1 }] },
     ],
     elf: [
       {

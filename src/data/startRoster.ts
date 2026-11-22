@@ -6,13 +6,12 @@ import { resolveTraits, rollStart, seededRandom } from "@/game/merc/generate";
 import { rollStartSkills } from "@/game/skills";
 import type { MercProfile, MercSeed, MercTraits } from "@/lib/schemas";
 
-type Start = { id: string; traits: MercTraits; passives: string[]; affinity: number; profile: MercProfile };
+type Start = { id: string; traits: MercTraits; affinity: number; profile: MercProfile };
 
 const STARTERS: Start[] = [
   {
     id: "m-garen",
     traits: { race: "human", job: "guardian", personalities: ["honorable"], background: "veteran", gender: "male" },
-    passives: ["solidarity"],
     affinity: 55,
     profile: {
       name: "가렌",
@@ -27,7 +26,6 @@ const STARTERS: Start[] = [
   {
     id: "m-sylra",
     traits: { race: "elf", job: "archer", personalities: ["curious"], background: "wanderer", gender: "female" },
-    passives: ["keen_eye"],
     affinity: 40,
     profile: {
       name: "실라",
@@ -42,7 +40,6 @@ const STARTERS: Start[] = [
   {
     id: "m-borin",
     traits: { race: "dwarf", job: "priest", personalities: ["devout"], background: "excommunicated", gender: "male" },
-    passives: ["steel_heart"],
     affinity: 70,
     profile: {
       name: "보린",
@@ -57,7 +54,6 @@ const STARTERS: Start[] = [
   {
     id: "m-raka",
     traits: { race: "beastfolk", job: "assassin", personalities: ["cynical"], background: "ex_slave", gender: "female" },
-    passives: ["chase_instinct"],
     affinity: 35,
     profile: {
       name: "라카",
@@ -72,7 +68,6 @@ const STARTERS: Start[] = [
   {
     id: "m-ulfa",
     traits: { race: "barbarian", job: "greatsword", personalities: ["reckless"], background: "war_orphan", gender: "female" },
-    passives: ["blood_thirst"],
     affinity: 60,
     profile: {
       name: "울파",
@@ -87,7 +82,6 @@ const STARTERS: Start[] = [
   {
     id: "m-nell",
     traits: { race: "human", job: "mage", personalities: ["timid"], background: "academy_dropout", gender: "male" },
-    passives: ["improvise"],
     affinity: 45,
     profile: {
       name: "넬",
@@ -102,7 +96,6 @@ const STARTERS: Start[] = [
   {
     id: "m-thane",
     traits: { race: "dwarf", job: "knight", personalities: ["proud"], background: "fallen_noble", gender: "male" },
-    passives: ["rock_root"],
     affinity: 80,
     profile: {
       name: "세인",
@@ -117,7 +110,6 @@ const STARTERS: Start[] = [
   {
     id: "m-mika",
     traits: { race: "beastfolk", job: "monk", personalities: ["optimistic"], background: "aspiring_adventurer", gender: "female" },
-    passives: ["wild_recovery"],
     affinity: 30,
     profile: {
       name: "미카",
@@ -133,7 +125,6 @@ const STARTERS: Start[] = [
   {
     id: "m-elsa",
     traits: { race: "human", job: "knight", personalities: ["kind"], background: "guild_apprentice", gender: "female" },
-    passives: ["last_stand"],
     affinity: 65,
     profile: {
       name: "엘사",
@@ -148,7 +139,6 @@ const STARTERS: Start[] = [
   {
     id: "m-lirien",
     traits: { race: "elf", job: "priest", personalities: ["easygoing"], background: "plague_survivor", gender: "male" },
-    passives: ["feather_step"],
     affinity: 50,
     profile: {
       name: "리리엔",
@@ -163,7 +153,6 @@ const STARTERS: Start[] = [
   {
     id: "m-brokk",
     traits: { race: "barbarian", job: "minstrel", personalities: ["jovial"], background: "bard", gender: "male" },
-    passives: ["war_cry"],
     affinity: 40,
     profile: {
       name: "브로크",
@@ -184,7 +173,6 @@ export function startSeeds(): MercSeed[] {
     traits: s.traits,
     start: { ...rollStart(resolveTraits(s.traits) ?? [], seededRandom(3000 + i)), affinity: s.affinity, willingness: 100 },
     level: "bronze",
-    passives: s.passives,
     skills: rollStartSkills({ job: s.traits.job, race: s.traits.race, level: "bronze" }, seededRandom(4000 + i)),
     profile: s.profile,
   }));

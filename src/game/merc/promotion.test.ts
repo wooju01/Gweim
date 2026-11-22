@@ -22,35 +22,37 @@ describe("승급", () => {
     expect(rankLabel("gold", 2)).toBe("금 1단계");
   });
 
-  it("후보는 언제 봐도 같고, 이미 가진 패시브는 빠진다. 금으로 오를 때만 전직 갈래", () => {
+  it("후보: 은으로 오를 때 은 A/B, 금으로 오를 때 금 A/B (그 직업·종족). 금으로 오를 때만 전직 갈래", () => {
     const a = promotionChoices(seed);
-    expect(a).toEqual(promotionChoices(seed));
-    expect(a.passives).toHaveLength(2);
-    for (const id of a.passives) expect(seed.passives).not.toContain(id);
+    expect(a.passives).toEqual(["greatsword_dwarf_sA", "greatsword_dwarf_sB"]);
     expect(a.branches).toEqual([]);
-    expect(promotionChoices(atSilver).branches.map((b) => b.id)).toEqual(["crusher", "gale_blade"]);
+    const g = promotionChoices({ ...atSilver, passiveSilver: "greatsword_dwarf_sB" });
+    expect(g.passives).toEqual(["greatsword_dwarf_gA", "greatsword_dwarf_gB"]);
+    expect(g.branches.map((b) => b.id)).toEqual(["crusher", "gale_blade"]);
   });
 
-  it("동 → 은: 패시브가 늘고, 궁극기는 아직 없다", () => {
-    const { passives } = promotionChoices(seed);
-    const done = promote(seed, { passive: passives[0] })!;
-    expect(done.level).toBe("silver");
-    expect(done.passives).toContain(passives[0]);
+  it("동 → 은: 은 패시브를 하나 고른다 (후보 밖은 안 된다), 궁극기는 아직 없다", () => {
+    expect(promote(seed, {})).toBeNull();
+    expect(promote(seed, { passive: "greatsword_dwarf_gA" })).toBeNull();
+    const done = promote(seed, { passive: "greatsword_dwarf_sB" })!;
+    expect(done).toMatchObject({ level: "silver", passiveSilver: "greatsword_dwarf_sB" });
     expect(done.ultimate).toBeUndefined();
-    expect(buildMerc(done)).not.toBeNull();
+    expect(buildMerc(done)!.passives).toEqual(["greatsword_job", "greatsword_dwarf_sB"]);
   });
 
   it("은 → 금: 전직 갈래를 골라야 하고, 궁극기가 열린다", () => {
-    const { passives } = promotionChoices(atSilver);
-    expect(promote(atSilver, { passive: passives[0] })).toBeNull();
-    expect(promote(atSilver, { passive: passives[0], branch: "saber" })).toBeNull(); // 기사 갈래
-    const done = promote(atSilver, { passive: passives[0], branch: "crusher" })!;
-    expect(done).toMatchObject({ level: "gold", branch: "crusher", ultimate: JOB_ULTIMATE.greatsword });
+    const silver = { ...atSilver, passiveSilver: "greatsword_dwarf_sA" };
+    const { passives } = promotionChoices(silver);
+    expect(promote(silver, { passive: passives[0] })).toBeNull();
+    expect(promote(silver, { passive: passives[0], branch: "saber" })).toBeNull(); // 기사 갈래
+    // 금 패시브는 2차 갈래와 상관없이 고른다
+    const done = promote(silver, { passive: passives[1], branch: "crusher" })!;
+    expect(done).toMatchObject({ level: "gold", branch: "crusher", passiveGold: "greatsword_dwarf_gB", ultimate: JOB_ULTIMATE.greatsword });
     expect(buildMerc(done)).not.toBeNull();
   });
 
   it("원소술사는 원소 둘을 함께 고른다", () => {
-    const mage: MercSeed = { ...atSilver, id: "m", traits: { ...atSilver.traits, job: "mage", race: "human", personalities: ["kind"] }, passives: [], skills: [] };
+    const mage: MercSeed = { ...atSilver, id: "m", traits: { ...atSilver.traits, job: "mage", race: "human", personalities: ["kind"] }, skills: [] };
     const passive = promotionChoices(mage).passives[0];
     expect(promote(mage, { passive, branch: "elementalist" })).toBeNull();
     expect(promote(mage, { passive, branch: "elementalist", elements: ["fire", "fire"] })).toBeNull();

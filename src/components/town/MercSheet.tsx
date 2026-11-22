@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { STAT_NAME, STAT_ORDER, nextPointGain, type StatKey } from "@/data/growth";
 import { getPassive } from "@/data/passives";
-import { RANKS, rankLabel } from "@/data/ranks";
+import { rankLabel } from "@/data/ranks";
 import { TRINKET_SLOTS, canWear, getTrinket, tierFits, trinketFits, trinketText, trinketsBonus, type OwnedTrinket } from "@/data/trinkets";
 import { CURRENCY } from "@/data/economy";
 import { mercUnit, resistOf, unitStats } from "@/game/combat/engine";
@@ -65,7 +65,6 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
   const worn = p.trinkets;
   const full = worn.length >= TRINKET_SLOTS;
   const fits = trinkets.map((t, index) => ({ t, index, def: getTrinket(t.id) })).filter((x) => trinketFits(x.def, merc.job) && tierFits(x.def, merc.level) && canWear(x.def, full ? worn.slice(1) : worn));
-  const steel = merc.passives?.includes("steel_heart");
 
   return (
     <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 p-3" onClick={onClose} role="dialog" aria-modal aria-label={`${merc.name} 정보`}>
@@ -120,8 +119,8 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
 
             <Box title="저항">
               <Row k="기절" v={pct(Math.max(0, resistOf(unit, "stun")))} />
-              <Row k="출혈" v={steel ? "걸릴 확률 절반" : pct(Math.max(0, resistOf(unit, "bleed")))} />
-              <Row k="중독" v={steel ? "걸릴 확률 절반" : pct(Math.max(0, resistOf(unit, "poison")))} />
+              <Row k="출혈" v={pct(Math.max(0, resistOf(unit, "bleed")))} />
+              <Row k="중독" v={pct(Math.max(0, resistOf(unit, "poison")))} />
               <Row k="치유 감소" v={pct(Math.max(0, resistOf(unit, "healReduction")))} />
               <p className="text-[11px] text-ash">기절은 걸릴 때마다 그 전투 동안 저항이 40%씩 쌓인다.</p>
             </Box>
@@ -139,19 +138,17 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
             <Box title="특성">
               {merc.tags && merc.tags.length > 2 && <p className="text-xs text-bone/80">{merc.tags.slice(2).join(" · ")}</p>}
               {merc.impression && <p className="text-xs italic text-ash">{merc.impression}</p>}
-              {(merc.passives ?? []).length === 0 ? (
-                <p className="text-xs text-ash">종족 패시브가 없다.</p>
-              ) : (
-                (merc.passives ?? []).map((id) => {
-                  const ps = getPassive(id);
-                  return (
-                    <p key={id} className="text-xs">
-                      <b className="text-ember">✦ {ps?.name}</b> <span className="text-bone/70">{ps?.description}</span>
-                    </p>
-                  );
-                })
-              )}
-              {merc.level && <p className="text-[11px] text-ash">패시브 칸 {(merc.passives ?? []).length} / {RANKS[merc.level].maxPassives}</p>}
+              {(merc.passives ?? []).map((id) => {
+                const ps = getPassive(id);
+                const tier = ps?.tier === "job" ? "직업" : ps?.tier === "silver" ? "은" : "금";
+                return (
+                  <p key={id} className="text-xs">
+                    <span className="mr-1 rounded-sm border border-edge px-1 text-[10px] text-ash">{tier}</span>
+                    <b className="text-ember">✦ {ps?.name}</b> <span className="text-bone/70">{ps?.description}</span>
+                  </p>
+                );
+              })}
+              <p className="text-[11px] text-ash">직업 패시브는 처음부터, 은 승급 때 은 패시브, 금(2차 전직) 때 금 패시브를 하나씩 고른다.</p>
             </Box>
           </div>
 

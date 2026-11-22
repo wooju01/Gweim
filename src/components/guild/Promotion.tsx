@@ -66,11 +66,15 @@ export function Promotion({ offer, gold, onDone }: { offer: PromotionOffer; gold
       )}
       {offer.passives.length > 0 && (
         <div className="flex flex-col gap-1.5">
-          <span className="text-xs text-ash">새 패시브 하나</span>
+          <span className="text-xs text-ash">
+            {offer.passives[0]?.tier === "gold" ? "금" : "은"} 패시브 하나 (A·B 중, 한 번 고르면 바꿀 수 없다. 2차 갈래와 상관없이 고른다)
+          </span>
           <div className="grid gap-1.5 sm:grid-cols-2">
             {offer.passives.map((ps) => (
               <button key={ps.id} className={option(passive === ps.id)} onClick={() => setPassive(ps.id)}>
-                <b>✦ {ps.name}</b>
+                <b>
+                  ✦ {ps.slot} · {ps.name}
+                </b>
                 <span className="text-bone/70">{ps.description}</span>
               </button>
             ))}

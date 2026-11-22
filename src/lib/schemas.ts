@@ -115,8 +115,9 @@ export const MercSeed = z.object({
     willingness: z.number().int().min(0).max(100),
   }),
   level: MercLevel.default("bronze"),
-  /** 종족 패시브 id (data/passives.ts). 개수는 등급이 정한다 */
-  passives: z.array(z.string().max(40)).max(5).default([]),
+  /** 고른 융합 패시브 id (data/passives.ts): 은 승급 때 은 A/B 중 하나, 금(2차 전직) 때 금 A/B 중 하나. 직업 패시브는 직업이 정한다 */
+  passiveSilver: z.string().max(40).optional(),
+  passiveGold: z.string().max(40).optional(),
   /** 장착 스킬 (최대 4). 비어 있으면 직업 기본 조각 하나 */
   skills: z.array(SkillBuild).max(4).default([]),
   /** 장착 궁극기 조각 id (금 등급부터) */

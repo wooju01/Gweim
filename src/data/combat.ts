@@ -47,7 +47,10 @@ export type StatusKind =
   | "tempo"
   | "riposte"
   | "evadeCounter"
-  | "evadeCharge";
+  | "evadeCharge"
+  // ── 2026-11-22 패시브 (노래 강화) ──
+  | "empower"
+  | "bleedEdge";
 /** 물자. greaterPotion: 중급 물약 (회복량 2배, 길드가 은이면 상점에 나온다) */
 export type SupplyKind = "bandage" | "antidote" | "potion" | "greaterPotion";
 
@@ -98,7 +101,7 @@ export const STATUS: Record<StatusKind, StatusInfo> = {
   bleed: { name: "출혈", damage: 4, turns: 1, debuff: true, text: "차례가 끝날 때 피해 {v}, 그 뒤 절반으로" },
   poison: { name: "중독", damage: 2, turns: 1, debuff: true, text: "차례가 끝날 때 피해 {v}, 그 뒤 30% 감소" },
   /** 장인의 눈썰미·갑옷 부수기: 받는 피해 + */
-  crack: { name: "균열", damage: 0, turns: 2, debuff: true, value: 2, text: "받는 피해 +{v}" },
+  crack: { name: "균열", damage: 0, turns: 2, debuff: true, value: 0.1, pct: true, text: "받는 피해 +{v}" },
   /** 포효: 공격력 - */
   weaken: { name: "위축", damage: 0, turns: 2, debuff: true, value: 2, text: "공격 -{v}" },
   /** 사선 돌파: 공격력 +4 */
@@ -150,13 +153,17 @@ export const STATUS: Record<StatusKind, StatusInfo> = {
   /** 비전 각인: 받는 마법 피해 + */
   arcaneMark: { name: "비전 각인", damage: 0, turns: 2, debuff: true, value: 0.1, pct: true, text: "받는 마법 피해 +{v}" },
   /** 박자 맞추기: 다음 공격 한 번의 피해 + (쓰면 사라진다) */
-  tempo: { name: "박자", damage: 0, turns: 2, debuff: false, value: 2, text: "다음 공격 피해 +{v}" },
+  tempo: { name: "박자", damage: 0, turns: 2, debuff: false, value: 0.1, pct: true, text: "다음 공격 위력 +{v}" },
   /** 최후의 보루: 공격자에게 최대 체력의 비율만큼 반드시 반격 */
   riposte: { name: "보루", damage: 0, turns: 1, debuff: false, value: 0.15, pct: true, text: "공격받으면 최대 체력의 {v}로 반격" },
   /** 회피(수인): 피하면 반격 */
   evadeCounter: { name: "되받아치기", damage: 0, turns: 1, debuff: false, text: "피하면 반격" },
   /** 회피(엘프): 피하면 다음 공격 강화 (응축) */
   evadeCharge: { name: "바람 타기", damage: 0, turns: 1, debuff: false, text: "피하면 다음 공격 위력 +50%" },
+  /** 전쟁의 함성(패시브): 공격 위력 % */
+  empower: { name: "고양", damage: 0, turns: 2, debuff: false, value: 0.1, pct: true, text: "공격 위력 +{v}" },
+  /** 야성의 리듬(패시브): 공격에 출혈 확률 */
+  bleedEdge: { name: "야성의 리듬", damage: 0, turns: 2, debuff: false, value: 0.1, pct: true, text: "공격하면 {v} 확률로 출혈" },
 };
 
 /** 붕대·해독제로 치료하는 상태이상 (기본 정화 대상) */
@@ -197,40 +204,8 @@ export const RESIST = {
   chargingOpen: 0.4,
 } as const;
 
-// ── 종족 패시브 수치 (data/passives.ts의 설명과 맞춘다) ──
-export const PASSIVE = {
-  rockRootReduce: 1,
-  crackChance: 0.2,
-  crackBonus: 2,
-  steelHeartFactor: 0.5,
-  cheerMax: 3,
-  cheerMultiplier: 2,
-  bloodThirstMax: 5,
-  painOblivionMax: 3,
-  weakenAmount: 2,
-  prideSelfRatio: 0.6,
-  prideAllyRatio: 0.3,
-  keenEyeCrit: 0.08,
-  featherEvade: 0.1,
-  firstStrikeMultiplier: 1.5,
-  windDanceBonus: 3,
-  windDanceEvade: 0.05,
-  deepBloodStep: 2,
-  deepBloodMax: 3,
-  windBlessingSpeed: 3,
-  huntersFocusMax: 3,
-  chaseRatio: 0.3,
-  chaseBonus: 3,
-  reflexEvade: 0.08,
-  wildRecovery: 1,
-  lastStandRatio: 0.25,
-  awakenBonus: 4,
-  solidarityBonus: 1,
-  inSyncMultiplier: 1.5,
-  adaptMax: 2,
-  braceDefense: 2,
-  hasteSpeed: 100,
-} as const;
+/** 선제: 다음 라운드에 맨 먼저 행동 (속도에 더한다) */
+export const HASTE_SPEED = 100;
 
 export const CRIT_CHANCE = 0.1;
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ALL_TRAITS, BACKGROUNDS, JOBS, PERSONALITIES, RACES, getTrait } from "@/data/traits";
 import { MercSeed } from "@/lib/schemas";
-import { PASSIVES, getPassive, passivesOf } from "@/data/passives";
+import { FUSION_PASSIVES, JOB_PASSIVES, PASSIVES, PASSIVE_CAP, fusionChoices, pctSum } from "@/data/passives";
 import { canBe } from "@/data/jobs";
 import { dislikedTones, likedTones } from "./affinity";
 import {
@@ -140,7 +140,7 @@ describe("combineReactions", () => {
 
   it("뽑힌 용병은 대부분 좋아하는 태도와 싫어하는 태도를 모두 가진다", () => {
     const mercs = rollMany().map(({ ids, start }) =>
-      buildMerc({ id: "x", traits: ids, start: start!, level: "bronze", passives: [], skills: [], profile }),
+      buildMerc({ id: "x", traits: ids, start: start!, level: "bronze", skills: [], profile }),
     );
     const complete = mercs.filter((m) => likedTones(m!).length > 0 && dislikedTones(m!).length > 0);
     expect(complete.length / mercs.length).toBeGreaterThan(0.95);
@@ -153,7 +153,6 @@ describe("buildMerc", () => {
     traits: { race: "human", job: "priest", personalities: ["rude"], background: "excommunicated" },
     start: { affinity: 15, willingness: 40 },
     level: "bronze",
-    passives: [],
     skills: [],
     profile,
   };
@@ -250,8 +249,7 @@ describe("종족", () => {
       traits: { race: "beastfolk", job: "knight", personalities: ["kind"], background: "wanderer" },
       start: { affinity: 40, willingness: 40 },
       level: "bronze",
-      passives: [],
-      skills: [],
+        skills: [],
       profile,
     };
     expect(buildMerc(seed)).toBeNull();
@@ -269,58 +267,65 @@ describe("종족", () => {
   });
 });
 
-describe("등급과 패시브", () => {
-  it("모든 종족에 패시브 후보가 5개씩 있고 id가 겹치지 않는다", () => {
-    for (const race of RACES) expect(passivesOf(race.id), race.id).toHaveLength(5);
+describe("패시브 (2026-11-22 개편)", () => {
+  it("직업 패시브 9개 + 융합 패시브 132개 (33조합 × 은 A/B × 금 A/B), id가 겹치지 않는다", () => {
+    expect(JOB_PASSIVES).toHaveLength(9);
+    expect(FUSION_PASSIVES).toHaveLength(132);
     expect(new Set(PASSIVES.map((p) => p.id)).size).toBe(PASSIVES.length);
-  });
-
-  it("동 등급은 패시브 0~1개로 시작하고, 반쯤은 하나를 갖는다", () => {
-    const rand = seededRandom(9);
-    let withOne = 0;
-    for (let i = 0; i < 2000; i++) {
-      const passives = rollPassives("dwarf", "bronze", rand);
-      expect(passives.length).toBeLessThanOrEqual(1);
-      if (passives.length === 1) {
-        withOne++;
-        expect(getPassive(passives[0])!.race).toBe("dwarf");
+    for (const job of JOBS)
+      for (const race of RACES.filter((r) => canBe(r.id, job.id))) {
+        for (const tier of ["silver", "gold"] as const) expect(fusionChoices(job.id, race.id, tier).map((p) => p.slot), `${job.id}/${race.id}/${tier}`).toEqual(["A", "B"]);
       }
-    }
-    expect(withOne / 2000).toBeGreaterThan(0.45);
-    expect(withOne / 2000).toBeLessThan(0.55);
   });
 
-  it("다른 종족 패시브, 없는 패시브, 등급 한도 초과, 중복은 거부한다", () => {
-    expect(validPassives("dwarf", "bronze", ["rock_root"])).toBe(true);
-    expect(validPassives("dwarf", "bronze", [])).toBe(true);
-    expect(validPassives("dwarf", "bronze", ["keen_eye"])).toBe(false); // 엘프 것
-    expect(validPassives("dwarf", "bronze", ["fly"])).toBe(false);
-    expect(validPassives("dwarf", "bronze", ["rock_root", "steel_heart"])).toBe(false); // 동은 1개까지
-    expect(validPassives("dwarf", "silver", ["rock_root", "steel_heart"])).toBe(true);
-    expect(validPassives("dwarf", "silver", ["rock_root", "rock_root"])).toBe(false);
+  it("상한: 직업 ≤ 10%, 은 ≤ 10%, 금 ≤ 20% (비율 효과의 합)", () => {
+    for (const p of PASSIVES) expect(pctSum(p.effects), `${p.id} ${p.name}`).toBeLessThanOrEqual(PASSIVE_CAP[p.tier]);
+    // 배치 예: 드워프 기사 = 은A 룬 새김 갑옷 / 은B 혈룬의 서약 / 금A 바위의 발걸음 / 금B 혈룬 각인
+    expect(FUSION_PASSIVES.filter((p) => p.job === "knight" && p.race === "dwarf").map((p) => `${p.tier}${p.slot} ${p.name}`)).toEqual([
+      "silverA 룬 새김 갑옷",
+      "silverB 혈룬의 서약",
+      "goldA 바위의 발걸음",
+      "goldB 혈룬 각인",
+    ]);
   });
 
-  it("buildMerc는 시드의 등급과 패시브를 싣고, 규칙을 어기면 거부한다", () => {
+  it("buildMerc: 직업 패시브는 처음부터, 은·금 패시브는 그 등급부터 그 직업·종족 것만", () => {
     const seed: MercSeed = {
       id: "d-1",
       traits: { race: "dwarf", job: "greatsword", personalities: ["jovial"], background: "veteran" },
       start: { affinity: 15, willingness: 40 },
       level: "bronze",
-      passives: ["rock_root"],
       skills: [],
       profile,
     };
-    expect(buildMerc(seed)).toMatchObject({ level: "bronze", passives: ["rock_root"] });
-    expect(buildMerc({ ...seed, passives: ["keen_eye"] })).toBeNull();
+    expect(buildMerc(seed)!.passives).toEqual(["greatsword_job"]);
+    // 동인데 은 패시브 → 거부, 다른 직업 패시브 → 거부
+    expect(buildMerc({ ...seed, passiveSilver: "greatsword_dwarf_sA" })).toBeNull();
+    expect(buildMerc({ ...seed, level: "silver", passiveSilver: "greatsword_dwarf_sA" })!.passives).toEqual(["greatsword_job", "greatsword_dwarf_sA"]);
+    expect(buildMerc({ ...seed, level: "silver", passiveSilver: "knight_dwarf_sA" })).toBeNull();
+    expect(buildMerc({ ...seed, level: "silver", passiveSilver: "greatsword_dwarf_gA" })).toBeNull();
   });
 
-  it("예전 시드처럼 등급·패시브가 없으면 동, 패시브 없음으로 읽는다", () => {
+  it("은 이상으로 모집되면 융합 패시브를 무작위로 (동은 없다)", () => {
+    const rand = seededRandom(9);
+    expect(rollPassives("greatsword", "dwarf", "bronze", rand)).toEqual({});
+    const s = rollPassives("greatsword", "dwarf", "silver", rand);
+    expect(["greatsword_dwarf_sA", "greatsword_dwarf_sB"]).toContain(s.passiveSilver);
+    expect(s.passiveGold).toBeUndefined();
+    const g = rollPassives("greatsword", "dwarf", "gold", rand);
+    expect(["greatsword_dwarf_gA", "greatsword_dwarf_gB"]).toContain(g.passiveGold);
+    expect(validPassives({ traits: { race: "dwarf", job: "greatsword", personalities: [], background: "veteran" }, level: "gold", ...g })).toBe(true);
+  });
+
+  it("예전 시드처럼 등급이 없으면 동, 융합 패시브 없음으로 읽는다", () => {
     const old = {
       id: "o-1",
       traits: { race: "human", job: "archer", personalities: ["kind"], background: "wanderer" },
       start: { affinity: 15, willingness: 40 },
       profile,
     };
-    expect(MercSeed.parse(old)).toMatchObject({ level: "bronze", passives: [] });
+    const parsed = MercSeed.parse(old);
+    expect(parsed.level).toBe("bronze");
+    expect(parsed.passiveSilver).toBeUndefined();
   });
 });
