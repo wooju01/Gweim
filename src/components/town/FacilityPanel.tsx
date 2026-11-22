@@ -15,15 +15,15 @@ type Props = {
   onBuild: (id: FacilityId) => void;
   /** 위령비 유산 */
   memorial: Fallen[];
-  legaciesUsed: number;
   hired: Merc[];
   onInherit: (fallenId: string, piece: string, mercId: string) => void;
 };
 
-export function FacilityPanel({ levels, slots, blocks, onBuild, memorial, legaciesUsed, hired, onInherit }: Props) {
+export function FacilityPanel({ levels, slots, blocks, onBuild, memorial, hired, onInherit }: Props) {
   const memorialLv = levels.memorial ?? 0;
   const allowed = MEMORIAL.legacies[memorialLv - 1] ?? 0;
-  const legacies = memorial.filter((f) => !f.legacyTaken && (f.legacy?.length ?? 0) > 0);
+  // 죽은 용병 1명마다 allowed개까지
+  const legacies = memorial.filter((f) => (f.legacyTaken?.length ?? 0) < allowed && (f.legacy ?? []).some((x) => !f.legacyTaken?.includes(x.id)));
   return (
     <section aria-label="시설" className="flex flex-col gap-2 rounded-sm border border-edge bg-panel px-4 py-3">
       <p className="text-sm">
@@ -62,17 +62,18 @@ export function FacilityPanel({ levels, slots, blocks, onBuild, memorial, legaci
           <p>
             <b>위령비 유산</b>{" "}
             <span className="text-ash">
-              죽은 용병의 강화된 부 조각 하나를 같은 직업 용병에게 그 레벨 그대로 전수한다 · {legaciesUsed} / {allowed}번
+              죽은 용병 1명마다 강화된 부 조각 {allowed}개까지 같은 직업 용병에게 그 레벨 그대로 전수한다
             </span>
           </p>
           {legacies.length === 0 && <p className="text-ash">이어받을 유산이 없다.</p>}
-          {legaciesUsed < allowed &&
-            legacies.map((f) => {
+          {legacies.map((f) => {
               const heirs = hired.filter((m) => m.job === f.job);
               return (
                 <div key={f.id} className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-bone/80">{f.name}:</span>
-                  {f.legacy!.map((piece) =>
+                  <span className="text-bone/80">
+                    {f.name} ({f.legacyTaken?.length ?? 0} / {allowed}):
+                  </span>
+                  {f.legacy!.filter((piece) => !f.legacyTaken?.includes(piece.id)).map((piece) =>
                     heirs.length === 0 ? (
                       <span key={piece.id} className="text-ash">
                         {getFragment(piece.id)?.name ?? piece.id} Lv{piece.lv} (같은 직업 용병이 없다)

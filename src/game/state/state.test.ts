@@ -1178,7 +1178,7 @@ describe("클랜 내실 (상태)", () => {
     s = gameReducer({ ...s, expedition: null, screen: { kind: "town" } } as GameState, { type: "enterDungeon", seed: 1 });
     expect(s.expedition!.keys).toEqual(["world_tree_branch"]);
     // 넘치게 채운다
-    const over = { ...s, expedition: { ...s.expedition!, salvage: { soft_pelt: 5 * 8 } } };
+    const over = { ...s, expedition: { ...s.expedition!, salvage: { soft_pelt: 10 * 8 } } };
     expect(gameReducer(over, { type: "endExpedition", seed: 1 })).toBe(over);
     // 열쇠를 버리고, 돌아오면 창고에서도 없다
     let t = gameReducer(s, { type: "discard", item: { kind: "key", id: "world_tree_branch" } });
@@ -1196,14 +1196,22 @@ describe("클랜 내실 (상태)", () => {
     expect(TRINKETS.every((t) => t.tier === "bronze")).toBe(true);
   });
 
-  it("위령비: 동료가 죽으면 호감 하락 절반, 2레벨부터 유산 전수", () => {
+  it("위령비 유산: 죽은 용병 1명마다 2레벨 1개, 3레벨 2개까지 (같은 직업만)", () => {
     const s = initialState();
-    const base = { ...s, gold: 0, facilities: { memorial: 2 }, memorial: [{ id: "x", name: "엑스", title: "", words: null, depth: 1, job: "knight", legacy: [{ id: "knight_grit", lv: 2 }] }] };
-    const done = gameReducer({ ...base, progress: { ...base.progress, "s-bran": { ...base.progress["s-bran"], hired: true } } }, { type: "inheritLegacy", fallenId: "x", piece: "knight_grit", mercId: "s-bran" });
-    expect(done.progress["s-bran"].levels.knight_grit).toBe(2);
-    expect(done.progress["s-bran"].pieces).toContain("knight_grit");
-    expect(done.legaciesUsed).toBe(1);
+    const fallen = (id: string) => ({ id, name: id, title: "", words: null, depth: 1, job: "knight", legacy: [{ id: "knight_grit", lv: 2 }, { id: "knight_combo", lv: 3 }] });
+    const base: GameState = { ...s, gold: 0, facilities: { memorial: 2 }, memorial: [fallen("x"), fallen("y")], progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], hired: true }, "s-durgan": { ...s.progress["s-durgan"], hired: true } } };
+    const inherit = (st: GameState, fallenId: string, piece: string, mercId = "s-bran") => gameReducer(st, { type: "inheritLegacy", fallenId, piece, mercId });
+    const one = inherit(base, "x", "knight_grit");
+    expect(one.progress["s-bran"].levels.knight_grit).toBe(2);
+    expect(one.progress["s-bran"].pieces).toContain("knight_grit");
+    expect(one.memorial[0].legacyTaken).toEqual(["knight_grit"]);
+    // 2레벨: 같은 용병에게서 두 번째는 안 되지만, 다른 죽은 용병에게서는 된다
+    expect(inherit(one, "x", "knight_combo")).toBe(one);
+    expect(inherit(one, "y", "knight_combo").progress["s-bran"].levels.knight_combo).toBe(3);
+    // 3레벨: 1명에게서 2개까지
+    const lv3 = inherit(inherit({ ...base, facilities: { memorial: 3 } }, "x", "knight_grit"), "x", "knight_combo");
+    expect(lv3.memorial[0].legacyTaken).toEqual(["knight_grit", "knight_combo"]);
     // 다른 직업에게는 안 된다
-    expect(gameReducer({ ...base, progress: { ...base.progress, "s-durgan": { ...base.progress["s-durgan"], hired: true } } }, { type: "inheritLegacy", fallenId: "x", piece: "knight_grit", mercId: "s-durgan" }).legaciesUsed).toBe(0);
+    expect(inherit(base, "x", "knight_grit", "s-durgan")).toBe(base);
   });
 });

@@ -33,6 +33,10 @@ import { assertMockAI } from "./setup";
 
 const CAMPAIGNS = Number(process.env.CAMPAIGNS ?? 50);
 const TRIPS = Number(process.env.TRIPS ?? 20);
+/** 보스 앞 후퇴 정책 (후퇴 정책일 때): 다음 칸이 보스인데 파티 체력이 이 비율 아래이거나 죽은 동료가 있으면 돌아간다 */
+const BOSS_RETREAT = Number(process.env.BOSS_RETREAT ?? 0.7);
+/** 목표 (보고 표시용) */
+const TARGET = { deaths: [8, 10], gold: 700 } as const;
 const KINDS: SupplyKind[] = ["bandage", "antidote", "potion", "greaterPotion"];
 
 // ── 캠페인 ──────────────────────────────────────────
@@ -81,6 +85,7 @@ function campaign(c: number, retreat: boolean, cfg: Config) {
   let day = 1;
   const facilities: FacilityLevels = {};
   let discarded = 0;
+  let bossRetreats = 0;
   const hire = (exclude: string[]): Member => {
     const pool = SEEDS.filter((s) => !exclude.includes(s.id));
     const base = pool[Math.floor(r() * pool.length)];
@@ -171,7 +176,8 @@ function campaign(c: number, retreat: boolean, cfg: Config) {
     const carry = Object.fromEntries(KINDS.map((k) => [k, Math.min(stash[k], PACK5[k])])) as Record<SupplyKind, number>;
     for (const k of KINDS) stash[k] -= carry[k];
     for (const [k, n] of Object.entries(INFIRMARY[(facilities.infirmary ?? 0) - 1] ?? {}) as [SupplyKind, number][]) carry[k] += n;
-    const res = run(mercs, depth, c * 1000 + t * 17 + (retreat ? 7 : 0), retreat, carry, { bag: bagSlots(facilities), scout: SCOUT_CHANCE[guildSilver ? "silver" : "bronze"] });
+    const res = run(mercs, depth, c * 1000 + t * 17 + (retreat ? 7 : 0), retreat, carry, { bag: bagSlots(facilities), scout: SCOUT_CHANCE[guildSilver ? "silver" : "bronze"], bossRetreat: BOSS_RETREAT });
+    if (res.bossRetreated) bossRetreats++;
     discarded += res.discarded;
     day += res.exp.depth;
     // 상점 재료 구매 한도는 원정마다 다시 찬다
@@ -329,7 +335,7 @@ function campaign(c: number, retreat: boolean, cfg: Config) {
     goldAfter.push(gold);
   }
   return {
-    goldBefore, goldAfter, depths, spent, income, lost, deaths, bossDeaths, unpaid, wipes, guildSilver, discarded,
+    goldBefore, goldAfter, depths, spent, income, lost, deaths, bossDeaths, unpaid, wipes, guildSilver, discarded, bossRetreats,
     facilities: FACILITY_ORDER.map((id) => `${getFacility(id).name} ${facilities[id] ?? 0}`).join(", "),
     stage: party.reduce((a, m) => a + stageIdx(m), 0) / party.length,
     silver: party.filter((m) => m.seed.level !== "bronze").length,
@@ -364,16 +370,18 @@ it("캠페인", () => {
   r.line(`시작 금화 ${START_GOLD} · 시작 짐 5개 · 깨우기 포함 · 필요 경험치 ${XP_TO_NEXT.join("/")} · 단련 ${trainingCost(0)}+10×횟수 · 상점 재료 계열 ${MATERIAL_SHOP.material}·파편 ${MATERIAL_SHOP.shard} (원정마다 종류별 ${MATERIAL_SHOP.perExpedition}개)`);
   r.line("층: 파티 평균 단계 내림 + 1 (최대 3층) · 수입 = 금화 + 유물 판매가 (유실물·재료는 팔지 않는다)");
   r.line("지출 순서: 물자 → 시설(의무실 → 가방 → 훈련장 → 위령비, 숙소 3칸) → 생존 장신구 → (재료 구매) 해금·조립 → (재료 구매) 강화 → 직업 장신구 → 단련 → 승급");
+  r.line(`보스 앞 후퇴: 다음 칸이 보스인데 파티 체력 ${pct(BOSS_RETREAT)} 아래이거나 죽은 동료가 있으면 돌아간다 · 목표: 사망 ${TARGET.deaths[0]}~${TARGET.deaths[1]}명, 남은 금화 ${TARGET.gold} 이하`);
   r.line("가방: 시설 레벨 칸 수, 넘치면 가치가 낮은 칸부터 자동으로 버린다 · 길잡이 능력: 길드 등급 확률 · 클랜은 만들지 않는다 (숙소 단계)\n");
   r.line(`## 요약 (${TRIPS}회 시점)\n`);
   r.table(
-    ["설정", "사망 (합)", "그중 목적지 전투", "전멸 원정", "가방이 꽉 차 버린 개수", "남은 금화", "평균 단계", "은 용병", "길드 은", "장신구 단계 합", "날아간 투자"],
+    ["설정", "사망 (합)", "그중 목적지 전투", "보스 앞 후퇴", "전멸 원정", "가방이 꽉 차 버린 개수", "남은 금화", "평균 단계", "은 용병", "길드 은", "장신구 단계 합", "날아간 투자"],
     all.map((x) => {
       const st = mean(x.xs.map((v) => v.stage));
       return [
         label(x),
         mean(x.xs.map((v) => v.deaths)).toFixed(1),
         mean(x.xs.map((v) => v.bossDeaths)).toFixed(1),
+        mean(x.xs.map((v) => v.bossRetreats)).toFixed(1),
         mean(x.xs.map((v) => v.wipes)).toFixed(2),
         mean(x.xs.map((v) => v.discarded)).toFixed(1),
         mean(x.xs.map((v) => v.goldAfter[TRIPS - 1])).toFixed(0),

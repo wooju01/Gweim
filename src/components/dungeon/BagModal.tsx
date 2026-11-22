@@ -6,7 +6,7 @@ import { KEY_ITEMS, type KeyItemId } from "@/data/keyItems";
 import { getRelic } from "@/data/relics";
 import { carriedValue, getSalvage } from "@/data/loot";
 import { STACK } from "@/data/facilities";
-import { bagItems, bagUsed, type BagItem, type Expedition } from "@/game/dungeon/expedition";
+import { bagItems, bagUsed, cheapestSlot, type BagItem, type Expedition } from "@/game/dungeon/expedition";
 import { Button } from "@/components/common/parts";
 
 type Props = {
@@ -35,6 +35,7 @@ export function BagModal({ exp, onDiscard, onClose }: Props) {
   const cap = exp.bag ?? 8;
   const over = used > cap;
   const { value } = carriedValue(exp.gold, exp.loot.map((id) => getRelic(id)?.value ?? 0), exp.salvage ?? {});
+  const cheapest = cheapestSlot(exp);
   /** 한 칸을 비우는 데 버릴 개수 */
   const oneSlot = (x: BagItem) => {
     const stack = x.kind === "supply" ? STACK.supply : x.kind === "salvage" ? STACK.item : 1;
@@ -60,6 +61,11 @@ export function BagModal({ exp, onDiscard, onClose }: Props) {
             </Button>
           )}
         </header>
+        {cheapest && (
+          <Button className="self-start !px-3 !py-1 text-xs" onClick={() => onDiscard(cheapest)} title="판매가가 가장 낮은 것 한 칸 (히든 열쇠·물자·팔 수 없는 재료는 빼고)">
+            가장 싼 것 버리기 · {nameOf(bagItems(exp).find((x) => x.kind === cheapest.kind && x.id === cheapest.id)!)} {cheapest.n}개
+          </Button>
+        )}
         <p className="text-[11px] text-ash">
           물자 한 칸 {STACK.supply}개 · 재료·유실물 한 칸 {STACK.item}개 · 유물·히든 열쇠는 한 칸에 하나. 버린 것은 되찾을 수 없다.
         </p>

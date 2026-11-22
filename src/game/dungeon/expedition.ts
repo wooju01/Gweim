@@ -45,7 +45,7 @@ import { RANK_DROPS, rollMonsterDrops } from "@/data/drops";
 import { KEY_ITEMS, isKeyItem, type KeyItemId } from "@/data/keyItems";
 import { RANK_ORDER } from "@/data/ranks";
 import { TREASURE_TRINKET_CHANCE, rollTrinket } from "@/data/trinkets";
-import { addSalvage, getSalvage, rollDrops } from "@/data/loot";
+import { addSalvage, getSalvage, rollDrops, sellable } from "@/data/loot";
 import {
   EVENTS,
   getEvent,
@@ -357,6 +357,20 @@ export function discardItem(exp: Expedition, item: { kind: BagItem["kind"]; id: 
       return { ...count, discarded: (exp.discarded ?? 0) + 1, keys: exp.keys.filter((k) => k !== id), keysLost: [...(exp.keysLost ?? []), id] };
     }
   }
+}
+
+/**
+ * "가장 싼 것 버리기": 판매가가 가장 낮은 것 한 칸 (유실물·재료·유물만. 히든 열쇠·물자·팔 수 없는 전수관 재료는 빼고).
+ * 버릴 개수는 그 칸을 비우는 만큼. 버릴 것이 없으면 null
+ */
+export function cheapestSlot(exp: Expedition): { kind: BagItem["kind"]; id: string; n: number } | null {
+  const pick = bagItems(exp)
+    .filter((x) => (x.kind === "salvage" && sellable(x.id)) || x.kind === "relic")
+    .map((x) => ({ x, unit: x.value / x.n }))
+    .sort((a, b) => a.unit - b.unit)[0];
+  if (!pick) return null;
+  const stack = pick.x.kind === "salvage" ? STACK.item : 1;
+  return { kind: pick.x.kind, id: pick.x.id, n: Math.min(pick.x.n, pick.x.n % stack || stack) };
 }
 
 /** 자동 정리 (시뮬레이션): 가방이 넘치면 한 칸씩, 그 칸의 가치가 가장 낮은 것부터 버린다 (히든 열쇠·전수관 재료는 마지막) */

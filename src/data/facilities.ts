@@ -38,7 +38,7 @@ export const TAVERN = [
   { extra: 2, goodTemper: true, topBonus: 0 },
   { extra: 3, goodTemper: true, topBonus: 0.2 },
 ] as const;
-/** 위령비: 동료가 죽었을 때 다른 용병의 호감 하락 배율(1레벨~), 유산 전수 가능 횟수 (레벨별 누적) */
+/** 위령비: 동료가 죽었을 때 다른 용병의 호감 하락 배율(1레벨~), 죽은 용병 1명당 전수할 수 있는 강화된 부 조각 수 (레벨별) */
 export const MEMORIAL = { allyAffinityMul: 0.5, legacies: [0, 1, 2] } as const;
 /** 대장간: 레벨별로 만들 수 있는 장비 등급 (레벨 0 = 마을 대장간, 동 등급만) */
 export const FORGE_TIER: MercLevel[] = ["bronze", "silver", "gold", "mithril", "diamond", "radiant"];
@@ -52,7 +52,7 @@ export const FACILITIES: Facility[] = [
   {
     id: "memorial",
     name: "위령비",
-    levels: ["죽은 용병의 이름·사망 장소·마지막 전투를 새긴다. 동료가 죽어도 호감 하락이 절반", "유산 1개: 죽은 용병의 강화된 부 조각을 같은 직업 용병에게 전수", "유산 2개까지"],
+    levels: ["죽은 용병의 이름·사망 장소·마지막 전투를 새긴다. 동료가 죽어도 호감 하락이 절반", "유산: 죽은 용병 1명마다 강화된 부 조각 1개를 같은 직업 용병에게 전수", "죽은 용병 1명마다 2개까지"],
     cost: [...FACILITY_COST],
     grade: FACILITY_GRADE,
   },
@@ -79,7 +79,7 @@ export function bagSlots(levels: FacilityLevels): number {
 }
 
 /** 가방 겹치기: 재료·유실물 한 칸 STACK.item개, 물약·붕대·해독제 한 칸 STACK.supply개. 유물·히든 열쇠는 한 칸에 하나 */
-export const STACK = { item: 5, supply: 3 } as const;
+export const STACK = { item: 10, supply: 3 } as const;
 
 /** 길잡이 능력: 다음 칸의 내용(몬스터 구성·사건)을 미리 알 확률. 칸마다 판정, 길드 등급 기준 */
 export const SCOUT_CHANCE: Record<MercLevel, number> = { bronze: 0.15, silver: 0.25, gold: 0.4, mithril: 0.6, diamond: 0.8, radiant: 1 };

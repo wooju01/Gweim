@@ -187,8 +187,6 @@ export type GameState = {
   materialBought: Record<string, number>;
   /** 클랜 시설 레벨 (data/facilities.ts). 숙소 3칸, 클랜 본부 7칸 */
   facilities: FacilityLevels;
-  /** 위령비 유산 전수 횟수 */
-  legaciesUsed: number;
   /** 전투에서 만난 보스 (전술실: 예고 패턴·약점 미리 보기) */
   bossesMet: string[];
   /** 의뢰 보상으로 합류할 용병 수 (모집 API로 만든다) */
@@ -214,7 +212,7 @@ export type GameState = {
 /** day: 죽은 날 (결산에서 이번 원정의 사망자를 찾는다) */
 /**
  * 잃은 동료 (위령비). region: 죽은 곳, lastBattle: 마지막 전투(적 이름), job·legacy: 강화된 부 조각 (위령비 2레벨부터 같은 직업 용병에게 전수),
- * legacyTaken: 전수했다
+ * legacyTaken: 이미 전수한 부 조각 (죽은 용병 1명마다 위령비 레벨만큼)
  */
 export type Fallen = {
   id: string;
@@ -227,7 +225,7 @@ export type Fallen = {
   lastBattle?: string;
   job?: string;
   legacy?: { id: string; lv: number }[];
-  legacyTaken?: boolean;
+  legacyTaken?: string[];
 };
 
 /** 원정 결산 */
@@ -828,7 +826,6 @@ export function initialState(opts: { seeds?: MercSeed[]; hired?: boolean; party?
     discounts: [],
     materialBought: {},
     facilities: {},
-    legaciesUsed: 0,
     bossesMet: [],
     pendingJoins: 0,
     bossesSlain: [],
@@ -1260,18 +1257,18 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case "inheritLegacy": {
-      // 위령비 2레벨부터: 죽은 용병의 강화된 부 조각 하나를 같은 직업 용병에게 (그 레벨 그대로)
+      // 위령비 2레벨부터: 죽은 용병 1명마다 강화된 부 조각을 (2레벨 1개, 3레벨 2개까지) 같은 직업 용병에게 그 레벨 그대로
       const fallen = state.memorial.find((f) => f.id === action.fallenId);
       const p = state.progress[action.mercId];
       const entry = state.roster.find((e) => entryId(e) === action.mercId);
       const allowed = MEMORIAL.legacies[(state.facilities.memorial ?? 0) - 1] ?? 0;
       const piece = fallen?.legacy?.find((x) => x.id === action.piece);
-      if (state.expedition || !fallen || fallen.legacyTaken || !piece || !p?.hired || !entry || state.legaciesUsed >= allowed) return state;
+      const taken = fallen?.legacyTaken ?? [];
+      if (state.expedition || !fallen || !piece || taken.includes(piece.id) || taken.length >= allowed || !p?.hired || !entry) return state;
       if (mercOf(entry).job !== fallen.job) return state;
       return {
         ...state,
-        legaciesUsed: state.legaciesUsed + 1,
-        memorial: state.memorial.map((f) => (f.id === fallen.id ? { ...f, legacyTaken: true } : f)),
+        memorial: state.memorial.map((f) => (f.id === fallen.id ? { ...f, legacyTaken: [...taken, piece.id] } : f)),
         progress: {
           ...state.progress,
           [action.mercId]: { ...p, pieces: [...new Set([...p.pieces, piece.id])], levels: { ...p.levels, [piece.id]: Math.max(p.levels[piece.id] ?? 1, piece.lv) } },

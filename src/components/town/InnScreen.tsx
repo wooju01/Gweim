@@ -125,7 +125,8 @@ export function InnScreen(props: Props) {
         )}
       </section>
 
-      <FacilityPanel {...props.facility} />
+      {/* 시설은 클랜을 세운 뒤에 보인다 */}
+      {clan && <FacilityPanel {...props.facility} />}
 
       {homeScene?.day === day && (
         <section className="flex flex-col gap-1 rounded-sm border border-edge bg-panel px-4 py-3 text-sm">

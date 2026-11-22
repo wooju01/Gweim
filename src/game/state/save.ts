@@ -102,7 +102,7 @@ export const SaveFile = z.object({
           lastBattle: z.string().optional(),
           job: z.string().optional(),
           legacy: z.array(z.object({ id: z.string(), lv: z.number().int() })).optional(),
-          legacyTaken: z.boolean().optional(),
+          legacyTaken: z.array(z.string()).optional(),
         }),
       )
       .default([]),
@@ -148,7 +148,6 @@ export const SaveFile = z.object({
     eventsSeen: z.array(z.string().max(40)).max(200).default([]),
     materialBought: z.record(z.string().max(40), z.number().int().min(0)).default({}),
     facilities: z.partialRecord(z.enum(["infirmary", "training", "bag", "warRoom", "tavern", "memorial", "forge"]), z.number().int().min(0).max(5)).default({}),
-    legaciesUsed: z.number().int().min(0).default(0),
     bossesMet: z.array(z.string().max(40)).max(100).default([]),
     pendingJoins: z.number().int().min(0).max(5).default(0),
     bossesSlain: z.array(z.string().max(40)).default([]),
@@ -214,7 +213,6 @@ export function toSave(state: GameState, now = new Date()): SaveFile {
       eventsSeen: state.eventsSeen,
       materialBought: state.materialBought,
       facilities: state.facilities,
-      legaciesUsed: state.legaciesUsed,
       bossesMet: state.bossesMet,
     } as SaveFile["state"],
   };
@@ -300,7 +298,6 @@ export function fromSave(raw: unknown): { state: GameState } | { error: string }
       eventsSeen: s.eventsSeen,
       materialBought: s.materialBought,
       facilities: s.facilities,
-      legaciesUsed: s.legaciesUsed,
       bossesMet: s.bossesMet,
       // 사건 칸에서 멈췄으면 AI 묘사 없이 기본 문장으로 이어 간다
       narration: room?.kind === "event" && !room.result ? { eventId: room.eventId, pending: false, data: null } : null,

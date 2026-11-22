@@ -12,6 +12,7 @@ import { getSalvage } from "@/data/loot";
 import type { Merc } from "@/game/types";
 import {
   autoDiscard,
+  cheapestSlot,
   bagOver,
   bagUsed,
   discardItem,
@@ -717,13 +718,13 @@ describe("장신구: 마지막 숨결 (원정 동안 이어진다)", () => {
 });
 
 describe("가방 (2026-11-22)", () => {
-  it("겹치기: 물자 한 칸 3개, 재료·유실물 한 칸 5개, 유물·열쇠는 한 칸에 하나. 넘치면 움직일 수 없다", () => {
+  it("겹치기: 물자 한 칸 3개, 재료·유실물 한 칸 10개, 유물·열쇠는 한 칸에 하나. 넘치면 움직일 수 없다", () => {
     const base = startExpedition(mercs, 1, { bandage: 4, antidote: 0, potion: 3, greaterPotion: 0 }, undefined, ["world_tree_branch"]);
     expect(base.bag).toBe(8);
     // 붕대 4 = 2칸, 물약 3 = 1칸, 열쇠 1칸
     expect(bagUsed(base)).toBe(4);
-    const full = { ...base, salvage: { soft_pelt: 6, mat_fang: 5 }, loot: ["crystal_eye"] };
-    // + 털가죽 6 = 2칸, 송곳니 5 = 1칸, 유물 1칸
+    const full = { ...base, salvage: { soft_pelt: 15, mat_fang: 10 }, loot: ["crystal_eye"] };
+    // + 털가죽 15 = 2칸, 송곳니 10 = 1칸, 유물 1칸
     expect(bagUsed(full)).toBe(8);
     expect(bagOver(full)).toBe(false);
     const over = { ...full, salvage: { ...full.salvage, rat_fang: 1 } };
@@ -739,7 +740,7 @@ describe("가방 (2026-11-22)", () => {
 
   it("자동 정리는 가치가 낮은 칸부터 버리고, 열쇠는 남긴다", () => {
     const base = startExpedition(mercs, 1, { bandage: 0, antidote: 0, potion: 0, greaterPotion: 0 }, undefined, ["world_tree_branch"]);
-    const over = { ...base, salvage: { rat_fang: 5, owlbear_egg: 5, boss_token: 1, soft_pelt: 30 } };
+    const over = { ...base, salvage: { rat_fang: 5, owlbear_egg: 5, boss_token: 1, soft_pelt: 60 } };
     const out = autoDiscard(over);
     expect(bagOver(out)).toBe(false);
     expect(out.keys).toEqual(["world_tree_branch"]);
@@ -771,5 +772,15 @@ describe("길잡이 능력 (2026-11-22)", () => {
       const kinds = r.battle!.units.filter((u) => u.side === "enemy").map((u) => u.kind);
       expect(kinds).toEqual(seen.kind === "battle" ? seen.enemies.map((u) => u.kind) : []);
     }
+  });
+});
+
+describe("가장 싼 것 버리기", () => {
+  it("판매가가 가장 낮은 유실물·유물 한 칸 (열쇠·물자·팔 수 없는 재료는 빼고)", () => {
+    const base = startExpedition(mercs, 1, { bandage: 1, antidote: 0, potion: 0, greaterPotion: 0 }, undefined, ["world_tree_branch"]);
+    const exp = { ...base, salvage: { owlbear_egg: 2, rat_fang: 13, boss_token: 1 } };
+    // 쥐 이빨(2) 13개 = 2칸 → 한 칸을 비우려면 3개
+    expect(cheapestSlot(exp)).toEqual({ kind: "salvage", id: "rat_fang", n: 3 });
+    expect(cheapestSlot({ ...base, salvage: { boss_token: 1 } })).toBeNull();
   });
 });

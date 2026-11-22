@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "sim": "vitest run --config vitest.sim.config.ts",
     "sim:boss": "vitest run --config vitest.sim.config.ts boss",
-    "sim:campaign": "vitest run --config vitest.sim.config.ts campaign"
+    "sim:campaign": "vitest run --config vitest.sim.config.ts campaign",
+    "sim:clan": "vitest run --config vitest.sim.config.ts clan"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.9.0",

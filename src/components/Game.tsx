@@ -513,7 +513,6 @@ export function Game() {
             blocks: Object.fromEntries(FACILITIES.map((f) => [f.id, facilityBlock(state, f.id)])) as Record<FacilityId, string | null>,
             onBuild: (id) => dispatch({ type: "buildFacility", id }),
             memorial: state.memorial,
-            legaciesUsed: state.legaciesUsed,
             hired,
             onInherit: (fallenId, piece, mercId) => dispatch({ type: "inheritLegacy", fallenId, piece, mercId }),
           }}
