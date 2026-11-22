@@ -20,7 +20,7 @@ import { FIRST_DUNGEON, getDungeon, getRegion } from "@/data/regions";
 import { RANKS, RANK_ORDER, nextRank, stageOf } from "@/data/ranks";
 import { GUILD_PROMOTION, GUILD_START, PROOF_BOSSES } from "@/data/guild";
 import { getMonster } from "@/data/monsters";
-import { FORGE_DISCOUNT, TRINKET_SLOTS, forgeCost, getTrinket, trinketFits, trinketMaxLv, trinketsBonus, trinketsStats, type OwnedTrinket } from "@/data/trinkets";
+import { FORGE_DISCOUNT, TRINKET_SLOTS, canWear, forgeCost, getTrinket, trinketFits, trinketMaxLv, trinketsBonus, type OwnedTrinket } from "@/data/trinkets";
 import { advanceCost, wageOf } from "@/game/merc/wages";
 import { act, giftsReceived, isDowned, type Battle, type BattleAction } from "@/game/combat/engine";
 import {
@@ -681,7 +681,7 @@ function partyMercs(state: GameState): Merc[] {
     const p = state.progress[id];
     // 성장 스탯 + 장신구
     const bonus = trinketsBonus(p?.trinkets);
-    return entry ? [{ ...mercOf(entry), stats: addStats(p?.stats ?? {}, trinketsStats(p?.trinkets)), subLevels: p?.levels ?? {}, gear: bonus }] : [];
+    return entry ? [{ ...mercOf(entry), stats: p?.stats ?? {}, subLevels: p?.levels ?? {}, gear: bonus }] : [];
   });
 }
 
@@ -1404,8 +1404,10 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const entry = state.roster.find((e) => entryId(e) === action.mercId);
       const owned = state.trinkets[action.index];
       if (state.expedition || !p?.hired || !entry || !owned || !trinketFits(getTrinket(owned.id), mercOf(entry).job)) return state;
-      // 빈 칸이 있으면 끼고, 두 칸이 다 찼으면 slot번(없으면 첫 칸)과 바꾼다. 같은 장신구 둘은 낄 수 없다
-      if (p.trinkets.some((t) => t.id === owned.id)) return state;
+      // 빈 칸이 있으면 끼고, 두 칸이 다 찼으면 slot번(없으면 첫 칸)과 바꾼다. 같은 장신구 둘, 생존 장신구 둘은 낄 수 없다
+      const t = getTrinket(owned.id);
+      const keep = p.trinkets.length < TRINKET_SLOTS ? p.trinkets : p.trinkets.filter((_, i) => i !== (action.slot ?? 0));
+      if (!canWear(t, keep)) return state;
       const trinkets = state.trinkets.filter((_, i) => i !== action.index);
       if (p.trinkets.length < TRINKET_SLOTS) return { ...state, trinkets, progress: { ...state.progress, [action.mercId]: { ...p, trinkets: [...p.trinkets, owned] } } };
       const slot = action.slot ?? 0;

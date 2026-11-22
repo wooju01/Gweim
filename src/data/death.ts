@@ -17,6 +17,12 @@ export const DEATH = {
   allyAffinity: -5,
 } as const;
 
+/**
+ * 시험 규칙 (기본 꺼짐, 시뮬레이션에서만 켠다).
+ * wake "깨우기": 누구나 자기 차례를 써서 쓰러진 아군을 체력 1로 일으킨다 (같은 대상은 전투당 1번)
+ */
+export const TEST_RULES = { wake: false };
+
 /** 쓰러진 채 버티는 차례 (0이면 쓰러지는 즉시 사망) */
 export function downedTurns(u: { bond?: Stage }): number {
   return Math.max(0, DEATH.downedTurns + (u.bond ? (DEATH.bond[u.bond] ?? 0) : 0));

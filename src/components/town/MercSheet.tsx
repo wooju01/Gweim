@@ -1,13 +1,14 @@
-// 용병 정보 (마을에서 용병을 누르면 뜨는 창). 능력치·저항·패시브를 보고, 스킬과 장신구를 바로 바꿔 낀다.
-import { useEffect } from "react";
+// 용병 정보 (마을·숙소·길드에서 용병을 누르면 뜨는 창). 능력치·저항·패시브를 보고, 스킬과 장신구를 바로 바꿔 낀다.
+// 고용 전 용병(길드에 와 있는 떠돌이)은 보기만 한다 (스킬·능력치 확인, 말을 걸기).
+import { useEffect, useState } from "react";
 import { STAT_NAME, STAT_ORDER, type StatKey } from "@/data/growth";
 import { getPassive } from "@/data/passives";
 import { RANKS, rankLabel } from "@/data/ranks";
-import { TRINKET_SLOTS, getTrinket, trinketFits, trinketStats, trinketsBonus, trinketsStats, type OwnedTrinket } from "@/data/trinkets";
+import { TRINKET_SLOTS, canWear, getTrinket, trinketFits, trinketText, trinketsBonus, type OwnedTrinket } from "@/data/trinkets";
 import { CURRENCY } from "@/data/economy";
 import { mercUnit, resistOf, unitStats } from "@/game/combat/engine";
 import { getStage } from "@/game/merc/affinity";
-import { addStats, atLastStage, canPromote, statLine, xpToNext } from "@/game/merc/growth";
+import { atLastStage, canPromote, xpToNext } from "@/game/merc/growth";
 import { wageOf } from "@/game/merc/wages";
 import type { Merc } from "@/game/types";
 import type { MercProgress } from "@/game/state/state";
@@ -39,9 +40,16 @@ type Props = {
   onEquipTrinket: (index: number) => void;
   /** slot번 칸의 장신구를 뺀다 */
   onUnequipTrinket: (slot: number) => void;
+  /** 고용한 용병: 계약 해지 (두 번 눌러 확인) */
+  onDismiss?: () => void;
+  /** 고용 전 용병: 말을 건다 */
+  onTalk?: () => void;
 };
 
-export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, onForget, onEquipTrinket, onUnequipTrinket }: Props) {
+export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, onForget, onEquipTrinket, onUnequipTrinket, onDismiss, onTalk }: Props) {
+  const [confirmDismiss, setConfirmDismiss] = useState(false);
+  // 고용 전 용병은 보기만 한다
+  const readOnly = !p.hired;
   // Esc로 닫는다
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -50,13 +58,13 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
   }, [onClose]);
 
   // 전투에서 쓰는 것과 같은 계산 (성장 스탯 + 장신구, 부 조각 레벨)
-  const unit = mercUnit({ ...merc, stats: addStats(p.stats, trinketsStats(p.trinkets)), subLevels: p.levels, gear: trinketsBonus(p.trinkets) });
+  const unit = mercUnit({ ...merc, stats: p.stats, subLevels: p.levels, gear: trinketsBonus(p.trinkets) });
   const stats = unitStats(unit);
   const stage = getStage(p.affinity);
   const need = xpToNext(p.lv);
   const worn = p.trinkets;
   const full = worn.length >= TRINKET_SLOTS;
-  const fits = trinkets.map((t, index) => ({ t, index, def: getTrinket(t.id) })).filter((x) => trinketFits(x.def, merc.job) && !worn.some((w) => w.id === x.t.id));
+  const fits = trinkets.map((t, index) => ({ t, index, def: getTrinket(t.id) })).filter((x) => trinketFits(x.def, merc.job) && canWear(x.def, full ? worn.slice(1) : worn));
   const steel = merc.passives?.includes("steel_heart");
 
   return (
@@ -75,13 +83,25 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
               <p className="text-xs text-ash">
                 {merc.title}
                 {merc.level && ` · ${rankLabel(merc.level, p.lv)}`} · <span className={STAGE[stage].style}>{STAGE[stage].name}</span>
-                {p.hired && ` · 보수 ${CURRENCY} ${p.wage ?? wageOf(merc)}`}
+                {p.hired ? ` · 보수 ${CURRENCY} ${p.wage ?? wageOf(merc)}` : ` · 고용 전 · 요구 보수 ${CURRENCY} ${wageOf(merc)}`}
               </p>
             </div>
           </div>
-          <Button className="!px-3 !py-1 text-xs" onClick={onClose}>
-            닫기 (Esc)
-          </Button>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            {readOnly && onTalk && (
+              <Button variant="ember" className="!px-3 !py-1 text-xs" onClick={onTalk}>
+                말을 건다
+              </Button>
+            )}
+            {!readOnly && onDismiss && (
+              <Button variant="danger" className="!px-3 !py-1 text-xs" onClick={() => (confirmDismiss ? onDismiss() : setConfirmDismiss(true))}>
+                {confirmDismiss ? "정말 해지한다" : "계약 해지"}
+              </Button>
+            )}
+            <Button className="!px-3 !py-1 text-xs" onClick={onClose}>
+              닫기 (Esc)
+            </Button>
+          </div>
         </header>
 
         <div className="grid gap-4 lg:grid-cols-[2fr_3fr]">
@@ -137,7 +157,7 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
           {/* 오른쪽: 스킬, 장신구 */}
           <div className="flex flex-col gap-4">
             <Box title="스킬">
-              {seed ? (
+              {seed && !readOnly ? (
                 <Loadout seed={seed} learned={p.learned} levels={p.levels} onSwap={onSwap} onForget={onForget} />
               ) : (
                 <div className="flex flex-col gap-1">
@@ -146,11 +166,17 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
                       <b>{unit.book?.[id]?.name}</b> <span className="text-bone/70">{unit.book?.[id]?.description}</span>
                     </p>
                   ))}
-                  <p className="text-[11px] text-ash">이 용병의 스킬은 바꿀 수 없다.</p>
+                  {unit.ultimate && (
+                    <p className="text-xs">
+                      <b className="text-ember">궁극기 {unit.book?.[unit.ultimate]?.name}</b> <span className="text-bone/70">{unit.book?.[unit.ultimate]?.description}</span>
+                    </p>
+                  )}
+                  <p className="text-[11px] text-ash">{readOnly ? "고용하면 숙소에서 스킬을 바꿔 낄 수 있다." : "이 용병의 스킬은 바꿀 수 없다."}</p>
                 </div>
               )}
             </Box>
 
+            {!readOnly && (
             <Box title={`장신구 ${worn.length} / ${TRINKET_SLOTS}`}>
               {worn.length === 0 && <p className="text-xs text-ash">끼고 있는 장신구가 없다.</p>}
               {worn.map((o, slot) => {
@@ -193,6 +219,7 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
                 </div>
               )}
             </Box>
+            )}
           </div>
         </div>
       </div>
@@ -200,18 +227,9 @@ export function MercSheet({ merc, seed, progress: p, trinkets, onClose, onSwap, 
   );
 }
 
-/** 장신구 효과 한 줄: 스탯 + 스탯 밖 효과 */
+/** 장신구 효과 한 줄 (단계 반영) */
 function bonusLine(o: OwnedTrinket): string {
-  const b = getTrinket(o.id)?.bonus;
-  return [
-    statLine(trinketStats(o), STAT_NAME),
-    b?.attack ? `공격 +${b.attack}` : "",
-    b?.poisonRes ? `중독 저항 +${pct(b.poisonRes)}` : "",
-    b?.stunRes ? `기절 저항 +${pct(b.stunRes)}` : "",
-    b?.sellBonus ? `상점 판매가 +${pct(b.sellBonus)}` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  return trinketText(o);
 }
 
 function Box({ title, children }: { title: string; children: React.ReactNode }) {

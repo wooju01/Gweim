@@ -85,6 +85,8 @@ export type Member = {
   fell?: boolean;
   /** 죽었다 (생존 판정 실패). 탐험에서 영영 빠진다 */
   dead?: boolean;
+  /** 마지막 숨결 펜던트를 이번 원정에서 쓴 횟수 */
+  breathUsed?: number;
   /** 사건 조건용: 낀 원소 조각(마법사), 속도 */
   elements?: Element[];
   speed?: number;
@@ -547,6 +549,8 @@ export function battleFor(
         maxHp: m.maxHp,
         statuses: structuredClone(m.statuses),
         bond: bonds[m.id],
+        // 마지막 숨결: 원정에서 이미 쓴 만큼 뺀다
+        ...(merc.gear?.lastBreath ? { breath: Math.max(0, merc.gear.lastBreath - (m.breathUsed ?? 0)) } : {}),
       },
     ];
   });
@@ -609,10 +613,12 @@ export function finishBattle(exp: Expedition, battle: Battle): Expedition {
     const unit = battle.units.find((u) => u.id === m.id && u.side === "merc");
     if (!unit) return m;
     const fellNow = unit.hp <= 0;
+    const breathUsed = (m.breathUsed ?? 0) + (unit.fx?.breathUsed ?? 0);
     if (unit.dead)
       return { ...m, hp: 0, statuses: [], down: true, fell: true, dead: true };
     return {
       ...m,
+      ...(breathUsed ? { breathUsed } : {}),
       hp: fellNow && won ? REVIVE_HP : unit.hp,
       statuses: unit.statuses.filter((s) => HARMFUL.includes(s.kind)),
       down: fellNow && !won,

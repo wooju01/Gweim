@@ -1,8 +1,8 @@
 import { CURRENCY } from "@/data/economy";
-import { PER_POINT, STAT_NAME, STAT_ORDER, type StatBlock } from "@/data/growth";
 import { getSalvage } from "@/data/loot";
 import { JOBS } from "@/data/traits";
-import { FORGEABLE, FORGE_DISCOUNT, TRINKET_MAX_LV, TRINKET_SLOTS, forgeCost as baseCost, getTrinket, trinketFits, trinketMaxLv, trinketStats, type OwnedTrinket, type Trinket } from "@/data/trinkets";
+import { FORGEABLE, FORGE_DISCOUNT, SURVIVAL_LIMIT, TRINKET_MAX_LV, TRINKET_SLOTS, bonusText, canWear, forgeCost as baseCost, getTrinket, scaleBonus, trinketFits, trinketMaxLv, trinketText, type OwnedTrinket, type Trinket } from "@/data/trinkets";
+import { getBranch } from "@/data/jobs";
 import type { Merc } from "@/game/types";
 import { Button, Portrait } from "@/components/common/parts";
 import type { MercProgress } from "@/game/state/state";
@@ -25,28 +25,17 @@ type Props = {
   onBack: () => void;
 };
 
-/** 스탯 포인트 → 실제 효과 줄 ("방어 +2 · 체력 +6 · 치명 +4%") */
-function effectLine(block: StatBlock): string {
-  return STAT_ORDER.filter((k) => block[k])
-    .map((k) => {
-      const v = block[k]! * PER_POINT[k];
-      return k === "evade" || k === "crit" ? `${STAT_NAME[k]} +${Math.round(v * 100)}%` : `${STAT_NAME[k]} +${v}`;
-    })
-    .join(" · ");
-}
-
 const jobName = (job: string) => (job === "any" ? "누구나" : (JOBS.find((t) => t.id === job)?.name ?? job));
 
-/** 장신구 효과 한 줄: 스탯 + 스탯 밖 효과 */
-function trinketLine(o: OwnedTrinket): string {
-  const b = getTrinket(o.id)?.bonus;
-  const extra = [
-    b?.attack ? `공격 +${b.attack}` : "",
-    b?.poisonRes ? `중독 저항 +${Math.round(b.poisonRes * 100)}%` : "",
-    b?.stunRes ? `기절 저항 +${Math.round(b.stunRes * 100)}%` : "",
-    b?.sellBonus ? `상점 판매가 +${Math.round(b.sellBonus * 100)}%` : "",
-  ].filter(Boolean);
-  return [effectLine(trinketStats(o)), ...extra].filter(Boolean).join(" · ");
+/** 장신구 효과 한 줄 (단계 반영) */
+const trinketLine = (o: OwnedTrinket): string => trinketText(o);
+
+const KIND_NAME = { job: "직업", survival: "생존", quest: "의뢰" } as const;
+
+/** 2차 갈래 이름 (성녀·성자처럼 성별이 갈리면 둘 다) */
+function branchName(job: string, build: string): string {
+  const n = getBranch(job, build)?.name;
+  return !n ? build : typeof n === "string" ? n : `${n.female}·${n.male}`;
 }
 
 /** 대장간: 유실물로 직업 전용 장신구를 만들고, 강화하고, 용병에게 낀다 */
@@ -80,7 +69,7 @@ export function ForgeScreen({ day, gold, hired, progress, salvage, trinkets, onF
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold">대장간</h1>
         <p className="text-sm text-ash">
-          유실물로 직업 전용 장신구를 만든다. 용병마다 두 개까지 낄 수 있고 (같은 장신구 둘은 안 된다), 강화는 실패하지 않는다 ({TRINKET_MAX_LV}단계까지).{discounted ? ` 지금은 이용료 ${Math.round(FORGE_DISCOUNT * 100)}% 할인 중.` : ""} 장신구를 낀 용병이
+          유실물로 직업 장신구와 생존 장신구를 만든다. 용병마다 두 개까지 낄 수 있고 (같은 장신구 둘은 안 되고, 생존 장신구는 {SURVIVAL_LIMIT}개까지), 강화는 실패하지 않는다 ({TRINKET_MAX_LV}단계까지).{discounted ? ` 지금은 이용료 ${Math.round(FORGE_DISCOUNT * 100)}% 할인 중.` : ""} 장신구를 낀 용병이
           죽으면 그 전투를 이겼을 때만 거둬 올 수 있다.
         </p>
       </header>
@@ -91,7 +80,9 @@ export function ForgeScreen({ day, gold, hired, progress, salvage, trinkets, onF
         {hired.map((m) => {
           const worn = progress[m.id]?.trinkets ?? [];
           const full = worn.length >= TRINKET_SLOTS;
-          const fits = trinkets.map((o, i) => ({ o, i })).filter(({ o }) => trinketFits(getTrinket(o.id), m.job) && !worn.some((w) => w.id === o.id));
+          const fits = trinkets
+            .map((o, i) => ({ o, i }))
+            .filter(({ o }) => trinketFits(getTrinket(o.id), m.job) && canWear(getTrinket(o.id), full ? worn.slice(1) : worn));
           return (
             <div key={m.id} className="flex flex-col gap-2 border-t border-edge/60 pt-2">
               <div className="flex items-start gap-3">
@@ -171,20 +162,25 @@ export function ForgeScreen({ day, gold, hired, progress, salvage, trinkets, onF
         </h2>
         <div className="grid gap-2 sm:grid-cols-2">
           {[...FORGEABLE()]
-            .sort((a, b) => Number(jobsHired.has(b.job)) - Number(jobsHired.has(a.job)))
+            .sort((a, b) => Number(a.kind === "job") - Number(b.kind === "job") || Number(jobsHired.has(b.job) || b.job === "any") - Number(jobsHired.has(a.job) || a.job === "any"))
             .map((t) => {
               const cost = forgeCost(t, 1);
               return (
                 <div
                   key={t.id}
-                  className={`flex flex-col gap-1 rounded-sm px-3 py-2 text-xs ${jobsHired.has(t.job) ? "bg-ember/5" : "bg-ink/50 opacity-80"}`}
+                  className={`flex flex-col gap-1 rounded-sm px-3 py-2 text-xs ${jobsHired.has(t.job) || t.job === "any" ? "bg-ember/5" : "bg-ink/50 opacity-80"}`}
                 >
                   <span>
-                    <b>{t.name}</b> <span className="text-ash">{jobName(t.job)} 전용</span>
+                    <b>{t.name}</b>{" "}
+                    <span className="text-ash">
+                      {KIND_NAME[t.kind]} · {t.job === "any" ? "누구나" : `${jobName(t.job)} 전용`}
+                      {t.build ? ` · ${branchName(t.job, t.build)}` : ""}
+                    </span>
                   </span>
                   <span className="text-bone/70">
-                    단계마다 {effectLine(t.perLevel)} — {t.description}
+                    {[1, 2, 3].map((lv) => `${lv}단계: ${t.levels ? bonusText(t.levels[lv - 1]) : bonusText(scaleBonus(t.effect, lv))}`).join(" / ")}
                   </span>
+                  <span className="text-ash">{t.description}</span>
                   <span className="flex items-center justify-between gap-2">
                     <span className="text-[11px] text-ash">{costText(cost)}</span>
                     <Button className="shrink-0 !px-2.5 !py-0.5 text-xs" disabled={!payable(cost)} onClick={() => onForge(t.id)}>

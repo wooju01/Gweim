@@ -353,15 +353,15 @@ describe("귀환길 습격 (상태)", () => {
     return { s, hit, miss, rate: seeds.filter((x) => retreatAmbush(s.expedition!, x)).length / seeds.length };
   }
 
-  it("층별 확률 10/20/30/40%, 그 층 일반 몬스터 2~3마리", () => {
-    expect(RETREAT_AMBUSH.chance).toEqual([0.1, 0.2, 0.3, 0.4]);
+  it("층별 확률 1층 5%, 2층 이상 15%, 그 층 일반 몬스터 2~3마리", () => {
+    expect(RETREAT_AMBUSH.chance).toEqual([0.05, 0.15, 0.15, 0.15]);
     const { s, hit, rate } = retreating();
-    expect(rate).toBeGreaterThan(0.05);
-    expect(rate).toBeLessThan(0.16);
+    expect(rate).toBeGreaterThan(0.02);
+    expect(rate).toBeLessThan(0.09);
     const deep = { ...s.expedition!, depth: 4 };
     const deepRate = Array.from({ length: 400 }, (_, i) => retreatAmbush(deep, i + 1)).filter(Boolean).length / 400;
-    expect(deepRate).toBeGreaterThan(0.32);
-    expect(deepRate).toBeLessThan(0.48);
+    expect(deepRate).toBeGreaterThan(0.1);
+    expect(deepRate).toBeLessThan(0.2);
     const monsters = retreatAmbush(s.expedition!, hit)!;
     expect(monsters.length).toBeGreaterThanOrEqual(2);
     expect(monsters.length).toBeLessThanOrEqual(3);
@@ -733,52 +733,54 @@ describe("대장간 (상태)", () => {
     return {
       ...s,
       gold: 1000,
-      salvage: { chief_token: 5, wolf_fang: 5 },
+      salvage: { orc_tusk: 5, mat_sap: 20, soft_pelt: 20, mat_fang: 10, relic_beastfang: 2, boss_token: 2 },
       progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], hired: true }, "s-durgan": { ...s.progress["s-durgan"], hired: true } },
     };
   };
 
   it("만들기 → 강화(무조건 성공, 3단계까지) → 같은 직업에게만 끼기 → 빼기", () => {
-    let s = gameReducer(hiredState(), { type: "forgeTrinket", trinket: "t_warden_badge" }); // 기사 전용
-    expect(s.gold).toBe(1000 - forgeCost(getTrinket("t_warden_badge")!, 1).gold);
-    expect(s.salvage.chief_token).toBe(4);
-    expect(s.trinkets).toEqual([{ id: "t_warden_badge", lv: 1 }]);
+    let s = gameReducer(hiredState(), { type: "forgeTrinket", trinket: "t_oath_badge" }); // 기사 전용
+    expect(s.gold).toBe(1000 - forgeCost(getTrinket("t_oath_badge")!, 1).gold);
+    expect(s.salvage).toMatchObject({ orc_tusk: 4, mat_sap: 18 });
+    expect(s.trinkets).toEqual([{ id: "t_oath_badge", lv: 1 }]);
     s = gameReducer(s, { type: "upgradeTrinket", index: 0 });
     expect(s.trinkets[0].lv).toBe(2);
     // 대검사(두르강)는 기사 장신구를 낄 수 없다
     expect(gameReducer(s, { type: "equipTrinket", mercId: "s-durgan", index: 0 })).toBe(s);
     s = gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: 0 });
     expect(s.trinkets).toEqual([]);
-    expect(s.progress["s-bran"].trinkets).toEqual([{ id: "t_warden_badge", lv: 2 }]);
+    expect(s.progress["s-bran"].trinkets).toEqual([{ id: "t_oath_badge", lv: 2 }]);
     s = gameReducer(s, { type: "upgradeTrinket", mercId: "s-bran", slot: 0 });
     expect(s.progress["s-bran"].trinkets[0].lv).toBe(3);
     expect(gameReducer(s, { type: "upgradeTrinket", mercId: "s-bran", slot: 0 })).toBe(s);
     s = gameReducer(s, { type: "unequipTrinket", mercId: "s-bran", slot: 0 });
     expect(s.progress["s-bran"].trinkets).toEqual([]);
-    expect(s.trinkets).toEqual([{ id: "t_warden_badge", lv: 3 }]);
+    expect(s.trinkets).toEqual([{ id: "t_oath_badge", lv: 3 }]);
   });
 
   it("장신구는 두 칸: 둘까지 끼고, 같은 장신구 둘은 안 되고, 다 차면 바꿔 낀다. 누구나 끼는 의뢰 장신구도 있다", () => {
     let s: GameState = {
       ...hiredState(),
       trinkets: [
-        { id: "t_warden_badge", lv: 1 },
-        { id: "t_rust_pauldron", lv: 1 },
+        { id: "t_oath_badge", lv: 1 },
+        { id: "t_vow_cloak", lv: 1 },
         { id: "t_silver_crest", lv: 1 },
-        { id: "t_warden_badge", lv: 2 },
+        { id: "t_oath_badge", lv: 2 },
       ],
     };
-    s = gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: 0 }); // 방패걸이
-    s = gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: 0 }); // 어깨받이
-    expect(s.progress["s-bran"].trinkets.map((t) => t.id)).toEqual(["t_warden_badge", "t_rust_pauldron"]);
-    // 같은 장신구는 둘 낄 수 없다 (보관함의 2단계 방패걸이)
-    const dup = s.trinkets.findIndex((t) => t.id === "t_warden_badge");
-    expect(gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: dup })).toBe(s);
+    s = gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: 0 }); // 성표
+    s = gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: 0 }); // 망토
+    expect(s.progress["s-bran"].trinkets.map((t) => t.id)).toEqual(["t_oath_badge", "t_vow_cloak"]);
+    // 같은 장신구는 둘 낄 수 없다 (보관함의 2단계 성표)
+    const dup = s.trinkets.findIndex((t) => t.id === "t_oath_badge");
+    expect(gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: dup, slot: 1 })).toBe(s);
+    // 같은 장신구끼리 바꿔 끼는 건 된다 (1단계 성표 → 2단계 성표)
+    expect(gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: dup, slot: 0 }).progress["s-bran"].trinkets[0]).toEqual({ id: "t_oath_badge", lv: 2 });
     // 다 찼으면 고른 칸과 바꾼다 (휘장은 누구나)
     const crest = s.trinkets.findIndex((t) => t.id === "t_silver_crest");
     s = gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: crest, slot: 1 });
-    expect(s.progress["s-bran"].trinkets.map((t) => t.id)).toEqual(["t_warden_badge", "t_silver_crest"]);
-    expect(s.trinkets.map((t) => t.id)).toContain("t_rust_pauldron");
+    expect(s.progress["s-bran"].trinkets.map((t) => t.id)).toEqual(["t_oath_badge", "t_silver_crest"]);
+    expect(s.trinkets.map((t) => t.id)).toContain("t_vow_cloak");
     // 대검사도 휘장은 낄 수 있다
     const back = gameReducer(s, { type: "unequipTrinket", mercId: "s-bran", slot: 1 });
     const i = back.trinkets.findIndex((t) => t.id === "t_silver_crest");
@@ -787,21 +789,41 @@ describe("대장간 (상태)", () => {
 
   it("유실물이 모자라면 만들 수 없다", () => {
     const s = { ...hiredState(), salvage: {} };
-    expect(gameReducer(s, { type: "forgeTrinket", trinket: "t_warden_badge" })).toBe(s);
+    expect(gameReducer(s, { type: "forgeTrinket", trinket: "t_oath_badge" })).toBe(s);
   });
 
-  it("장신구 스탯이 전투에 들어간다", () => {
+  it("장신구 효과가 전투에 들어간다 (거인 뼈 팔찌 2단계: 최대 체력 +12)", () => {
     let s = hiredState();
-    s = { ...s, trinkets: [{ id: "t_rust_pauldron", lv: 2 }] }; // 기사, 단계마다 체력 포인트 2
-    const plain = inDungeon(["s-bran"]).expedition!.members[0].maxHp;
-    s = gameReducer(s, { type: "equipTrinket", mercId: "s-bran", index: 0 });
-    s = gameReducer({ ...s, party: ["s-bran"] }, { type: "enterDungeon", seed: 1 });
+    s = { ...s, trinkets: [{ id: "t_giant_bangle", lv: 2 }] }; // 대검사
+    const plain = inDungeon(["s-durgan"]).expedition!.members[0].maxHp;
+    s = gameReducer(s, { type: "equipTrinket", mercId: "s-durgan", index: 0 });
+    s = gameReducer({ ...s, party: ["s-durgan"] }, { type: "enterDungeon", seed: 1 });
     expect(s.expedition!.members[0].maxHp).toBe(plain + 12);
+  });
+
+  it("생존 장신구는 누구나 끼지만 1명당 1개까지. 비용은 200 / 400 / 800", () => {
+    let s: GameState = { ...hiredState(), gold: 5000, trinkets: [{ id: "t_life_charm", lv: 1 }, { id: "t_aid_belt", lv: 1 }] };
+    s = gameReducer(s, { type: "equipTrinket", mercId: "s-durgan", index: 0 });
+    expect(s.progress["s-durgan"].trinkets.map((t) => t.id)).toEqual(["t_life_charm"]);
+    expect(gameReducer(s, { type: "equipTrinket", mercId: "s-durgan", index: 0 })).toBe(s);
+    // 바꿔 끼는 칸이 생존 장신구면 된다
+    const full = { ...s, progress: { ...s.progress, "s-durgan": { ...s.progress["s-durgan"], trinkets: [{ id: "t_life_charm", lv: 1 }, { id: "t_giant_bangle", lv: 1 }] } } };
+    expect(gameReducer(full, { type: "equipTrinket", mercId: "s-durgan", index: 0, slot: 0 }).progress["s-durgan"].trinkets.map((t) => t.id)).toEqual(["t_aid_belt", "t_giant_bangle"]);
+    expect(gameReducer(full, { type: "equipTrinket", mercId: "s-durgan", index: 0, slot: 1 })).toBe(full);
+    // 만들기 (송곳니 3) → 2단계 (맹수의 송곳니 1) → 3단계 (보스 증표 1)
+    let f = gameReducer({ ...s, trinkets: [] }, { type: "forgeTrinket", trinket: "t_last_breath" });
+    expect(f.gold).toBe(5000 - 200);
+    expect(f.salvage.mat_fang).toBe(7);
+    f = gameReducer(f, { type: "upgradeTrinket", index: 0 });
+    f = gameReducer(f, { type: "upgradeTrinket", index: 0 });
+    expect(f.gold).toBe(5000 - 200 - 400 - 800);
+    expect(f.salvage).toMatchObject({ relic_beastfang: 1, boss_token: 1 });
+    expect(f.trinkets).toEqual([{ id: "t_last_breath", lv: 3 }]);
   });
 
   function deathBattle(outcome: "victory" | "defeat") {
     let s = inDungeon(["s-bran", "s-mirel"]);
-    s = { ...s, progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], trinkets: [{ id: "t_warden_badge", lv: 2 }] } } };
+    s = { ...s, progress: { ...s.progress, "s-bran": { ...s.progress["s-bran"], trinkets: [{ id: "t_oath_badge", lv: 2 }] } } };
     const exp = s.expedition!;
     const battle = {
       round: 1, order: [], turn: 0, supplies: exp.supplies, depth: 1, walked: 1, guideUsed: false, rng: 1, outcome, log: [],
@@ -816,12 +838,12 @@ describe("대장간 (상태)", () => {
 
   it("죽은 용병의 장신구: 이긴 전투면 거둬 오고, 도망치면 던전에 남는다", () => {
     const won = gameReducer(deathBattle("victory"), { type: "battleFinish" });
-    expect(won.trinkets).toEqual([{ id: "t_warden_badge", lv: 2 }]);
+    expect(won.trinkets).toEqual([{ id: "t_oath_badge", lv: 2 }]);
 
     const s = deathBattle("victory");
     const fled = gameReducer({ ...s, screen: { ...s.screen, battle: { ...s.screen.battle, outcome: null } } } as GameState, { type: "fleeBattle", seed: 1 });
     expect(fled.trinkets).toEqual([]);
-    expect(fled.report!.lostTrinkets).toEqual(["우두머리 증표 방패걸이"]);
+    expect(fled.report!.lostTrinkets).toEqual(["맹세의 성표"]);
   });
 });
 

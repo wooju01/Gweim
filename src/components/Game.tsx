@@ -403,6 +403,14 @@ export function Game() {
       onForget={(key) => dispatch({ type: "forgetSkill", mercId: sheetMerc.id, key })}
       onEquipTrinket={(index) => dispatch({ type: "equipTrinket", mercId: sheetMerc.id, index })}
       onUnequipTrinket={(slot) => dispatch({ type: "unequipTrinket", mercId: sheetMerc.id, slot })}
+      onDismiss={() => {
+        dispatch({ type: "dismiss", mercId: sheetMerc.id });
+        setSheetId(null);
+      }}
+      onTalk={() => {
+        setSheetId(null);
+        startTalk(sheetMerc.id);
+      }}
     />
   );
 
@@ -419,13 +427,15 @@ export function Game() {
       ) : null;
     case "guild":
       return (
+        <>
+        {sheet}
         <GuildScreen
           mercs={mercs}
           progress={state.progress}
           recruit={state.recruit}
           onRecruit={recruit}
           onTalk={startTalk}
-          onDismiss={(mercId) => dispatch({ type: "dismiss", mercId })}
+          onInspect={setSheetId}
           day={state.day}
           gold={state.gold}
           hired={hired.length}
@@ -436,6 +446,7 @@ export function Game() {
           onPromote={(mercId, choice) => dispatch({ type: "promote", mercId, ...choice })}
           onBack={toTown}
         />
+        </>
       );
     case "shop":
       return (
@@ -586,7 +597,6 @@ export function Game() {
           gold={state.gold}
           hired={hired.length}
           party={partyMercs}
-          crew={hired}
           onInspect={setSheetId}
           quests={state.activeQuests.length}
           homeName={state.home === "clanHall" ? "클랜 본부" : "숙소"}

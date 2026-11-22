@@ -1,4 +1,5 @@
 import type { StatBlock } from "@/data/growth";
+import type { TrinketBonus } from "@/data/trinkets";
 import type { ChoiceTone, Element, Gender, MercLevel, SkillBuild } from "@/lib/schemas";
 
 /** 반응 세기. 1칸당 변화량은 affinity.ts의 STEP */
@@ -78,7 +79,7 @@ export type Merc = {
   /** 성장으로 얻은 스탯 포인트 (레벨업·단련장). 전투 능력치에 더해진다 */
   stats?: StatBlock;
   /** 장신구의 스탯 밖 효과 (공격, 중독·기절 저항) */
-  gear?: { attack?: number; poisonRes?: number; stunRes?: number };
+  gear?: TrinketBonus;
   /** 성격·배경 특성 id (보수·돈 얘기 반응에 쓴다). 랜덤 용병에만 있다 */
   traitIds?: { personalities: string[]; background: string };
   name: string;

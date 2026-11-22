@@ -15,6 +15,7 @@ import {
   previewAction,
   startBattleFrom,
   startBattleWithUnits,
+  strikeFactors,
   hasStatus,
   living,
   resistOf,
@@ -2025,5 +2026,212 @@ describe("궁극기", () => {
   it("장착하지 않은 궁극기는 쓸 수 없다", () => {
     const b = start([{ ...varn, job: "greatsword" }], 1, [dummy("e0", 999)]);
     expect(validate(b, { type: "skill", skill: "ult_greatsword" })).toBe("장착하지 않은 스킬");
+  });
+});
+
+describe("장신구 효과 (2026-11-22 개편)", () => {
+  /** 바른(기사)에게 장신구 효과를 직접 단다 */
+  const geared = (gear: Unit["gear"], enemies: Unit[] = [dummy("e0", 999)], others: TMerc[] = []) =>
+    start([{ ...varn, job: "knight", gear }, ...others], 1, enemies);
+  const varnOf = (b: Battle) => unitById(b, varn.id)!;
+
+  it("기본 스탯: 최대 체력·방어·속도·마력·치명·회피·공격, 저항", () => {
+    const u = mercUnit({ ...varn, job: "knight", gear: { maxHp: 18, defense: 3, speed: 1, mag: 2, crit: 0.06, evade: 0.08, attack: 3, bleedRes: 0.3, poisonRes: 0.3 } });
+    expect(u).toMatchObject({ maxHp: 32 + 18, defense: 2 + 3, speed: 4 + 1, power: { mag: 2 }, attack: [9, 12], resist: { bleed: 0.3, poison: 0.3 } });
+    expect(u.critBonus).toBeCloseTo(0.06);
+    expect(u.evadeBonus).toBeCloseTo(0.08);
+    expect(resistOf(u, "bleed")).toBeCloseTo(0.3);
+  });
+
+  it("위력: 단일 공격 +12%는 평타에, 치명 피해 +15%는 치명타에", () => {
+    const plain = previewAction(geared({}), { type: "attack", target: "e0" })!.damage[0];
+    const single = previewAction(geared({ singlePower: 0.5 }), { type: "attack", target: "e0" })!.damage[0];
+    expect(single.max).toBe(Math.round(plain.max * 1.5));
+    const crit = previewAction(geared({ critDamage: 0.5 }), { type: "attack", target: "e0" })!.damage[0];
+    expect(crit.critMax).toBeGreaterThan(plain.critMax);
+    expect(crit.max).toBe(plain.max);
+  });
+
+  it("흡혈: 준 피해의 비율만큼 회복", () => {
+    let b = edit(geared({ lifesteal: 0.5 }), (c) => (varnOf(c).hp = 1));
+    b = act(b, { type: "attack", target: "e0" });
+    const hit = b.log.find((e) => e.type === "attack" && e.actor === varn.id);
+    expect(hit && hit.type === "attack" && hit.damage).toBeGreaterThan(0);
+    expect(b.log.some((e) => e.type === "heal" && e.target === varn.id && e.by === varn.id)).toBe(true);
+  });
+
+  it("마지막 숨결: 쓰러질 피해를 체력 1로 버틴다 (남은 횟수만큼), 버틴 뒤 받는 피해 -", () => {
+    let b = edit(geared({ lastBreath: 1, breathGuard: 0.5 }, [dummy("e0", 999, { attack: [50, 50] })]), (c) => (varnOf(c).hp = 10));
+    expect(varnOf(b).breath).toBe(1);
+    b = act(b, { type: "wait" });
+    expect(varnOf(b)).toMatchObject({ hp: 1, breath: 0 });
+    expect(varnOf(b).fx?.breathUsed).toBe(1);
+    expect(b.log).toContainEqual({ type: "passive", unit: varn.id, passive: "last_breath" });
+    expect(hasStatus(varnOf(b), "toughen")).toBe(true);
+    // 다음 쓰러질 피해는 버티지 못한다
+    b = act(b, { type: "wait" });
+    expect(varnOf(b).hp).toBe(0);
+  });
+
+  it("버팀 팔찌: 전투당 1번, 체력이 30% 아래로 떨어지면 최대 체력 비율 회복", () => {
+    let b = edit(geared({ braceHeal: 0.15 }, [dummy("e0", 999, { attack: [10, 10] })]), (c) => {
+      varnOf(c).maxHp = 40;
+      varnOf(c).hp = 20;
+    });
+    b = act(b, { type: "wait" });
+    // 20 - 10 = 10 (< 12) → +6
+    expect(varnOf(b).hp).toBe(16);
+    expect(varnOf(b).fx?.braceUsed).toBe(true);
+    b = act(b, { type: "wait" });
+    expect(varnOf(b).hp).toBe(6);
+  });
+
+  /** 엘케(체력 999)가 먼저 행동하고, 적은 바른만 노린다 (도발) */
+  const pair = (gear: Unit["gear"], atk: number) => {
+    const b = start([{ ...elke, kit: ["pray"] }, { ...varn, job: "knight", gear }], 1, [dummy("e0", 999, { attack: [atk, atk] })]);
+    return edit(b, (c) => {
+      unitById(c, elke.id)!.hp = 999;
+      unitById(c, elke.id)!.maxHp = 999;
+      unitById(c, "e0")!.statuses.push({ kind: "provoked", turns: 9, source: varn.id });
+    });
+  };
+
+  it("생명의 부적: 쓰러져 버티는 차례 +1, 일어날 때 회복 +", () => {
+    let b = edit(pair({ downedTurns: 1, riseHeal: 0.2 }, 50), (c) => (varnOf(c).hp = 1));
+    for (let i = 0; i < 5 && varnOf(b).hp > 0; i++) b = act(b, { type: "wait" });
+    expect(varnOf(b).downedTurnsLeft).toBe(2);
+    // 길안내자 물약: 기본 회복 × 1.2
+    const potion = act(b, { type: "guide", item: "potion", target: varn.id });
+    expect(varnOf(potion).hp).toBe(Math.round(POTION_HEAL * 1.2));
+  });
+
+  it("구급 허리띠: 받는 물약 회복 +, 3단계는 쓰러진 채 받으면 +10", () => {
+    const hurt = edit(pair({ potionPower: 0.6, potionReviveFlat: 10 }, 1), (c) => (varnOf(c).hp = 1));
+    const healed = act(hurt, { type: "guide", item: "potion", target: varn.id });
+    expect(varnOf(healed).hp).toBe(1 + Math.round(POTION_HEAL * 1.6));
+    const down = edit(hurt, (c) => {
+      varnOf(c).hp = 0;
+      varnOf(c).downedTurnsLeft = 1;
+    });
+    expect(varnOf(act(down, { type: "guide", item: "potion", target: varn.id })).hp).toBe(Math.round(POTION_HEAL * 1.6) + 10);
+  });
+
+  it("반사 피해 +: 가시 상태에서 되돌리는 피해에 더한다", () => {
+    const run = (gear: Unit["gear"]) => {
+      let b = edit(geared(gear, [dummy("e0", 999, { attack: [10, 10] })]), (c) => varnOf(c).statuses.push({ kind: "thorns", turns: 2, value: 0.3 }));
+      b = act(b, { type: "wait" });
+      return 999 - unitById(b, "e0")!.hp;
+    };
+    expect(run({ thornsFlat: 4 }) - run({})).toBe(4);
+  });
+
+  it("결투 상대에게 받는 피해 추가 -", () => {
+    const hit = (gear: Unit["gear"]) => {
+      let b = edit(geared(gear, [dummy("e0", 999, { attack: [10, 10] })]), (c) => {
+        varnOf(c).defense = 0;
+        unitById(c, "e0")!.statuses.push({ kind: "duel", turns: 2, value: 2, source: varn.id });
+      });
+      b = act(b, { type: "wait" });
+      return varnOf(b).maxHp - varnOf(b).hp;
+    };
+    expect(hit({})).toBe(8);
+    expect(hit({ duelReduce: 2 })).toBe(6);
+  });
+
+  it("독샘 반지: 거는 중독 +", () => {
+    const u = mercUnit({ ...varn, job: "assassin", gear: { poisonStack: 2 } });
+    expect(dotStack(u, "poison")).toBe(2 + 2);
+    expect(dotStack(u, "bleed")).toBe(dotStack(mercUnit({ ...varn, job: "assassin" }), "bleed"));
+  });
+
+  it("위력 보정: 범위 +, 체력 50% 이하 +, 신성 +, 원소 +, 반격 +", () => {
+    const b = geared({ areaPower: 0.1, lowHpPower: 0.2, holyPower: 0.3, elementPower: 0.4, counterPower: 0.5 });
+    const v = unitById(b, varn.id)!;
+    const foe = unitById(b, "e0")!;
+    expect(strikeFactors(b, v, foe).multiplier).toBeCloseTo(1);
+    expect(strikeFactors(b, v, foe, { aoe: true }).multiplier).toBeCloseTo(1.1);
+    expect(strikeFactors(b, v, foe, { scaling: [{ stat: "faith", mult: 1 }] }).multiplier).toBeCloseTo(1.3);
+    expect(strikeFactors(b, v, foe, { elemental: true }).multiplier).toBeCloseTo(1.4);
+    expect(strikeFactors(b, v, foe, { counter: true }).multiplier).toBeCloseTo(1.5);
+    expect(strikeFactors(b, { ...v, hp: 1 }, foe).multiplier).toBeCloseTo(1.2);
+  });
+
+  it("거는 상태이상: 기절 확률 +, 비율 약화 +%p, 약화 효과 ×, 약화 지속 +, 건 적은 흔들림", () => {
+    const hex: Skill = {
+      id: "hex",
+      name: "저주",
+      cooldown: 0,
+      target: "enemy",
+      description: "",
+      effects: [
+        { kind: "applyStatus", status: "mark", value: 0.1, turns: 2 },
+        { kind: "applyStatus", status: "weaken", value: 2, turns: 2 },
+        { kind: "applyStatus", status: "stun", chance: 0.9 },
+      ],
+    };
+    const cast = (gear: Unit["gear"]) => {
+      const b = edit(geared(gear), (c) => {
+        const v = varnOf(c);
+        v.skills = ["hex"];
+        v.book = { hex };
+      });
+      // 적 차례가 오기 전 상태를 본다 (기절은 적 차례에 풀린다)
+      const after = act(b, { type: "skill", skill: "hex", target: "e0" });
+      return { ...unitById(after, "e0")!, stunned: after.log.some((e) => e.type === "stunned" && e.target === "e0") };
+    };
+    const plain = cast({});
+    expect(statusValue(plain, "mark")).toBeCloseTo(0.1);
+    const g = cast({ markPlus: 0.05, debuffPower: 0.5, debuffTurns: 1, stunChance: 0.1, songStunResDown: 0.1 });
+    expect(statusValue(g, "mark")).toBeCloseTo(0.23); // (0.1 + 0.05) × 1.5, 1% 단위 반올림
+    expect(statusValue(g, "weaken")).toBeCloseTo(3);
+    expect(g.statuses.find((x) => x.kind === "weaken")!.turns).toBe(plain.statuses.find((x) => x.kind === "weaken")!.turns + 1);
+    expect(statusValue(g, "shaken")).toBeCloseTo(0.1);
+    // 기절: 0.9 + 0.1 - 일반 몬스터 저항 0.1 + 흔들림 0.1 = 반드시 걸린다 (적 차례를 쉰다)
+    expect(g.stunned).toBe(true);
+  });
+
+  it("회복량 ×, 일으킬 때 +, 보호막 +", () => {
+    const nun = (gear: Unit["gear"]) => fix2(start([{ ...varn, job: "priest", gear, kit: ["pray", "ward"] }], 1, [dummy("e0", 999)]), varn.id, { hp: 1 });
+    expect(previewAction(nun({}), { type: "skill", skill: "pray", target: varn.id })!.heal!.amount).toBe(8);
+    expect(previewAction(nun({ healPower: 0.25 }), { type: "skill", skill: "pray", target: varn.id })!.heal!.amount).toBe(10);
+    expect(previewAction(nun({ shieldPower: 0.5 }), { type: "skill", skill: "ward", target: varn.id })!.shield!.amount).toBe(9);
+  });
+
+  it("첫 라운드 회피 +, 감싸기로 대신 맞을 때 받는 피해 -", () => {
+    const b = geared({ firstRoundEvade: 0.3, coverTaken: 0.5 });
+    const foe = unitById(b, "e0")!;
+    const v = unitById(b, varn.id)!;
+    expect(strikeFactors(b, foe, v).evadeChance).toBeCloseTo(0.3);
+    expect(strikeFactors({ ...b, round: 2 }, foe, v).evadeChance).toBeCloseTo(0);
+    expect(strikeFactors(b, foe, v, { covered: true }).taken).toBeCloseTo(0.5);
+    expect(strikeFactors(b, foe, v).taken).toBeCloseTo(1);
+  });
+
+});
+
+describe("시험 규칙: 깨우기", () => {
+  it("꺼져 있으면 못 쓰고, 켜면 쓰러진 아군을 체력 1로 일으킨다 (같은 대상은 전투당 1번)", async () => {
+    const { TEST_RULES } = await import("@/data/death");
+    let b = start([{ ...elke, kit: ["pray"] }, varn], 1, [dummy("e0", 999)]);
+    b = edit(b, (c) => {
+      const v = unitById(c, varn.id)!;
+      v.hp = 0;
+      v.downedTurnsLeft = 1;
+    });
+    expect(validate(b, { type: "wake", target: varn.id })).toBe("깨우기 규칙이 꺼져 있다");
+    TEST_RULES.wake = true;
+    try {
+      const woke = act(b, { type: "wake", target: varn.id });
+      expect(unitById(woke, varn.id)).toMatchObject({ hp: 1, downedTurnsLeft: undefined });
+      const again = edit(woke, (c) => {
+        const v = unitById(c, varn.id)!;
+        v.hp = 0;
+        v.downedTurnsLeft = 1;
+        c.turn = c.order.indexOf(elke.id);
+      });
+      expect(validate(again, { type: "wake", target: varn.id })).toBe("이번 전투에서 이미 깨웠다");
+    } finally {
+      TEST_RULES.wake = false;
+    }
   });
 });

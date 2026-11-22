@@ -16,7 +16,8 @@ type Props = {
   recruit: { pending: boolean; error: string | null };
   onRecruit: () => void;
   onTalk: (mercId: string) => void;
-  onDismiss: (mercId: string) => void;
+  /** 고용 전 용병 정보 창 (스탯·스킬) */
+  onInspect: (mercId: string) => void;
   day: number;
   gold: number;
   hired: number;
@@ -29,8 +30,10 @@ type Props = {
   onBack: () => void;
 };
 
-export function GuildScreen({ mercs, progress, recruit, onRecruit, onTalk, onDismiss, day, gold, hired, guildGrade, guildPromotion, onPromoteGuild, promotions, onPromote, onBack }: Props) {
+export function GuildScreen({ mercs, progress, recruit, onRecruit, onTalk, onInspect, day, gold, hired, guildGrade, guildPromotion, onPromoteGuild, promotions, onPromote, onBack }: Props) {
   const waiting = mercs.filter((m) => promotions[m.id]);
+  // 길드 홀에는 고용 전 용병만 (고용한 용병은 숙소·마을에서 본다)
+  const visitors = mercs.filter((m) => !progress[m.id]?.hired);
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-4 py-10 sm:px-8">
@@ -96,34 +99,30 @@ export function GuildScreen({ mercs, progress, recruit, onRecruit, onTalk, onDis
 
       <div>
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {mercs.length === 0 && (
+          {visitors.length === 0 && (
             <div className="col-span-full flex flex-col items-center gap-4 rounded-sm border border-dashed border-edge px-6 py-16 text-center">
-              <p className="text-bone/80">길드 홀이 텅 비어 있다.</p>
+              <p className="text-bone/80">길드 홀에 기다리는 용병이 없다.</p>
               <p className="text-sm text-ash">게시판에 모집 공고를 붙이면 떠돌이 용병들이 모여든다.</p>
               <Button variant="ember" onClick={onRecruit} disabled={recruit.pending}>
                 {recruit.pending ? "용병들이 모여드는 중…" : "모집 공고 붙이기"}
               </Button>
             </div>
           )}
-          {mercs.map((merc) => {
+          {visitors.map((merc) => {
             const p = progress[merc.id];
             return (
               <article
                 key={merc.id}
-                className="animate-rise relative flex flex-col gap-4 rounded-sm border border-edge bg-panel p-4 hover:z-30 focus-within:z-30"
+                onClick={() => onInspect(merc.id)}
+                title="눌러서 능력치·스킬 보기"
+                className="animate-rise relative flex cursor-pointer flex-col gap-4 rounded-sm border border-edge bg-panel p-4 transition-colors hover:z-30 hover:border-ember/50 focus-within:z-30"
               >
                 <div className="flex gap-4">
                   <Portrait merc={merc} size="sm" />
                   <div className="flex min-w-0 flex-col">
                     <h2 className="text-lg font-bold">{merc.name}</h2>
                     <span className="text-xs text-ash">{merc.title}</span>
-                    <span
-                      className={`mt-2 w-fit rounded-sm px-2 py-0.5 text-[11px] ${
-                        p.hired ? "bg-moss/20 text-moss" : "bg-edge/40 text-ash"
-                      }`}
-                    >
-                      {p.hired ? "동행 중" : "고용 가능"}
-                    </span>
+                    <span className="mt-2 w-fit rounded-sm bg-edge/40 px-2 py-0.5 text-[11px] text-ash">고용 가능 · 눌러서 능력치·스킬 보기</span>
                   </div>
                 </div>
                 {merc.tags && (
@@ -166,18 +165,16 @@ export function GuildScreen({ mercs, progress, recruit, onRecruit, onTalk, onDis
                 {merc.impression && <p className="text-sm italic text-ember/80">{merc.impression}</p>}
                 <p className="flex-1 text-sm leading-relaxed text-bone/80">{merc.background}</p>
                 <MercStats affinity={p.affinity} willingness={p.willingness} />
-                <p className="text-[11px] text-ash">
-                  {p.hired ? `보수: 원정마다 ${CURRENCY} ${p.wage ?? wageOf(merc)}` : `요구 보수: 원정마다 ${CURRENCY} ${wageOf(merc)}`}
-                </p>
-                {p.hired ? (
-                  <Button variant="danger" onClick={() => onDismiss(merc.id)}>
-                    계약 해지
-                  </Button>
-                ) : (
-                  <Button variant="ember" onClick={() => onTalk(merc.id)}>
-                    말을 건다
-                  </Button>
-                )}
+                <p className="text-[11px] text-ash">요구 보수: 원정마다 {CURRENCY} {wageOf(merc)}</p>
+                <Button
+                  variant="ember"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTalk(merc.id);
+                  }}
+                >
+                  말을 건다
+                </Button>
               </article>
             );
           })}

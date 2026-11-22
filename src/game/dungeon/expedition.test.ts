@@ -697,3 +697,17 @@ describe("1층 첫 칸", () => {
     expect(rest).toBeGreaterThan(0);
   });
 });
+
+describe("장신구: 마지막 숨결 (원정 동안 이어진다)", () => {
+  it("전투에서 쓴 횟수가 원정에 남고, 다음 전투에서는 그만큼 빠진다", () => {
+    const withBreath = mercs.map((m) => (m.id === varn.id ? { ...m, gear: { lastBreath: 2 } } : m));
+    const exp = startExpedition(withBreath, 1);
+    const b = battleFor(exp, withBreath, 1);
+    const unit = b.units.find((u) => u.id === varn.id)!;
+    expect(unit.breath).toBe(2);
+    const used = { ...b, outcome: "victory" as const, units: b.units.map((u) => (u.id === varn.id ? { ...u, breath: 1, fx: { ...u.fx, breathUsed: 1 } } : u)) };
+    const after = finishBattle(exp, used);
+    expect(after.members.find((m) => m.id === varn.id)!.breathUsed).toBe(1);
+    expect(battleFor(after, withBreath, 2).units.find((u) => u.id === varn.id)!.breath).toBe(1);
+  });
+});

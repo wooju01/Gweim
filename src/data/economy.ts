@@ -48,7 +48,7 @@ export const GOAL_GOLD = 40;
 export const FIRST_FLOOR_GOLD = 1.25;
 
 /**
- * 귀환길 습격 (밸런스 2차): 목적지에 닿기 전에 맵에서 후퇴하면 마을로 가기 전에 한 번 판정한다.
+ * 귀환길 습격 (밸런스 2차, 3차에서 확률 조정): 목적지에 닿기 전에 맵에서 후퇴하면 마을로 가기 전에 한 번 판정한다.
  * 후퇴한 층 기준 확률 (1층부터), 그 층 일반 몬스터 [최소, 최대]마리
  */
-export const RETREAT_AMBUSH = { chance: [0.1, 0.2, 0.3, 0.4], size: [2, 3] as const };
+export const RETREAT_AMBUSH = { chance: [0.05, 0.15, 0.15, 0.15], size: [2, 3] as const };
